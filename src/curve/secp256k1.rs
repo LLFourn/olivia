@@ -115,8 +115,8 @@ mod diesel_impl {
             let mut x_only_bytes = [0u8; 32];
             x_only_bytes.copy_from_slice(&bytes[..]);
             let x_only = XOnly::from_bytes(x_only_bytes).ok_or(format!(
-                "Invalid SECP256k1 x-coordinate: {}",
-                hex::encode(bytes)
+                "Invalid secp256k1 x-coordinate: {}",
+                crate::util::to_hex(bytes.as_ref()),
             ))?;
             Ok(Self(x_only))
         }
@@ -130,8 +130,8 @@ mod diesel_impl {
             let bytes = <Vec<u8> as FromSql<sql_types::Binary, DB>>::from_sql(bytes)?;
             let scalar = Scalar::from_slice(&bytes[..])
                 .ok_or(format!(
-                    "Invalid secp256k1 scalar retrieved from database: {:?}",
-                    bytes
+                    "Invalid secp256k1 scalar retrieved from database: {}",
+                    crate::util::to_hex(bytes.as_ref())
                 ))?
                 .mark::<Public>();
             Ok(Self(scalar))

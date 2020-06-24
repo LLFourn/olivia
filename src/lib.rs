@@ -11,6 +11,7 @@ pub mod keychain;
 mod macros;
 pub mod rest_api;
 pub mod sources;
+mod util;
 
 #[macro_use]
 extern crate slog;
