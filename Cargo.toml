@@ -1,0 +1,37 @@
+[package]
+name = "olivia"
+version = "0.1.0"
+authors = ["LLFourn <lloyd.fourn@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+warp = "0.2"
+curve25519-dalek = { version = "2", features = ["serde"] }
+sha2 = "0.8"
+blake2 = "0.8"
+digest = "0.8"
+diesel = { version = "1.4", features = ["postgres", "serde_json", "chrono" ] }
+chrono = { version = "0.4", features = ["serde"] }
+redis  = "0.11"
+crypto-mac = "0.7.0"
+serde = "1"
+slog = "2"
+slog-term = "2"
+slog-async = "2"
+serde_derive = "1"
+serde_json = "1"
+regex = "1"
+lazy_static = "1"
+tokio = { version = "0.2.13", features = ["full"] }
+futures = "0.3"
+schnorr_fun = { git = "https://github.com/llfourn/secp256kfun",  rev = "e8077ff", features = ["serialize_hex"] }
+hex = { version = "0.4" }
+async-trait = "0.1"
+toml = "0.5"
+diesel_migrations = "1.4"
+structopt = "0.3"
+
+[dev-dependencies]
+rand = "0.7"
+testcontainers = { git = "https://github.com/llfourn/testcontainers-rs" }
+tempfile = "3"

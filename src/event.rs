@@ -1,0 +1,196 @@
+use crate::curve::{ed25519, secp256k1};
+use chrono::NaiveDateTime;
+use diesel::sql_types::Jsonb;
+use serde::de;
+use std::fmt;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Party {
+    id: String,
+    name: String,
+    logo: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow)]
+#[sql_type = "Jsonb"]
+#[serde(tag = "type")]
+#[serde(rename_all = "kebab-case")]
+pub enum EventKind {
+    VsMatch { one: Party, two: Party },
+    SingleOccurrence,
+    CoinToss { n: u32 },
+}
+
+lazy_static! {
+    static ref EVENT_ID_RE: regex::Regex =
+        regex::Regex::new(r"^[a-z][0-9a-z-]*(/[0-9a-z-]+)+").unwrap();
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Hash, Eq)]
+pub struct EventId(String);
+
+impl From<String> for EventId {
+    fn from(from: String) -> Self {
+        EventId(from)
+    }
+}
+
+impl From<EventId> for String {
+    fn from(id: EventId) -> Self {
+        id.0
+    }
+}
+
+impl AsRef<str> for EventId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for EventId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl EventId {
+    pub fn path(&self) -> Vec<String> {
+        self.0.split('/').map(String::from).collect()
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl<'de> de::Deserialize<'de> for EventId {
+    fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<EventId, D::Error> {
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = EventId;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("A valid event_id")
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<EventId, E> {
+                if EVENT_ID_RE.is_match(v) {
+                    Ok(EventId(v.to_string()))
+                } else {
+                    Err(E::custom(format!("'{}' is not a valid event_id", v)))
+                }
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Event {
+    pub id: EventId,
+    pub human_url: Option<String>,
+    pub kind: EventKind,
+    pub expected_outcome_time: NaiveDateTime,
+}
+
+impl Event {
+    pub fn outcomes(&self) -> Vec<String> {
+        use EventKind::*;
+        match self.kind {
+            VsMatch { ref one, ref two } => {
+                vec![format!("{}-WIN", one.id), format!("{}-WIN", two.id)]
+            }
+            SingleOccurrence => vec!["OCCURRED".to_string()],
+            CoinToss { n } => (0..n).into_iter().map(|x| x.to_string()).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Outcome {
+    pub event_id: EventId,
+    pub outcome: String,
+    pub time: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Attestation {
+    pub outcome: String,
+    pub time: NaiveDateTime,
+    pub scalars: Scalars,
+}
+
+impl Attestation {
+    pub fn new(outcome: String, mut time: NaiveDateTime, scalars: Scalars) -> Self {
+        use chrono::Timelike;
+        time = time.with_nanosecond(0).expect("0 is valid");
+        Attestation {
+            outcome,
+            time,
+            scalars,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Scalars {
+    pub ed25519: ed25519::SchnorrScalar,
+    pub secp256k1: secp256k1::SchnorrScalar,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Nonce {
+    pub ed25519: ed25519::PublicKey,
+    pub secp256k1: secp256k1::PublicKey,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ObservedEvent {
+    pub event: Event,
+    pub nonce: Nonce,
+    pub attestation: Option<Attestation>,
+}
+
+mod sql_impls {
+    use super::*;
+    use diesel::{
+        deserialize::{self, FromSql},
+        pg::Pg,
+        serialize::{self, Output, ToSql},
+        sql_types,
+    };
+    use std::io::prelude::*;
+
+    impl ToSql<sql_types::Jsonb, Pg> for EventKind {
+        fn to_sql<W: Write>(&self, out: &mut Output<W, Pg>) -> serialize::Result {
+            let json_value = &serde_json::to_value(self)?;
+            ToSql::<sql_types::Jsonb, Pg>::to_sql(json_value, out)
+        }
+    }
+
+    impl FromSql<sql_types::Jsonb, Pg> for EventKind {
+        fn from_sql(bytes: Option<&[u8]>) -> deserialize::Result<Self> {
+            let json_value = FromSql::<sql_types::Jsonb, Pg>::from_sql(bytes)?;
+            serde_json::value::from_value::<EventKind>(json_value).map_err(Into::into)
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn event_id_deserialization() {
+        assert!(serde_json::from_str::<EventId>(r#""/foo/bar""#).is_err());
+        assert!(serde_json::from_str::<EventId>(r#""/foo/bar/""#).is_err());
+        assert!(serde_json::from_str::<EventId>(r#""foo/""#).is_err());
+        assert!(serde_json::from_str::<EventId>(r#""foo""#).is_err());
+
+        assert!(serde_json::from_str::<EventId>(r#""foo/bar""#).is_ok());
+        assert!(serde_json::from_str::<EventId>(r#""foo/bar/baz52""#).is_ok());
+        assert!(serde_json::from_str::<EventId>(r#""foo/23/52""#).is_ok());
+    }
+}
