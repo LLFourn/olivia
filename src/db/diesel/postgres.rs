@@ -194,7 +194,7 @@ impl db::DbMeta for PgBackend {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "docker_tests"))]
 mod test {
     use super::*;
     use testcontainers::{clients, images, Docker};
