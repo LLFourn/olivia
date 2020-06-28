@@ -67,7 +67,7 @@ mod test {
             };
             ObservedEvent {
                 event: event.clone(),
-                nonce: KeyChain::new(TEST_SEED).nonces_for_event(&event.id),
+                nonce: KeyChain::new(TEST_SEED).nonces_for_event(&event.id).into(),
                 attestation: Some(Attestation::test_new(id, &event.outcomes()[0])),
             }
         }
@@ -75,7 +75,7 @@ mod test {
 
     impl From<Event> for ObservedEvent {
         fn from(event: Event) -> Self {
-            let nonce = KeyChain::new(TEST_SEED).nonces_for_event(&event.id);
+            let nonce = KeyChain::new(TEST_SEED).nonces_for_event(&event.id).into();
             ObservedEvent {
                 event,
                 nonce,
