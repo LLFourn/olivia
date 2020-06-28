@@ -23,6 +23,7 @@ lazy_static::lazy_static! {
     static ref SCHNORR: Schnorr = Schnorr::from_tag(b"oracle");
 }
 
+#[derive(Debug, Clone)]
 pub struct KeyPair {
     pub secret_key: Scalar,
     pub public_key: PublicKey,

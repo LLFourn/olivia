@@ -30,9 +30,9 @@ impl KeyChain {
         }
     }
 
-    pub fn nonces_for_event(&self, event_id: &EventId) -> Nonce {
+    pub fn nonces_for_event(&self, event_id: &EventId) -> NonceKeyPairs {
         let event_idx = self.event_seed.child(event_id.as_bytes());
-        Nonce {
+        NonceKeyPairs {
             ed25519: Ed25519::derive_nonce_keypair(&event_idx).into(),
             secp256k1: Secp256k1::derive_nonce_keypair(&event_idx).into(),
         }
@@ -57,6 +57,21 @@ impl KeyChain {
         Scalars {
             ed25519: ed25519_s,
             secp256k1: secp256k1_s,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NonceKeyPairs {
+    pub ed25519: ed25519::KeyPair,
+    pub secp256k1: secp256k1::KeyPair,
+}
+
+impl From<NonceKeyPairs> for Nonce {
+    fn from(kp: NonceKeyPairs) -> Self {
+        Nonce {
+            ed25519: kp.ed25519.into(),
+            secp256k1: kp.secp256k1.into(),
         }
     }
 }

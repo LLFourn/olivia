@@ -5,6 +5,7 @@ pub mod event;
 pub mod oracle;
 pub mod seed;
 pub use crate::oracle::Oracle;
+pub mod cli;
 pub mod config;
 pub mod curve;
 pub mod keychain;

@@ -99,12 +99,12 @@ impl Oracle {
             }
             Ok(Some(ObservedEvent { .. })) => unimplemented!("havent implemented updating yet"),
             Ok(None) => {
-                let nonce = self.keychain.nonces_for_event(&new_event.id);
+                let public_nonces = self.keychain.nonces_for_event(&new_event.id).into();
                 let insert_result = self
                     .db
                     .insert_event(ObservedEvent {
                         event: new_event,
-                        nonce,
+                        nonce: public_nonces,
                         attestation: None,
                     })
                     .await;
