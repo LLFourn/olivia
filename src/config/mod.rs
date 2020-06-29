@@ -86,6 +86,9 @@ pub enum LoggerConfig {
         #[serde(default)]
         color: Option<bool>,
     },
+    File {
+        path: String,
+    },
 }
 
 #[derive(Debug, Deserialize, Clone)]

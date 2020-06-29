@@ -908,7 +908,7 @@ dependencies = [
  "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "redis 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex 1.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
- "schnorr_fun 0.1.0 (git+https://github.com/llfourn/secp256kfun?rev=e8077ff)",
+ "schnorr_fun 0.1.0 (git+https://github.com/llfourn/secp256kfun?rev=453899b)",
  "serde 1.0.114 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.114 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.55 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1346,11 +1346,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "schnorr_fun"
 version = "0.1.0"
-source = "git+https://github.com/llfourn/secp256kfun?rev=e8077ff#e8077ff85d160e3b54d32292be787761a9b5fdda"
+source = "git+https://github.com/llfourn/secp256kfun?rev=453899b#453899b8e8ced1ae890393e09fac171e54eaf517"
 dependencies = [
  "digest 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_core 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "secp256kfun 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "secp256kfun 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.114 (registry+https://github.com/rust-lang/crates.io-index)",
  "sha2 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1372,7 +1372,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "secp256kfun"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "digest 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2221,11 +2221,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum rustc_version 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
 "checksum ryu 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)" = "71d301d4193d031abdd79ff7e3dd721168a9572ef3fe51a1517aba235bd8f86e"
 "checksum safemem 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "ef703b7cb59335eae2eb93ceb664c0eb7ea6bf567079d843e09420219668e072"
-"checksum schnorr_fun 0.1.0 (git+https://github.com/llfourn/secp256kfun?rev=e8077ff)" = "<none>"
+"checksum schnorr_fun 0.1.0 (git+https://github.com/llfourn/secp256kfun?rev=453899b)" = "<none>"
 "checksum scoped-tls 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "332ffa32bf586782a3efaeb58f127980944bbc8c4d6913a86107ac2a5ab24b28"
 "checksum scoped-tls 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ea6a9290e3c9cf0f18145ef7ffa62d68ee0bf5fcd651017e586dc7fd5da448c2"
 "checksum scopeguard 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
-"checksum secp256kfun 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "6043ccdfa0b438f34304681dea27699b6b19f7d56bf9e9856820fb2040415b34"
+"checksum secp256kfun 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "eb871b722ca566251427b8d5fe9be46d7002f9b13c3907a6b5e5033d740fe92f"
 "checksum secp256kfun_parity_backend 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "dce119dac489556d5715b9f07a02a926573ac50d7e9eb30c8164fe223ee9ef52"
 "checksum semver 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "1d7eb9ef2c18661902cc47e535f9bc51b78acd254da71d375c2f6720d9a40403"
 "checksum semver-parser 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"

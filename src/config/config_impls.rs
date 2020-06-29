@@ -3,10 +3,11 @@ use super::{
 };
 use crate::{db, event, sources};
 use futures::{Stream, StreamExt};
+use std::fs;
 use std::sync::Arc;
 
 impl LoggerConfig {
-    pub fn to_slog_drain(&self) -> RootDrain {
+    pub fn to_slog_drain(&self) -> Result<RootDrain, Box<dyn std::error::Error>> {
         use crate::slog::Drain;
         use LoggerConfig::*;
         match self {
@@ -20,7 +21,7 @@ impl LoggerConfig {
                     }
                 }
                 let drain = slog_term::FullFormat::new(decorator.build()).build().fuse();
-                Box::new(slog_async::Async::new(drain).build().fuse())
+                Ok(Box::new(slog_async::Async::new(drain).build().fuse()))
             }
             Stderr { color } => {
                 let mut decorator = slog_term::TermDecorator::new().stderr();
@@ -32,22 +33,37 @@ impl LoggerConfig {
                     }
                 }
                 let drain = slog_term::FullFormat::new(decorator.build()).build().fuse();
-                Box::new(slog_async::Async::new(drain).build().fuse())
+                Ok(Box::new(slog_async::Async::new(drain).build().fuse()))
+            }
+            File { path } => {
+                let open_file = fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .append(true)
+                    .open(path)?;
+
+                let decorator = slog_term::PlainDecorator::new(open_file);
+                let drain = slog_term::FullFormat::new(decorator).build().fuse();
+                Ok(Box::new(slog_async::Async::new(drain).build().fuse()))
             }
         }
     }
 }
 
 impl LoggersConfig {
-    pub fn to_slog_drain(&self) -> RootDrain {
-        self.drains
+    pub fn to_slog_drain(&self) -> Result<RootDrain, Box<dyn std::error::Error>> {
+        let drains = self
+            .drains
             .values()
+            .map(|drain| drain.to_slog_drain())
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // merge the drains into a single drain
+        Ok(drains
+            .into_iter()
             .fold(Box::new(slog::Discard) as RootDrain, |acc, drain| {
-                Box::new(slog::IgnoreResult::new(slog::Duplicate::new(
-                    acc,
-                    drain.to_slog_drain(),
-                )))
-            })
+                Box::new(slog::IgnoreResult::new(slog::Duplicate::new(acc, drain)))
+            }))
     }
 }
 

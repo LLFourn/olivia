@@ -11,7 +11,7 @@ use std::sync::Arc;
 pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let mut rt = tokio::runtime::Runtime::new()?;
 
-    let logger = slog::Logger::root(config.loggers.to_slog_drain(), o!());
+    let logger = slog::Logger::root(config.loggers.to_slog_drain()?, o!());
     let db: Arc<dyn Db> = match config.database {
         DbConfig::InMemory => Arc::new(db::in_memory::InMemory::default()),
         DbConfig::Postgres { url } => Arc::new(PgBackend::connect(&url)?),
