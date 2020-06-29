@@ -24,7 +24,7 @@ regex = "1"
 lazy_static = "1"
 tokio = { version = "0.2.13", features = ["full"] }
 futures = "0.3"
-schnorr_fun = { git = "https://github.com/llfourn/secp256kfun",  rev = "e8077ff", features = ["serialize_hex"] }
+schnorr_fun = { git = "https://github.com/llfourn/secp256kfun",  rev = "453899b", features = ["serialize_hex"] }
 async-trait = "0.1"
 toml = "0.5"
 diesel_migrations = "1.4"
