@@ -12,7 +12,7 @@ blake2 = "0.8"
 digest = "0.8"
 diesel = { version = "1.4", features = ["postgres", "serde_json", "chrono" ] }
 chrono = { version = "0.4", features = ["serde"] }
-redis  = "0.11"
+redis  = { version = "0.16", default-features = false }
 crypto-mac = "0.7.0"
 serde = "1"
 slog = "2"
