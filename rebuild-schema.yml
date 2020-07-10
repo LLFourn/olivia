@@ -1,0 +1,16 @@
+version: "3.7"
+services:
+  dummypostgres:
+    image: postgres
+    environment:
+      - "POSTGRES_HOST_AUTH_METHOD=trust"
+
+  diesel_cli:
+    image: clux/diesel-cli
+    working_dir: /olivia
+    depends_on:
+      - "dummypostgres"
+    environment:
+      - "DATABASE_URL=postgres://postgres@dummypostgres/olivia"
+    volumes:
+      - .:/olivia

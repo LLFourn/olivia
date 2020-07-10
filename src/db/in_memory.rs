@@ -1,6 +1,6 @@
 use crate::{
     db::*,
-    event::{Attestation, Event, EventId, ObservedEvent},
+    event::{Attestation, Event, EventId, ObservedEvent, PathRef},
     oracle,
 };
 use async_trait::async_trait;
@@ -17,6 +17,48 @@ impl DbRead for InMemory {
     async fn get_event(&self, id: &EventId) -> Result<Option<ObservedEvent>, crate::db::Error> {
         let db = &*self.inner.read().unwrap();
         Ok(db.get(&id).map(Clone::clone))
+    }
+
+    async fn get_path(&self, path: PathRef<'_>) -> Result<Option<Item>, Error> {
+        let path = path.as_str();
+        let db = &*self.inner.read().unwrap();
+        let mut children: Vec<String> = {
+            let path = if path.is_empty() {
+                "".to_string()
+            } else {
+                format!("{}/", &path)
+            };
+
+            db.keys()
+                .into_iter()
+                .filter_map(|key| {
+                    let id = key.as_str();
+                    if id.starts_with(&path) && id.len() > path.len() {
+                        let end = id[path.len()..]
+                            .find('/')
+                            .map(|end| end + path.len())
+                            .unwrap_or(id.len());
+                        Some(id[..end].to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+
+        children.sort();
+        children.dedup();
+
+        let event = db.get(&EventId::from(path.to_string())).map(Clone::clone);
+
+        if event.is_none() && children.len() == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(Item {
+                event,
+                children: children.into_iter().collect(),
+            }))
+        }
     }
 }
 

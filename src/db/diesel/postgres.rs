@@ -1,14 +1,15 @@
 use super::{
     schema::{self, attestations, nonces},
-    Attestation, Event, MetaRow, ObservedEvent,
+    Attestation, Event, MetaRow, Node, ObservedEvent,
 };
 use crate::{
     db,
-    event::{self, EventId},
+    event::{self, EventId, Path, PathRef},
     oracle,
     oracle::OraclePubkeys,
 };
 use async_trait::async_trait;
+use diesel::ExpressionMethods;
 use diesel::{
     associations::HasTable, pg::PgConnection, result::Error as DieselError, Connection, Insertable,
     QueryDsl, RunQueryDsl,
@@ -66,12 +67,75 @@ impl crate::db::DbRead for PgBackend {
         })
         .await?
     }
+    async fn get_path(&self, path: PathRef<'_>) -> Result<Option<db::Item>, db::Error> {
+        let path: Path = path.into();
+        let event_id: EventId = path.clone().into();
+
+        let event = match path.is_root() {
+            true => None,
+            false => self.get_event(&event_id).await?,
+        };
+
+        let db_mutex = self.conn.clone();
+        tokio::task::spawn_blocking(move || {
+            let db = &*db_mutex.lock().unwrap();
+            let mut children = vec![];
+
+            if !path.is_root() {
+                use schema::events::dsl::*;
+                let event_children = events::table()
+                    .filter(parent.eq(path.as_str()))
+                    .select(id)
+                    // HACK: limit events until we have a way of describing children without listing them all
+                    .limit(100)
+                    .get_results(db)?;
+
+                children.extend(event_children);
+            }
+
+            let child_nodes = {
+                use schema::tree::dsl::*;
+
+                match path.is_root() {
+                    true => tree::table()
+                        .filter(parent.is_null())
+                        .select(id)
+                        .get_results(db)?,
+                    false => tree::table()
+                        .filter(parent.eq(path.as_str()))
+                        .select(id)
+                        .get_results(db)?,
+                }
+            };
+
+            children.extend(child_nodes);
+
+            if event.is_none() && children.len() == 0 {
+                Ok(None)
+            } else {
+                Ok(Some(db::Item { children, event }))
+            }
+        })
+        .await?
+    }
 }
 
 #[async_trait]
 impl crate::db::DbWrite for PgBackend {
     async fn insert_event(&self, obs_event: event::ObservedEvent) -> Result<(), db::Error> {
+        let parent = obs_event.event.id.parent();
+        let parents = std::iter::successors(Some(parent), |parent| (*parent).parent());
+        let nodes = parents
+            .clone()
+            .zip(parents.skip(1).map(Some).chain(std::iter::once(None)))
+            .map(|(child, parent)| Node {
+                id: child.as_str().into(),
+                parent: parent.map(|parent| parent.as_str().into()),
+            })
+            .collect::<Vec<Node>>();
+
         let db_mutex = self.conn.clone();
+
         tokio::task::spawn_blocking(move || {
             let db = &mut *db_mutex.lock().unwrap();
             db.transaction(|| {
@@ -80,7 +144,12 @@ impl crate::db::DbWrite for PgBackend {
                     nonce,
                     attestation,
                 } = obs_event.into();
-                use schema::{attestations::dsl::*, events::dsl::*, nonces::dsl::*};
+                use schema::{attestations::dsl::*, events::dsl::*, nonces::dsl::*, tree::dsl::*};
+
+                nodes
+                    .insert_into(tree::table())
+                    .on_conflict_do_nothing()
+                    .execute(db)?;
                 event.insert_into(events::table()).execute(db)?;
                 nonce.insert_into(nonces::table()).execute(db)?;
 
@@ -118,12 +187,12 @@ impl crate::db::TimeTickerDb for PgBackend {
         let db_mutex = self.conn.clone();
 
         tokio::task::spawn_blocking(move || {
-            use diesel::{dsl::sql, ExpressionMethods};
+            use diesel::ExpressionMethods;
             use schema::events::dsl::*;
             let db = &*db_mutex.lock().unwrap();
 
             let event = events::table()
-                .filter(sql("path[1] = 'time'"))
+                .filter(parent.eq("time"))
                 .order(expected_outcome_time.desc())
                 .first::<Event>(db);
 
@@ -142,11 +211,11 @@ impl crate::db::TimeTickerDb for PgBackend {
 
         tokio::task::spawn_blocking(move || {
             let db = &*db_mutex.lock().unwrap();
-            use diesel::{dsl::sql, ExpressionMethods, Table};
+            use diesel::{ExpressionMethods, Table};
             use schema::{attestations::columns::event_id, events::dsl::*};
 
             let event = events::table()
-                .filter(sql("path[1] = 'time'"))
+                .filter(parent.eq("time"))
                 .left_outer_join(attestations::table)
                 .filter(event_id.is_null())
                 .order(expected_outcome_time.asc())

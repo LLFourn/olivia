@@ -3,7 +3,7 @@ use crate::{
     oracle,
 };
 use diesel::Insertable;
-use schema::{attestations, events, meta, nonces};
+use schema::{attestations, events, meta, nonces, tree};
 use std::convert::TryFrom;
 
 pub mod postgres;
@@ -13,10 +13,17 @@ pub mod schema;
 #[table_name = "events"]
 struct Event {
     id: String,
-    path: Vec<String>,
+    parent: String,
     human_url: Option<String>,
     kind: event::EventKind,
     expected_outcome_time: chrono::NaiveDateTime,
+}
+
+#[derive(Identifiable, QueryableByName, Queryable, Debug, Insertable, Clone, PartialEq)]
+#[table_name = "tree"]
+struct Node {
+    pub id: String,
+    pub parent: Option<String>,
 }
 
 impl From<Event> for event::Event {
@@ -33,7 +40,7 @@ impl From<Event> for event::Event {
 impl From<event::Event> for Event {
     fn from(event: event::Event) -> Self {
         Event {
-            path: event.id.path(),
+            parent: event.id.parent().as_str().to_owned(),
             id: event.id.into(),
             human_url: event.human_url,
             kind: event.kind,

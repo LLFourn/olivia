@@ -29,9 +29,91 @@ lazy_static! {
 #[derive(Clone, Debug, Serialize, PartialEq, Hash, Eq)]
 pub struct EventId(String);
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Path(String);
+
+impl Path {
+    pub fn as_ref(&self) -> PathRef<'_> {
+        PathRef(self.0.as_str())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn parent(&self) -> Option<PathRef<'_>> {
+        self.as_ref().parent()
+    }
+
+    pub fn is_root(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn root() -> Self {
+        Path("".to_string())
+    }
+}
+
+impl PartialEq<&str> for Path {
+    fn eq(&self, rhs: &&str) -> bool {
+        self.0 == *rhs
+    }
+}
+
+impl PartialEq<Path> for &str {
+    fn eq(&self, rhs: &Path) -> bool {
+        *self == rhs.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PathRef<'a>(&'a str);
+
+impl<'a> PathRef<'a> {
+    pub fn parent(self) -> Option<PathRef<'a>> {
+        self.0.rfind('/').map(|at| PathRef(&self.0[..at]))
+    }
+
+    pub fn as_str(self) -> &'a str {
+        self.0
+    }
+
+    pub fn root() -> Self {
+        PathRef("")
+    }
+
+    pub fn is_root(&self) -> bool {
+        *self == Self::root()
+    }
+}
+
+impl From<PathRef<'_>> for Path {
+    fn from(path: PathRef<'_>) -> Self {
+        Self(path.0.to_string())
+    }
+}
+
+impl<'a> From<&'a str> for PathRef<'a> {
+    fn from(s: &'a str) -> Self {
+        PathRef(s)
+    }
+}
+
+impl From<String> for Path {
+    fn from(from: String) -> Self {
+        Path(from)
+    }
+}
+
 impl From<String> for EventId {
     fn from(from: String) -> Self {
         EventId(from)
+    }
+}
+
+impl From<Path> for EventId {
+    fn from(path: Path) -> Self {
+        EventId::from(path.0)
     }
 }
 
@@ -54,8 +136,15 @@ impl fmt::Display for EventId {
 }
 
 impl EventId {
-    pub fn path(&self) -> Vec<String> {
-        self.0.split('/').map(String::from).collect()
+    pub fn parent(&self) -> PathRef<'_> {
+        self.as_path().parent().unwrap()
+    }
+    pub fn as_path(&self) -> PathRef<'_> {
+        PathRef(&self.0)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -90,6 +179,7 @@ impl<'de> de::Deserialize<'de> for EventId {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Event {
     pub id: EventId,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub human_url: Option<String>,
     pub kind: EventKind,
     pub expected_outcome_time: NaiveDateTime,
@@ -192,5 +282,33 @@ mod test {
         assert!(serde_json::from_str::<EventId>(r#""foo/bar""#).is_ok());
         assert!(serde_json::from_str::<EventId>(r#""foo/bar/baz52""#).is_ok());
         assert!(serde_json::from_str::<EventId>(r#""foo/23/52""#).is_ok());
+    }
+
+    #[test]
+    fn event_id_parent() {
+        let event_id = EventId::from("one/two/three".to_string());
+        assert_eq!(event_id.as_path().as_str(), "one/two/three");
+        assert_eq!(event_id.parent(), event_id.as_path().parent().unwrap());
+        assert_eq!(event_id.as_path().parent().unwrap().as_str(), "one/two");
+        assert_eq!(
+            event_id
+                .as_path()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .as_str(),
+            "one",
+        );
+        assert_eq!(
+            event_id
+                .as_path()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .parent(),
+            None
+        );
     }
 }
