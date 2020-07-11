@@ -1,6 +1,6 @@
 use super::{
     schema::{self, attestations, nonces},
-    Attestation, Event, MetaRow, Node, ObservedEvent,
+    Attestation, Child, Event, MetaRow, Node, ObservedEvent,
 };
 use crate::{
     db,
@@ -11,8 +11,8 @@ use crate::{
 use async_trait::async_trait;
 use diesel::ExpressionMethods;
 use diesel::{
-    associations::HasTable, pg::PgConnection, result::Error as DieselError, Connection, Insertable,
-    QueryDsl, RunQueryDsl,
+    associations::HasTable, pg::PgConnection, result::Error as DieselError, sql_types::Text,
+    Connection, Insertable, QueryDsl, RunQueryDsl,
 };
 use std::{
     convert::TryInto,
@@ -79,36 +79,26 @@ impl crate::db::DbRead for PgBackend {
         let db_mutex = self.conn.clone();
         tokio::task::spawn_blocking(move || {
             let db = &*db_mutex.lock().unwrap();
-            let mut children = vec![];
 
-            if !path.is_root() {
-                use schema::events::dsl::*;
-                let event_children = events::table()
-                    .filter(parent.eq(path.as_str()))
-                    .select(id)
-                    // HACK: limit events until we have a way of describing children without listing them all
-                    .limit(100)
-                    .get_results(db)?;
-
-                children.extend(event_children);
-            }
-
-            let child_nodes = {
+            let children = if path.is_root() {
                 use schema::tree::dsl::*;
-
-                match path.is_root() {
-                    true => tree::table()
-                        .filter(parent.is_null())
-                        .select(id)
-                        .get_results(db)?,
-                    false => tree::table()
-                        .filter(parent.eq(path.as_str()))
-                        .select(id)
-                        .get_results(db)?,
-                }
+                tree::table()
+                    .filter(parent.is_null())
+                    .select(id)
+                    .get_results(db)?
+            } else {
+                diesel::sql_query(
+                    r#"SELECT COALESCE(events.id,tree.id) as id
+                         FROM events FULL OUTER JOIN tree ON tree.id = events.id
+                         WHERE (events.parent = $1 OR tree.parent = $2)"#,
+                )
+                .bind::<Text, _>(path.as_str())
+                .bind::<Text, _>(path.as_str())
+                .get_results::<Child>(db)?
+                .into_iter()
+                .map(|child| child.id)
+                .collect()
             };
-
-            children.extend(child_nodes);
 
             if event.is_none() && children.len() == 0 {
                 Ok(None)

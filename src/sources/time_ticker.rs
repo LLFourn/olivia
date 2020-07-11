@@ -132,7 +132,6 @@ impl From<NaiveDateTime> for Event {
         let id = time_to_id(dt);
         Event {
             id,
-            human_url: None,
             kind: EventKind::SingleOccurrence,
             expected_outcome_time: dt,
         }

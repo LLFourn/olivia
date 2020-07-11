@@ -11,7 +11,6 @@ CREATE table tree (
 CREATE TABLE events (
        id text NOT NULL PRIMARY KEY,
        parent text NOT NULL REFERENCES tree (id),
-       human_url text,
        kind jsonb NOT NULL,
        expected_outcome_time timestamp NOT NULL
 );

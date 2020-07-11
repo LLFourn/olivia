@@ -7,8 +7,6 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Party {
     id: String,
-    name: String,
-    logo: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow)]
@@ -23,7 +21,7 @@ pub enum EventKind {
 
 lazy_static! {
     static ref EVENT_ID_RE: regex::Regex =
-        regex::Regex::new(r"^[a-z][0-9a-z-]*(/[0-9a-z-]+)+").unwrap();
+        regex::Regex::new(r"^[a-zA-Z][0-9a-zA-Z-]*(/[0-9A-Za-z-]+)+").unwrap();
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Hash, Eq)]
@@ -179,8 +177,6 @@ impl<'de> de::Deserialize<'de> for EventId {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Event {
     pub id: EventId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub human_url: Option<String>,
     pub kind: EventKind,
     pub expected_outcome_time: NaiveDateTime,
 }

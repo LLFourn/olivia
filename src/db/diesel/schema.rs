@@ -12,7 +12,6 @@ table! {
     events (id) {
         id -> Text,
         parent -> Text,
-        human_url -> Nullable<Text>,
         kind -> Jsonb,
         expected_outcome_time -> Timestamp,
     }
@@ -36,7 +35,7 @@ table! {
 table! {
     tree (id) {
         id -> Text,
-        parent -> Text,
+        parent -> Nullable<Text>,
     }
 }
 

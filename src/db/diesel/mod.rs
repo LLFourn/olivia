@@ -2,7 +2,7 @@ use crate::{
     event::{self, EventId, Scalars},
     oracle,
 };
-use diesel::Insertable;
+use diesel::{sql_types::Text, Insertable};
 use schema::{attestations, events, meta, nonces, tree};
 use std::convert::TryFrom;
 
@@ -14,9 +14,14 @@ pub mod schema;
 struct Event {
     id: String,
     parent: String,
-    human_url: Option<String>,
     kind: event::EventKind,
     expected_outcome_time: chrono::NaiveDateTime,
+}
+
+#[derive(Debug, Clone, QueryableByName)]
+struct Child {
+    #[sql_type = "Text"]
+    pub id: String,
 }
 
 #[derive(Identifiable, QueryableByName, Queryable, Debug, Insertable, Clone, PartialEq)]
@@ -30,7 +35,6 @@ impl From<Event> for event::Event {
     fn from(event: Event) -> Self {
         event::Event {
             id: event.id.into(),
-            human_url: event.human_url,
             kind: event.kind,
             expected_outcome_time: event.expected_outcome_time,
         }
@@ -42,7 +46,6 @@ impl From<event::Event> for Event {
         Event {
             parent: event.id.parent().as_str().to_owned(),
             id: event.id.into(),
-            human_url: event.human_url,
             kind: event.kind,
             expected_outcome_time: event.expected_outcome_time,
         }
