@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut file = File::open(opt.config)?;
         let mut content = String::new();
         file.read_to_string(&mut content)?;
-        toml::from_str(&content)?
+        serde_yaml::from_str(&content)?
     };
 
     match opt.cmd {

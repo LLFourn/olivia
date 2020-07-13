@@ -53,8 +53,8 @@ impl LoggerConfig {
 impl LoggersConfig {
     pub fn to_slog_drain(&self) -> Result<RootDrain, Box<dyn std::error::Error>> {
         let drains = self
-            .drains
-            .values()
+            .0
+            .iter()
             .map(|drain| drain.to_slog_drain())
             .collect::<Result<Vec<_>, _>>()?;
 

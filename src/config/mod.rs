@@ -92,17 +92,11 @@ pub enum LoggerConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct LoggersConfig {
-    #[serde(flatten)]
-    pub drains: HashMap<String, LoggerConfig>,
-}
+pub struct LoggersConfig(Vec<LoggerConfig>);
 
 impl Default for LoggersConfig {
     fn default() -> Self {
-        let mut hash = HashMap::new();
-        // by default we log to stdout
-        hash.insert(String::from("stdout"), LoggerConfig::Stdout { color: None });
-        LoggersConfig { drains: hash }
+        LoggersConfig(vec![LoggerConfig::Stdout { color: None }])
     }
 }
 
