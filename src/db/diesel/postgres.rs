@@ -1,6 +1,6 @@
 use super::{
-    schema::{self, attestations, nonces},
-    Attestation, Child, Event, MetaRow, Node, ObservedEvent,
+    schema::{self, attestations, events, nonces, tree},
+    Attestation, Event, MetaRow, Node, ObservedEvent,
 };
 use crate::{
     db,
@@ -9,10 +9,9 @@ use crate::{
     oracle::OraclePubkeys,
 };
 use async_trait::async_trait;
-use diesel::ExpressionMethods;
 use diesel::{
-    associations::HasTable, pg::PgConnection, result::Error as DieselError, sql_types::Text,
-    Connection, Insertable, QueryDsl, RunQueryDsl,
+    associations::HasTable, pg::PgConnection, result::Error as DieselError, Connection,
+    ExpressionMethods, Insertable, JoinOnDsl, QueryDsl, RunQueryDsl,
 };
 use std::{
     convert::TryInto,
@@ -55,7 +54,7 @@ impl crate::db::DbRead for PgBackend {
             let db = &*db_mutex.lock().unwrap();
 
             let observed_event = events::table()
-                .find(event_id.as_ref())
+                .find(event_id.as_str())
                 .inner_join(nonces::table)
                 .left_outer_join(attestations::table)
                 .first::<ObservedEvent>(db);
@@ -67,43 +66,42 @@ impl crate::db::DbRead for PgBackend {
         })
         .await?
     }
-    async fn get_path(&self, path: PathRef<'_>) -> Result<Option<db::Item>, db::Error> {
-        let path: Path = path.into();
-        let event_id: EventId = path.clone().into();
-
-        let event = match path.is_root() {
-            true => None,
-            false => self.get_event(&event_id).await?,
-        };
-
+    async fn get_node(&self, node: PathRef<'_>) -> Result<Option<db::Item>, db::Error> {
+        let node: Path = node.into();
         let db_mutex = self.conn.clone();
         tokio::task::spawn_blocking(move || {
             let db = &*db_mutex.lock().unwrap();
 
-            let children = if path.is_root() {
+            let (children, events) = if node.as_ref().is_root() {
                 use schema::tree::dsl::*;
-                tree::table()
-                    .filter(parent.is_null())
-                    .select(id)
-                    .get_results(db)?
-            } else {
-                diesel::sql_query(
-                    r#"SELECT COALESCE(events.id,tree.id) as id
-                         FROM events FULL OUTER JOIN tree ON tree.id = events.id
-                         WHERE (events.parent = $1 OR tree.parent = $2)"#,
+                (
+                    tree::table()
+                        .filter(parent.is_null())
+                        .select(id)
+                        .get_results(db)?,
+                    vec![],
                 )
-                .bind::<Text, _>(path.as_str())
-                .bind::<Text, _>(path.as_str())
-                .get_results::<Child>(db)?
-                .into_iter()
-                .map(|child| child.id)
-                .collect()
+            } else {
+                let children = {
+                    tree::table
+                        .filter(tree::dsl::parent.eq(node.as_str()))
+                        .select(tree::dsl::id)
+                        .get_results(db)?
+                };
+
+                let events = {
+                    events::table
+                        .filter(events::dsl::node.eq(node.as_str()))
+                        .select(events::dsl::id)
+                        .get_results::<EventId>(db)?
+                };
+                (children, events)
             };
 
-            if event.is_none() && children.len() == 0 {
+            if events.is_empty() && children.is_empty() {
                 Ok(None)
             } else {
-                Ok(Some(db::Item { children, event }))
+                Ok(Some(db::Item { children, events }))
             }
         })
         .await?
@@ -113,8 +111,9 @@ impl crate::db::DbRead for PgBackend {
 #[async_trait]
 impl crate::db::DbWrite for PgBackend {
     async fn insert_event(&self, obs_event: event::ObservedEvent) -> Result<(), db::Error> {
-        let parent = obs_event.event.id.parent();
-        let parents = std::iter::successors(Some(parent), |parent| (*parent).parent());
+        let node = obs_event.event.id.node();
+        let parents = std::iter::successors(Some(node), |parent| (*parent).parent());
+
         let nodes = parents
             .clone()
             .zip(parents.skip(1).map(Some).chain(std::iter::once(None)))
@@ -177,13 +176,14 @@ impl crate::db::TimeTickerDb for PgBackend {
         let db_mutex = self.conn.clone();
 
         tokio::task::spawn_blocking(move || {
-            use diesel::ExpressionMethods;
-            use schema::events::dsl::*;
+            use schema::tree::dsl::*;
             let db = &*db_mutex.lock().unwrap();
 
-            let event = events::table()
+            let event = tree::table()
                 .filter(parent.eq("time"))
-                .order(expected_outcome_time.desc())
+                .inner_join(events::table)
+                .select(events::all_columns)
+                .order(events::dsl::expected_outcome_time.desc())
                 .first::<Event>(db);
 
             match event {
@@ -201,15 +201,14 @@ impl crate::db::TimeTickerDb for PgBackend {
 
         tokio::task::spawn_blocking(move || {
             let db = &*db_mutex.lock().unwrap();
-            use diesel::{ExpressionMethods, Table};
-            use schema::{attestations::columns::event_id, events::dsl::*};
-
-            let event = events::table()
+            use schema::{attestations::columns::event_id, tree::dsl::*};
+            let event = tree::table()
                 .filter(parent.eq("time"))
-                .left_outer_join(attestations::table)
+                .inner_join(events::table)
+                .left_outer_join(attestations::dsl::attestations.on(event_id.eq(events::dsl::id)))
                 .filter(event_id.is_null())
-                .order(expected_outcome_time.asc())
-                .select(events::all_columns())
+                .order(events::dsl::expected_outcome_time.asc())
+                .select(events::all_columns)
                 .first::<Event>(db);
 
             match event {
@@ -277,19 +276,20 @@ mod test {
     fn generic_test_postgres() {
         let docker = clients::Cli::default();
         let (db, _container) = new_backend!(docker);
-        crate::db::test::test_db(Arc::new(db));
+        crate::db::test::test_db(Arc::new(db).as_ref());
     }
 
     #[test]
     fn kill_postgres() {
+        use std::str::FromStr;
         let docker = clients::Cli::default();
         let (db, container) = new_backend!(docker);
         container.stop();
         let db: Arc<dyn crate::db::Db> = Arc::new(db);
         let mut rt = tokio::runtime::Runtime::new().unwrap();
-        let event = event::ObservedEvent::test_new(&EventId::from(
-            "/test/postgres/database_fail".to_string(),
-        ));
+        let event = event::ObservedEvent::test_new(
+            &EventId::from_str("test/postgres/database_fail.occur").unwrap(),
+        );
 
         let res = rt.block_on(db.insert_event(event.clone()));
 

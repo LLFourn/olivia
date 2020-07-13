@@ -2,7 +2,7 @@ use crate::{
     event::{self, EventId, Scalars},
     oracle,
 };
-use diesel::{sql_types::Text, Insertable};
+use diesel::Insertable;
 use schema::{attestations, events, meta, nonces, tree};
 use std::convert::TryFrom;
 
@@ -12,16 +12,9 @@ pub mod schema;
 #[derive(Identifiable, QueryableByName, Queryable, Debug, Insertable, Clone, PartialEq)]
 #[table_name = "events"]
 struct Event {
-    id: String,
-    parent: String,
-    kind: event::EventKind,
-    expected_outcome_time: chrono::NaiveDateTime,
-}
-
-#[derive(Debug, Clone, QueryableByName)]
-struct Child {
-    #[sql_type = "Text"]
-    pub id: String,
+    id: EventId,
+    node: String,
+    expected_outcome_time: Option<chrono::NaiveDateTime>,
 }
 
 #[derive(Identifiable, QueryableByName, Queryable, Debug, Insertable, Clone, PartialEq)]
@@ -35,7 +28,6 @@ impl From<Event> for event::Event {
     fn from(event: Event) -> Self {
         event::Event {
             id: event.id.into(),
-            kind: event.kind,
             expected_outcome_time: event.expected_outcome_time,
         }
     }
@@ -44,9 +36,8 @@ impl From<Event> for event::Event {
 impl From<event::Event> for Event {
     fn from(event: event::Event) -> Self {
         Event {
-            parent: event.id.parent().as_str().to_owned(),
+            node: event.id.node().as_str().into(),
             id: event.id.into(),
-            kind: event.kind,
             expected_outcome_time: event.expected_outcome_time,
         }
     }
@@ -171,11 +162,6 @@ impl From<event::ObservedEvent> for ObservedEvent {
         }
     }
 }
-
-// struct OraclePubkeys {
-//     pub ed25519: ed25519::PublicKey,
-//     pub secp256k1: secp256k1::PublicKey,
-// }
 
 #[derive(Identifiable, QueryableByName, Queryable, Debug, Insertable, Clone, PartialEq)]
 #[table_name = "meta"]

@@ -1,6 +1,6 @@
 use crate::{
     db::Db,
-    event::{Event, EventId, EventKind, Outcome},
+    event::{Event, EventId, Outcome},
     sources::Update,
 };
 use chrono::{Duration, NaiveDateTime};
@@ -31,7 +31,9 @@ pub fn time_events_stream(
 
             match db.latest_time_event().await {
                 Ok(Some(latest)) => {
-                    let latest = latest.expected_outcome_time;
+                    let latest = latest
+                        .expected_outcome_time
+                        .expect("time events always this");
                     // If the latest event we have in the DB is 19:36 and our interval is 1min
                     // then the next event we want is 19:37.
                     let next_event = latest + interval;
@@ -92,9 +94,12 @@ pub fn time_outcomes_stream(
             } {
                 time::delay_for(std::time::Duration::from_secs(1)).await
             }
-
             let event = event.unwrap();
-            delay_until(event.expected_outcome_time).await;
+            let event_complete_time = event
+                .expected_outcome_time
+                .expect("time events always have this");
+
+            delay_until(event_complete_time).await;
 
             let (sender, receiver) = oneshot::channel();
 
@@ -132,14 +137,13 @@ impl From<NaiveDateTime> for Event {
         let id = time_to_id(dt);
         Event {
             id,
-            kind: EventKind::SingleOccurrence,
-            expected_outcome_time: dt,
+            expected_outcome_time: Some(dt),
         }
     }
 }
 
 pub fn time_to_id(dt: NaiveDateTime) -> EventId {
-    EventId::from(format!("time/{}T{}", dt.date(), dt.time()))
+    EventId(format!("time/{}.occur", dt.format("%FT%T")))
 }
 
 async fn delay_until(until: NaiveDateTime) {
@@ -173,41 +177,41 @@ pub mod test {
                 let time = NaiveDateTime::from_str("2020-03-01T00:25:00").unwrap();
                 let mut obs_event = ObservedEvent::test_new(&time_to_id(time));
                 obs_event.attestation = None;
-                obs_event.event.expected_outcome_time = time;
+                obs_event.event.expected_outcome_time = Some(time);
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:30:00").unwrap();
                 let mut obs_event = ObservedEvent::test_new(&time_to_id(time));
                 obs_event.attestation = None;
-                obs_event.event.expected_outcome_time = time;
+                obs_event.event.expected_outcome_time = Some(time);
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:20:00").unwrap();
                 let mut obs_event = ObservedEvent::test_new(&time_to_id(time));
                 obs_event.attestation = None;
-                obs_event.event.expected_outcome_time = time;
+                obs_event.event.expected_outcome_time = Some(time);
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:10:00").unwrap();
                 let mut obs_event = ObservedEvent::test_new(&time_to_id(time));
-                obs_event.event.expected_outcome_time = time;
+                obs_event.event.expected_outcome_time = Some(time);
                 obs_event.attestation.as_mut().unwrap().time = time;
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:05:00").unwrap();
                 let mut obs_event = ObservedEvent::test_new(&time_to_id(time));
-                obs_event.event.expected_outcome_time = time;
+                obs_event.event.expected_outcome_time = Some(time);
                 obs_event.attestation.as_mut().unwrap().time = time;
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:15:00").unwrap();
                 let mut obs_event = ObservedEvent::test_new(&time_to_id(time));
-                obs_event.event.expected_outcome_time = time;
+                obs_event.event.expected_outcome_time = Some(time);
                 obs_event.attestation.as_mut().unwrap().time = time;
                 obs_event
             },
@@ -360,10 +364,7 @@ pub mod test {
             time_to_id(start),
             "outcome should be for the time that was inserted"
         );
-        assert_eq!(
-            &outcome.outcome, "OCCURRED",
-            "outcome string should be OCCURRED"
-        );
+        assert_eq!(&outcome.outcome, "true", "outcome string should be true");
         assert!(
             outcome.time >= start,
             "the time of the outcome should be greater than when it was scheduled"

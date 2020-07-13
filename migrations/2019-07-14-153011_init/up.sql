@@ -10,9 +10,8 @@ CREATE table tree (
 
 CREATE TABLE events (
        id text NOT NULL PRIMARY KEY,
-       parent text NOT NULL REFERENCES tree (id),
-       kind jsonb NOT NULL,
-       expected_outcome_time timestamp NOT NULL
+       node text NOT NULL REFERENCES tree (id),
+       expected_outcome_time timestamp
 );
 
 CREATE TABLE nonces (
@@ -28,6 +27,5 @@ CREATE TABLE attestations (
        ed25519 bytea NOT NULL,
        secp256k1 bytea NOT NULL
 );
-
 
 CREATE INDEX idx_expected_outcome_time ON events (expected_outcome_time DESC);

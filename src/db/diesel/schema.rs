@@ -11,9 +11,8 @@ table! {
 table! {
     events (id) {
         id -> Text,
-        parent -> Text,
-        kind -> Jsonb,
-        expected_outcome_time -> Timestamp,
+        node -> Text,
+        expected_outcome_time -> Nullable<Timestamp>,
     }
 }
 
@@ -40,13 +39,7 @@ table! {
 }
 
 joinable!(attestations -> events (event_id));
-joinable!(events -> tree (parent));
+joinable!(events -> tree (node));
 joinable!(nonces -> events (event_id));
 
-allow_tables_to_appear_in_same_query!(
-    attestations,
-    events,
-    meta,
-    nonces,
-    tree,
-);
+allow_tables_to_appear_in_same_query!(attestations, events, meta, nonces, tree,);

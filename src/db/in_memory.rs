@@ -19,26 +19,27 @@ impl DbRead for InMemory {
         Ok(db.get(&id).map(Clone::clone))
     }
 
-    async fn get_path(&self, path: PathRef<'_>) -> Result<Option<Item>, Error> {
-        let path = path.as_str();
+    async fn get_node(&self, node: PathRef<'_>) -> Result<Option<Item>, Error> {
+        let node = node.as_str();
         let db = &*self.inner.read().unwrap();
         let mut children: Vec<String> = {
-            let path = if path.is_empty() {
+            let path = if node.is_empty() {
                 "".to_string()
             } else {
-                format!("{}/", &path)
+                format!("{}/", node)
             };
 
             db.keys()
                 .into_iter()
                 .filter_map(|key| {
-                    let id = key.as_str();
-                    if id.starts_with(&path) && id.len() > path.len() {
-                        let end = id[path.len()..]
-                            .find('/')
+                    let key = key.as_str();
+                    if let Some(remaining) = key.strip_prefix(&path) {
+                        let end = remaining
+                            .find(['/', '.'].as_ref())
                             .map(|end| end + path.len())
-                            .unwrap_or(id.len());
-                        Some(id[..end].to_string())
+                            .expect("always has a ‘.’");
+
+                        Some(key[..end].to_string())
                     } else {
                         None
                     }
@@ -49,15 +50,24 @@ impl DbRead for InMemory {
         children.sort();
         children.dedup();
 
-        let event = db.get(&EventId::from(path.to_string())).map(Clone::clone);
+        let events: Vec<EventId> = {
+            db.keys()
+                .into_iter()
+                .filter(|key| {
+                    if let Some(remaining) = key.as_str().strip_prefix(node) {
+                        remaining.starts_with('.')
+                    } else {
+                        false
+                    }
+                })
+                .map(Clone::clone)
+                .collect()
+        };
 
-        if event.is_none() && children.len() == 0 {
+        if events.is_empty() && children.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(Item {
-                event,
-                children: children.into_iter().collect(),
-            }))
+            Ok(Some(Item { events, children }))
         }
     }
 }
@@ -127,7 +137,8 @@ mod test {
 
     #[test]
     fn generic_test_in_memory() {
-        crate::db::test::test_db(Arc::new(InMemory::default()));
+        let db = Arc::new(InMemory::default());
+        crate::db::test::test_db(db.as_ref());
     }
 
     #[test]

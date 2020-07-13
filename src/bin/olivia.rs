@@ -1,4 +1,5 @@
-use olivia::{cli, config::Config};
+use core::str::FromStr;
+use olivia::{cli, config::Config, event::EventId};
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -31,6 +32,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match opt.cmd {
         Command::Run => cli::run::run(config),
-        Command::Derive { event } => cli::derive::derive(config, event.into()),
+        Command::Derive { event } => cli::derive::derive(config, EventId::from_str(&event)?),
     }
 }

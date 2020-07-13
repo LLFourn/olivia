@@ -10,16 +10,16 @@ pub mod test;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Item {
-    pub event: Option<ObservedEvent>,
+    pub events: Vec<EventId>,
     pub children: Vec<String>,
 }
 
 #[async_trait]
 pub trait DbRead: Send + Sync {
     async fn get_event(&self, id: &EventId) -> Result<Option<ObservedEvent>, Error>;
-    async fn get_path(&self, path: PathRef<'_>) -> Result<Option<Item>, Error>;
+    async fn get_node(&self, path: PathRef<'_>) -> Result<Option<Item>, Error>;
 }
 
 #[async_trait]
