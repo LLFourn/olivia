@@ -47,6 +47,7 @@ pub fn test_db(db: &dyn Db) {
     test_insert_grandchild_event(&mut rt, db);
     test_child_event_of_node_with_event(&mut rt, db);
     test_get_non_existent_events(&mut rt, db);
+    test_multiple_events_on_one_node(&mut rt, db);
 }
 
 fn test_insert_unattested(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
@@ -219,4 +220,21 @@ fn test_get_non_existent_events(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
         .block_on(db.get_node(PathRef::from("test/db/dont-exist")))
         .unwrap()
         .is_none());
+}
+
+fn test_multiple_events_on_one_node(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
+    let first = EventId::from_str("test/db/RED_BLUE.vs").unwrap();
+    let second = EventId::from_str("test/db/RED_BLUE.left-win").unwrap();
+
+    rt.block_on(db.insert_event(ObservedEvent::test_new(&first)))
+        .unwrap();
+    rt.block_on(db.insert_event(ObservedEvent::test_new(&second)))
+        .unwrap();
+
+    let red_blue = rt
+        .block_on(db.get_node(PathRef::from("test/db/RED_BLUE")))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(red_blue.events, [first, second]);
 }
