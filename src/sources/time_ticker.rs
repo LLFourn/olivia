@@ -1,6 +1,6 @@
 use crate::{
+    core::{Event, EventId, Outcome, ParsedOutcome},
     db::Db,
-    event::{Event, EventId, Outcome},
     sources::Update,
 };
 use chrono::{Duration, NaiveDateTime};
@@ -107,7 +107,7 @@ pub fn time_outcomes_stream(
                 Update {
                     update: Outcome {
                         event_id: event.id.clone(),
-                        outcome: event.outcomes()[0].clone(), // there is only one possible "outcome",
+                        outcome: ParsedOutcome::Occurred,
                         time: now(), // tell the actual truth about when we actually figured it was done
                     },
                     processed_notifier: Some(sender),
@@ -160,7 +160,7 @@ fn now() -> NaiveDateTime {
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use crate::{db::in_memory::InMemory, event::ObservedEvent};
+    use crate::{core::ObservedEvent, db::in_memory::InMemory};
     use futures::stream::StreamExt;
     use std::str::FromStr;
     use tokio::runtime::Runtime;
@@ -364,7 +364,11 @@ pub mod test {
             time_to_id(start),
             "outcome should be for the time that was inserted"
         );
-        assert_eq!(&outcome.outcome, "true", "outcome string should be true");
+        assert_eq!(
+            outcome.outcome,
+            ParsedOutcome::Occurred,
+            "outcome string should be true"
+        );
         assert!(
             outcome.time >= start,
             "the time of the outcome should be greater than when it was scheduled"
@@ -374,7 +378,7 @@ pub mod test {
 
     #[test]
     fn time_ticker_wait_for_event_outcomes() {
-        use crate::event::Attestation;
+        use crate::core::Attestation;
         let db: Arc<dyn Db> = Arc::new(InMemory::default());
         let mut rt = tokio::runtime::Runtime::new().unwrap();
         let mut stream = time_outcomes_stream(db.clone(), logger()).boxed();
@@ -407,7 +411,7 @@ pub mod test {
         assert!(now() < start + Duration::milliseconds(1100));
         rt.block_on(db.complete_event(
             &first.update.event_id,
-            Attestation::test_new(&first.update.event_id, "OCCURRED"),
+            Attestation::test_new(&first.update.event_id),
         ))
         .unwrap();
         first.processed_notifier.unwrap().send(()).unwrap();
@@ -421,7 +425,7 @@ pub mod test {
         assert!(now() < start + Duration::milliseconds(2100));
         rt.block_on(db.complete_event(
             &second.update.event_id,
-            Attestation::test_new(&first.update.event_id, "OCCURRED"),
+            Attestation::test_new(&first.update.event_id),
         ))
         .unwrap();
         second.processed_notifier.unwrap().send(()).unwrap();

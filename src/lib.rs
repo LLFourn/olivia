@@ -1,12 +1,14 @@
 #![feature(async_closure)]
 #![allow(non_snake_case)]
 pub mod db;
-pub mod event;
+
 pub mod oracle;
 pub mod seed;
 pub use crate::oracle::Oracle;
+
 pub mod cli;
 pub mod config;
+pub mod core;
 pub mod curve;
 pub mod keychain;
 mod macros;

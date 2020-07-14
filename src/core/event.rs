@@ -1,20 +1,19 @@
 use crate::curve::{ed25519, secp256k1};
 use chrono::NaiveDateTime;
 use core::fmt;
-use serde::de;
 use std::str::FromStr;
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventKind {
-    VsMatch { kind: VsMatchKind },
+    VsMatch(VsMatchKind),
     SingleOccurrence,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum VsMatchKind {
-    Draw,
-    Win { right: bool },
+    WinOrDraw,
+    Win { right_posited_to_win: bool },
 }
 
 impl fmt::Display for EventKind {
@@ -23,13 +22,15 @@ impl fmt::Display for EventKind {
             f,
             "{}",
             match self {
-                EventKind::VsMatch { kind } => {
+                EventKind::VsMatch(kind) => {
                     match kind {
-                        VsMatchKind::Win { right } => match right {
+                        VsMatchKind::Win {
+                            right_posited_to_win,
+                        } => match right_posited_to_win {
                             true => "right-win",
                             false => "left-win",
                         },
-                        VsMatchKind::Draw => "vs",
+                        VsMatchKind::WinOrDraw => "vs",
                     }
                 }
                 EventKind::SingleOccurrence => "occur",
@@ -47,7 +48,9 @@ lazy_static! {
         regex::Regex::new(r"^([a-zA-Z0-9:-]+)_([a-zA-z0-9:-]+)$").unwrap();
 }
 
-#[derive(Clone, Debug, PartialEq, Hash, Eq, FromSqlRow, AsExpression, Serialize)]
+#[derive(
+    Clone, Debug, PartialEq, Hash, Eq, FromSqlRow, AsExpression, Serialize, PartialOrd, Ord,
+)]
 #[sql_type = "diesel::sql_types::Text"]
 pub struct EventId(pub(crate) String);
 
@@ -70,20 +73,33 @@ impl EventId {
         PathRef(&s[..dot_index])
     }
 
+    pub fn parties(&self) -> Option<(&str, &str)> {
+        if let EventKind::VsMatch(_) = self.event_kind() {
+            let mut parties = self.node().slug().split('_');
+            Some((parties.next().unwrap(), parties.next().unwrap()))
+        } else {
+            None
+        }
+    }
+
     pub fn event_kind(&self) -> EventKind {
         let slug = self.as_path().slug();
         let index = slug.find('.').unwrap();
         let event_kind = &slug[index + 1..];
         match event_kind {
-            "vs" => EventKind::VsMatch {
-                kind: VsMatchKind::Draw,
-            },
-            "left-win" => EventKind::VsMatch {
-                kind: VsMatchKind::Win { right: false },
-            },
-            "right-win" => EventKind::VsMatch {
-                kind: VsMatchKind::Win { right: true },
-            },
+            "vs" | "left-win" | "right-win" => {
+                let vs_kind = match event_kind {
+                    "vs" => VsMatchKind::WinOrDraw,
+                    "left-win" => VsMatchKind::Win {
+                        right_posited_to_win: false,
+                    },
+                    "right-win" => VsMatchKind::Win {
+                        right_posited_to_win: true,
+                    },
+                    _ => unreachable!("we have narrowed this aready"),
+                };
+                EventKind::VsMatch(vs_kind)
+            }
             "occur" => EventKind::SingleOccurrence,
             this => unreachable!(
                 "valid event ids have already been checked to not be {}",
@@ -92,24 +108,8 @@ impl EventId {
         }
     }
 
-    pub fn outcomes(&self) -> Vec<String> {
-        match self.event_kind() {
-            EventKind::VsMatch { kind } => {
-                let slug = self.node().slug();
-                let mut teams = slug.split('_');
-                let one = teams.next().unwrap();
-                let two = teams.next().unwrap();
-                match kind {
-                    VsMatchKind::Draw => vec![
-                        format!("{}-win", one),
-                        format!("{}-win", two),
-                        "draw".to_string(),
-                    ],
-                    VsMatchKind::Win { .. } => vec!["true".to_string(), "false".to_string()],
-                }
-            }
-            EventKind::SingleOccurrence => vec!["true".to_string()],
-        }
+    pub fn replace_kind(&self, kind: EventKind) -> EventId {
+        EventId(format!("{}.{}", self.node(), kind))
     }
 }
 
@@ -130,7 +130,12 @@ impl FromStr for EventId {
                 let path = PathRef::from(captures.name("path").unwrap().as_str());
                 let event_kind = captures.name("event_kind").unwrap().as_str();
                 let valid_kind = match event_kind {
-                    "vs" | "left-win" | "right-win" => VS_RE.is_match(path.slug()),
+                    "vs" | "left-win" | "right-win" => match VS_RE.captures(path.slug()) {
+                        Some(capture) => {
+                            capture.get(0).unwrap().as_str() != capture.get(1).unwrap().as_str()
+                        }
+                        _ => return Err(EventIdError::BadFormat),
+                    },
                     "occur" => true,
                     _ => false,
                 };
@@ -152,32 +157,12 @@ impl From<EventId> for String {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Hash, Eq)]
-pub struct Path(pub(crate) String);
-
-impl Path {
-    pub fn as_ref(&self) -> PathRef<'_> {
-        PathRef(self.0.as_str())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    pub fn root() -> Self {
-        Path("".to_string())
-    }
-}
-
-impl PartialEq<&str> for Path {
-    fn eq(&self, rhs: &&str) -> bool {
-        self.0 == *rhs
-    }
-}
-
-impl PartialEq<Path> for &str {
-    fn eq(&self, rhs: &Path) -> bool {
-        *self == rhs.0
+impl From<EventId> for Event {
+    fn from(id: EventId) -> Self {
+        Self {
+            id,
+            expected_outcome_time: None,
+        }
     }
 }
 
@@ -209,21 +194,9 @@ impl<'a> PathRef<'a> {
     }
 }
 
-impl From<PathRef<'_>> for Path {
-    fn from(path: PathRef<'_>) -> Self {
-        Self(path.0.to_string())
-    }
-}
-
 impl<'a> From<&'a str> for PathRef<'a> {
     fn from(s: &'a str) -> Self {
         PathRef(s)
-    }
-}
-
-impl From<String> for Path {
-    fn from(from: String) -> Self {
-        Path(from)
     }
 }
 
@@ -239,68 +212,10 @@ impl fmt::Display for PathRef<'_> {
     }
 }
 
-impl<'de> de::Deserialize<'de> for EventId {
-    fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<EventId, D::Error> {
-        struct Visitor;
-
-        impl<'de> de::Visitor<'de> for Visitor {
-            type Value = EventId;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("A valid event_id")
-            }
-
-            fn visit_str<E: de::Error>(self, v: &str) -> Result<EventId, E> {
-                EventId::from_str(v).map_err(|e| E::custom(format!("{}", e)))
-            }
-        }
-
-        deserializer.deserialize_any(Visitor)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Event {
     pub id: EventId,
     pub expected_outcome_time: Option<NaiveDateTime>,
-}
-
-impl Event {
-    pub fn outcomes(&self) -> Vec<String> {
-        self.id.outcomes()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Outcome {
-    pub event_id: EventId,
-    pub outcome: String,
-    pub time: NaiveDateTime,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct Attestation {
-    pub outcome: String,
-    pub time: NaiveDateTime,
-    pub scalars: Scalars,
-}
-
-impl Attestation {
-    pub fn new(outcome: String, mut time: NaiveDateTime, scalars: Scalars) -> Self {
-        use chrono::Timelike;
-        time = time.with_nanosecond(0).expect("0 is valid");
-        Attestation {
-            outcome,
-            time,
-            scalars,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct Scalars {
-    pub ed25519: ed25519::SchnorrScalar,
-    pub secp256k1: secp256k1::SchnorrScalar,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -313,7 +228,7 @@ pub struct Nonce {
 pub struct ObservedEvent {
     pub event: Event,
     pub nonce: Nonce,
-    pub attestation: Option<Attestation>,
+    pub attestation: Option<crate::core::Attestation>,
 }
 
 mod sql_impls {
@@ -343,9 +258,58 @@ mod sql_impls {
     }
 }
 
+mod serde_impl {
+    use super::*;
+    use core::fmt;
+    use serde::de;
+    impl<'de> de::Deserialize<'de> for EventId {
+        fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<EventId, D::Error> {
+            struct Visitor;
+
+            impl<'de> de::Visitor<'de> for Visitor {
+                type Value = EventId;
+
+                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                    formatter.write_str("A valid event_id")
+                }
+
+                fn visit_str<E: de::Error>(self, v: &str) -> Result<EventId, E> {
+                    EventId::from_str(v).map_err(|e| E::custom(format!("{}", e)))
+                }
+            }
+
+            deserializer.deserialize_any(Visitor)
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    use crate::core::{ParsedOutcome, VsOutcome};
+    impl EventId {
+        pub fn default_outcome(&self) -> ParsedOutcome {
+            use ParsedOutcome::*;
+
+            match self.event_kind() {
+                EventKind::VsMatch(kind) => {
+                    let (left, right) = self.parties().unwrap();
+                    use VsOutcome::*;
+                    match kind {
+                        VsMatchKind::WinOrDraw => Vs(Winner(left.to_string())),
+                        VsMatchKind::Win {
+                            right_posited_to_win,
+                        } => Win {
+                            winning_side: right.to_string(),
+                            posited_won: right_posited_to_win == true,
+                        },
+                    }
+                }
+                EventKind::SingleOccurrence => ParsedOutcome::Occurred,
+            }
+        }
+    }
 
     #[test]
     fn event_id_from_str() {
@@ -358,26 +322,6 @@ mod test {
         assert!(EventId::from_str("foo/23/52.occur").is_ok());
         assert!(EventId::from_str("foo/bar/FOO_BAR.vs").is_ok());
         assert!(EventId::from_str("foo/bar/FOO-BAR.vs").is_err());
-    }
-
-    #[test]
-    fn event_id_outcomes() {
-        assert_eq!(
-            EventId::from_str("foo/bar/FOO_BAR.vs").unwrap().outcomes(),
-            ["FOO-win", "BAR-win", "draw"]
-        );
-
-        assert_eq!(
-            EventId::from_str("foo/bar/FOO_BAR.left-win")
-                .unwrap()
-                .outcomes(),
-            ["true", "false"]
-        );
-
-        assert_eq!(
-            EventId::from_str("foo/bar.occur").unwrap().outcomes(),
-            ["true"]
-        );
     }
 
     #[test]

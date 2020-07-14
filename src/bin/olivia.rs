@@ -1,5 +1,5 @@
 use core::str::FromStr;
-use olivia::{cli, config::Config, event::EventId};
+use olivia::{cli, config::Config, core::EventId};
 use std::path::PathBuf;
 use structopt::StructOpt;
 

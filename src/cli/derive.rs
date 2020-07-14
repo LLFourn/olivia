@@ -1,6 +1,4 @@
-use crate::config::Config;
-use crate::event::EventId;
-use crate::keychain::KeyChain;
+use crate::{config::Config, core::EventId, keychain::KeyChain};
 
 pub fn derive(config: Config, event: EventId) -> Result<(), Box<dyn std::error::Error>> {
     let secret_seed = config

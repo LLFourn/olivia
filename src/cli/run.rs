@@ -1,7 +1,7 @@
 use crate::{
     config::{Config, DbConfig},
+    core::{Event, Outcome},
     db::{self, diesel::postgres::PgBackend, Db},
-    event::{Event, Outcome},
     oracle::Oracle,
     sources::Update,
 };

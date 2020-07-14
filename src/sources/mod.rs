@@ -1,4 +1,6 @@
+use crate::core::{Event, EventId};
 use futures::channel::oneshot::Sender;
+pub mod re_emitter;
 pub mod redis;
 pub mod time_ticker;
 
@@ -7,4 +9,17 @@ pub struct Update<E> {
     pub processed_notifier: Option<Sender<()>>,
 }
 
-pub struct EventSourceLog {}
+impl<E> From<E> for Update<E> {
+    fn from(update: E) -> Self {
+        Self {
+            update,
+            processed_notifier: None,
+        }
+    }
+}
+
+impl From<EventId> for Update<Event> {
+    fn from(id: EventId) -> Self {
+        Update::from(Event::from(id))
+    }
+}

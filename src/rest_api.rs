@@ -1,7 +1,6 @@
 use crate::{
+    core::{EventId, ObservedEvent, PathRef},
     db::{self, Db},
-    event::PathRef,
-    event::{EventId, ObservedEvent},
     oracle,
 };
 use core::str::FromStr;
@@ -64,8 +63,7 @@ pub mod filters {
         warp::path::tail().and(with_db(db)).and_then(
             async move |tail: warp::filters::path::Tail, db: Arc<dyn Db>| {
                 let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
-                let node = PathRef::from(tail);
-                let res = db.get_node(node).await;
+                let res = db.get_node(tail).await;
                 match res {
                     Ok(Some(event)) => Ok(event),
                     Ok(None) => Err(warp::reject::not_found()),
@@ -92,7 +90,7 @@ pub mod filters {
     ) -> impl Filter<Extract = (Vec<String>, oracle::OraclePubkeys), Error = warp::reject::Rejection>
            + Clone {
         let get_children = with_db(db.clone()).and_then(async move |db: Arc<dyn Db>| {
-            let res = db.get_node(PathRef::root()).await;
+            let res = db.get_node(PathRef::root().as_str()).await;
             match res {
                 Ok(Some(item)) => Ok(item.children),
                 _ => Err(warp::reject::custom(DbError)),
@@ -136,8 +134,8 @@ pub fn routes(
 mod test {
     use super::*;
     use crate::{
+        core::{EventId, ObservedEvent},
         db::Db,
-        event::{EventId, ObservedEvent},
     };
     use std::sync::Arc;
 

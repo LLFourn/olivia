@@ -1,10 +1,7 @@
-use super::{
-    EventSourceConfig, LoggerConfig, LoggersConfig, OutcomeSourceConfig, RedisConfig, RootDrain,
-};
-use crate::{db, event, sources};
+use super::*;
+use crate::{core, db, sources};
 use futures::{Stream, StreamExt};
-use std::fs;
-use std::sync::Arc;
+use std::{fs, sync::Arc};
 
 impl LoggerConfig {
     pub fn to_slog_drain(&self) -> Result<RootDrain, Box<dyn std::error::Error>> {
@@ -73,7 +70,10 @@ impl EventSourceConfig {
         name: &str,
         logger: slog::Logger,
         db: Arc<dyn db::Db>,
-    ) -> Result<impl Stream<Item = sources::Update<event::Event>>, Box<dyn std::error::Error>> {
+    ) -> Result<
+        std::pin::Pin<Box<dyn Stream<Item = sources::Update<core::Event>> + Send>>,
+        Box<dyn std::error::Error>,
+    > {
         let name = name.to_owned();
         match self.clone() {
             EventSourceConfig::Redis(RedisConfig {
@@ -117,6 +117,15 @@ impl EventSourceConfig {
                 ),
             )
             .boxed()),
+            EventSourceConfig::ReEmitter { source, re_emitter } => {
+                let stream = source.to_event_stream(&name, logger, db);
+                match re_emitter {
+                    ReEmitterConfig::VsReEmitter => {
+                        let emitter = crate::sources::re_emitter::VsReEmitter;
+                        stream.map(|stream| emitter.re_emit_events(stream).boxed())
+                    }
+                }
+            }
         }
     }
 }
@@ -127,7 +136,7 @@ impl OutcomeSourceConfig {
         name: &str,
         logger: slog::Logger,
         db: Arc<dyn db::Db>,
-    ) -> Result<impl Stream<Item = sources::Update<event::Outcome>>, Box<dyn std::error::Error>>
+    ) -> Result<impl Stream<Item = sources::Update<core::Outcome>>, Box<dyn std::error::Error>>
     {
         match self.clone() {
             OutcomeSourceConfig::Redis(RedisConfig {

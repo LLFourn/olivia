@@ -1,7 +1,7 @@
 use crate::{
+    core::{Attestation, Event, ObservedEvent, Outcome},
     curve::{ed25519, secp256k1},
     db,
-    event::{Attestation, Event, ObservedEvent, Outcome},
     keychain::KeyChain,
     seed::Seed,
 };
@@ -28,7 +28,6 @@ pub enum OutcomeResult {
     AlreadyCompleted,
     OutcomeChanged { existing: String, new: String },
     EventNotExist,
-    OutcomeNotExist { got: String, available: Vec<String> },
     DbReadErr(crate::db::Error),
     DbWriteErr(crate::db::Error),
 }
@@ -59,9 +58,6 @@ impl OutcomeResult {
                 crit!(logger, "outcome changed"; "existing" => existing, "new" => new)
             }
             EventNotExist => error!(logger, "event doesn't exist"),
-            OutcomeNotExist { got, available } => {
-                crit!(logger, "outcome not exist"; "got" => got, "available" => available.join(", "))
-            }
             DbReadErr(e) => crit!(logger, "database read"; "error" => format!("{}", e)),
             DbWriteErr(e) => crit!(logger, "database write"; "error" => format!("{}", e)),
         }
@@ -120,37 +116,25 @@ impl Oracle {
 
     pub async fn complete_event(&self, outcome: Outcome) -> OutcomeResult {
         let existing = self.db.get_event(&outcome.event_id).await;
+        let outcome_str = format!("{}", outcome.outcome);
         match existing {
             Ok(None) => OutcomeResult::EventNotExist,
             Ok(Some(ObservedEvent {
                 attestation: Some(attestation),
                 ..
             })) => {
-                if attestation.outcome == outcome.outcome {
+                if attestation.outcome == outcome_str {
                     OutcomeResult::AlreadyCompleted
                 } else {
                     OutcomeResult::OutcomeChanged {
                         existing: attestation.outcome,
-                        new: outcome.outcome,
+                        new: outcome_str,
                     }
                 }
             }
             Ok(Some(ObservedEvent { event, .. })) => {
-                if !event
-                    .outcomes()
-                    .iter()
-                    .any(|valid_outcome| valid_outcome.as_str() == outcome.outcome)
-                {
-                    return OutcomeResult::OutcomeNotExist {
-                        got: outcome.outcome,
-                        available: event.outcomes(),
-                    };
-                }
-
-                let scalars = self
-                    .keychain
-                    .scalars_for_event_outcome(&event.id, &outcome.outcome);
-                let attest = Attestation::new(outcome.outcome, outcome.time, scalars);
+                let scalars = self.keychain.scalars_for_event_outcome(&outcome);
+                let attest = Attestation::new(outcome_str, outcome.time, scalars);
 
                 match self.db.complete_event(&event.id, attest).await {
                     Ok(()) => OutcomeResult::Completed,

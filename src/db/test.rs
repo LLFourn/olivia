@@ -1,16 +1,31 @@
 use super::*;
-use crate::{event::Event, keychain::KeyChain, seed::Seed};
+use crate::{
+    core::{Event, Outcome, PathRef},
+    keychain::KeyChain,
+    seed::Seed,
+};
 use std::str::FromStr;
 
 const TEST_SEED: Seed = Seed::new([42u8; 64]);
 
 impl Attestation {
-    pub fn test_new(event_id: &EventId, outcome: &str) -> Self {
+    pub fn test_new(event_id: &EventId) -> Self {
+        let outcome = Outcome::test_new(event_id);
         Attestation::new(
-            outcome.into(),
+            format!("{}", outcome.outcome),
             chrono::Utc::now().naive_utc(),
-            KeyChain::new(TEST_SEED).scalars_for_event_outcome(event_id, outcome),
+            KeyChain::new(TEST_SEED).scalars_for_event_outcome(&outcome),
         )
+    }
+}
+
+impl Outcome {
+    pub fn test_new(event_id: &EventId) -> Self {
+        Outcome {
+            event_id: event_id.clone(),
+            time: chrono::Utc::now().naive_utc(),
+            outcome: event_id.default_outcome(),
+        }
     }
 }
 
@@ -23,7 +38,7 @@ impl ObservedEvent {
         ObservedEvent {
             event: event.clone(),
             nonce: KeyChain::new(TEST_SEED).nonces_for_event(&event.id).into(),
-            attestation: Some(Attestation::test_new(id, &event.outcomes()[0])),
+            attestation: Some(Attestation::test_new(id)),
         }
     }
 }
@@ -65,21 +80,18 @@ fn test_insert_unattested(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
 
     {
         assert_eq!(
-            rt.block_on(db.get_node(PathRef::root()))
+            rt.block_on(db.get_node(PathRef::root().as_str()))
                 .unwrap()
                 .unwrap()
                 .children,
             ["test"]
         );
 
-        let path = rt
-            .block_on(db.get_node(PathRef::from("test")))
-            .unwrap()
-            .unwrap();
+        let path = rt.block_on(db.get_node("test")).unwrap().unwrap();
         assert_eq!(path.events, []);
         assert_eq!(path.children[..], ["test/db".to_string()]);
         assert_eq!(
-            rt.block_on(db.get_node(PathRef::from("test/db")))
+            rt.block_on(db.get_node("test/db"))
                 .unwrap()
                 .unwrap()
                 .children[..],
@@ -87,7 +99,7 @@ fn test_insert_unattested(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
         );
 
         let node_path = rt
-            .block_on(db.get_node(PathRef::from("test/db/test-insert-unattested")))
+            .block_on(db.get_node("test/db/test-insert-unattested"))
             .unwrap()
             .unwrap();
         assert_eq!(node_path.children.len(), 0);
@@ -111,16 +123,13 @@ fn test_insert_attested(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
 
     {
         assert_eq!(
-            rt.block_on(db.get_node(PathRef::from("test")))
-                .unwrap()
-                .unwrap()
-                .children[..],
+            rt.block_on(db.get_node("test")).unwrap().unwrap().children[..],
             ["test/db"],
             "new event did not duplicate parent path"
         );
 
         let mut children = rt
-            .block_on(db.get_node(PathRef::from("test/db")))
+            .block_on(db.get_node("test/db"))
             .unwrap()
             .unwrap()
             .children;
@@ -165,7 +174,7 @@ fn test_insert_grandchild_event(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
         .unwrap();
 
     let mut db_children = rt
-        .block_on(db.get_node(PathRef::from("test/db")))
+        .block_on(db.get_node("test/db"))
         .unwrap()
         .unwrap()
         .children;
@@ -183,14 +192,14 @@ fn test_insert_grandchild_event(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
     );
 
     let dbchild = rt
-        .block_on(db.get_node(PathRef::from("test/db/dbchild")))
+        .block_on(db.get_node("test/db/dbchild"))
         .unwrap()
         .unwrap();
     assert_eq!(dbchild.events, []);
     assert_eq!(dbchild.children[..], ["test/db/dbchild/grandchild"]);
 
     let grandchild = rt
-        .block_on(db.get_node(PathRef::from("test/db/dbchild/grandchild")))
+        .block_on(db.get_node("test/db/dbchild/grandchild"))
         .unwrap()
         .unwrap();
 
@@ -203,7 +212,7 @@ fn test_child_event_of_node_with_event(rt: &mut tokio::runtime::Runtime, db: &dy
     rt.block_on(db.insert_event(ObservedEvent::test_new(&child)))
         .unwrap();
     let parent = rt
-        .block_on(db.get_node(PathRef::from("test/db/test-insert-attested")))
+        .block_on(db.get_node("test/db/test-insert-attested"))
         .unwrap()
         .unwrap();
 
@@ -217,7 +226,7 @@ fn test_get_non_existent_events(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
     let non_existent = EventId::from_str("test/db/dont-exist.occur").unwrap();
     assert!(rt.block_on(db.get_event(&non_existent)).unwrap().is_none());
     assert!(rt
-        .block_on(db.get_node(PathRef::from("test/db/dont-exist")))
+        .block_on(db.get_node("test/db/dont-exist"))
         .unwrap()
         .is_none());
 }
@@ -231,10 +240,12 @@ fn test_multiple_events_on_one_node(rt: &mut tokio::runtime::Runtime, db: &dyn D
     rt.block_on(db.insert_event(ObservedEvent::test_new(&second)))
         .unwrap();
 
-    let red_blue = rt
-        .block_on(db.get_node(PathRef::from("test/db/RED_BLUE")))
+    let mut red_blue = rt
+        .block_on(db.get_node("test/db/RED_BLUE"))
         .unwrap()
         .unwrap();
 
-    assert_eq!(red_blue.events, [first, second]);
+    red_blue.events.sort();
+
+    assert_eq!(red_blue.events, [second, first]);
 }

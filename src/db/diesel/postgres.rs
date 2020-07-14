@@ -3,9 +3,8 @@ use super::{
     Attestation, Event, MetaRow, Node, ObservedEvent,
 };
 use crate::{
-    db,
-    event::{self, EventId, Path, PathRef},
-    oracle,
+    core::{self, EventId, PathRef},
+    db, oracle,
     oracle::OraclePubkeys,
 };
 use async_trait::async_trait;
@@ -45,7 +44,7 @@ impl crate::db::DbRead for PgBackend {
     async fn get_event(
         &self,
         event_id: &EventId,
-    ) -> Result<Option<event::ObservedEvent>, db::Error> {
+    ) -> Result<Option<core::ObservedEvent>, db::Error> {
         let db_mutex = self.conn.clone();
         let event_id = event_id.clone();
 
@@ -66,13 +65,13 @@ impl crate::db::DbRead for PgBackend {
         })
         .await?
     }
-    async fn get_node(&self, node: PathRef<'_>) -> Result<Option<db::Item>, db::Error> {
-        let node: Path = node.into();
+    async fn get_node(&self, node: &str) -> Result<Option<db::Item>, db::Error> {
+        let node = node.to_string();
         let db_mutex = self.conn.clone();
         tokio::task::spawn_blocking(move || {
             let db = &*db_mutex.lock().unwrap();
 
-            let (children, events) = if node.as_ref().is_root() {
+            let (children, events) = if PathRef::from(node.as_str()).is_root() {
                 use schema::tree::dsl::*;
                 (
                     tree::table()
@@ -110,7 +109,7 @@ impl crate::db::DbRead for PgBackend {
 
 #[async_trait]
 impl crate::db::DbWrite for PgBackend {
-    async fn insert_event(&self, obs_event: event::ObservedEvent) -> Result<(), db::Error> {
+    async fn insert_event(&self, obs_event: core::ObservedEvent) -> Result<(), db::Error> {
         let node = obs_event.event.id.node();
         let parents = std::iter::successors(Some(node), |parent| (*parent).parent());
 
@@ -155,7 +154,7 @@ impl crate::db::DbWrite for PgBackend {
     async fn complete_event(
         &self,
         id: &EventId,
-        attestation: event::Attestation,
+        attestation: core::Attestation,
     ) -> Result<(), db::Error> {
         let db_mutex = self.conn.clone();
         let id = id.clone();
@@ -172,7 +171,7 @@ impl crate::db::DbWrite for PgBackend {
 
 #[async_trait]
 impl crate::db::TimeTickerDb for PgBackend {
-    async fn latest_time_event(&self) -> Result<Option<event::Event>, crate::db::Error> {
+    async fn latest_time_event(&self) -> Result<Option<core::Event>, crate::db::Error> {
         let db_mutex = self.conn.clone();
 
         tokio::task::spawn_blocking(move || {
@@ -196,7 +195,7 @@ impl crate::db::TimeTickerDb for PgBackend {
 
     async fn earliest_unattested_time_event(
         &self,
-    ) -> Result<Option<event::Event>, crate::db::Error> {
+    ) -> Result<Option<core::Event>, crate::db::Error> {
         let db_mutex = self.conn.clone();
 
         tokio::task::spawn_blocking(move || {
@@ -287,7 +286,7 @@ mod test {
         container.stop();
         let db: Arc<dyn crate::db::Db> = Arc::new(db);
         let mut rt = tokio::runtime::Runtime::new().unwrap();
-        let event = event::ObservedEvent::test_new(
+        let event = core::ObservedEvent::test_new(
             &EventId::from_str("test/postgres/database_fail.occur").unwrap(),
         );
 

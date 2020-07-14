@@ -64,6 +64,17 @@ pub enum EventSourceConfig {
         initial_time: Option<NaiveDateTime>,
     },
     Redis(RedisConfig),
+    ReEmitter {
+        source: Box<EventSourceConfig>,
+        re_emitter: ReEmitterConfig,
+    },
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case", tag = "type")]
+#[serde(deny_unknown_fields)]
+pub enum ReEmitterConfig {
+    VsReEmitter,
 }
 
 #[derive(Deserialize, Debug, Clone)]

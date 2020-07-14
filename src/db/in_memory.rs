@@ -1,6 +1,6 @@
 use crate::{
+    core::{Attestation, Event, EventId, ObservedEvent},
     db::*,
-    event::{Attestation, Event, EventId, ObservedEvent, PathRef},
     oracle,
 };
 use async_trait::async_trait;
@@ -19,8 +19,7 @@ impl DbRead for InMemory {
         Ok(db.get(&id).map(Clone::clone))
     }
 
-    async fn get_node(&self, node: PathRef<'_>) -> Result<Option<Item>, Error> {
-        let node = node.as_str();
+    async fn get_node(&self, node: &str) -> Result<Option<Item>, Error> {
         let db = &*self.inner.read().unwrap();
         let mut children: Vec<String> = {
             let path = if node.is_empty() {

@@ -1,5 +1,5 @@
 use crate::{
-    event::{self, EventId, Scalars},
+    core::{self, EventId, Scalars},
     oracle,
 };
 use diesel::Insertable;
@@ -24,17 +24,17 @@ struct Node {
     pub parent: Option<String>,
 }
 
-impl From<Event> for event::Event {
+impl From<Event> for core::Event {
     fn from(event: Event) -> Self {
-        event::Event {
+        core::Event {
             id: event.id.into(),
             expected_outcome_time: event.expected_outcome_time,
         }
     }
 }
 
-impl From<event::Event> for Event {
-    fn from(event: event::Event) -> Self {
+impl From<core::Event> for Event {
+    fn from(event: core::Event) -> Self {
         Event {
             node: event.id.node().as_str().into(),
             id: event.id.into(),
@@ -56,7 +56,7 @@ struct Nonce {
 impl Nonce {
     fn from_core_domain(
         event_id: EventId,
-        event::Nonce { ed25519, secp256k1 }: event::Nonce,
+        core::Nonce { ed25519, secp256k1 }: core::Nonce,
     ) -> Self {
         Self {
             event_id: event_id.into(),
@@ -66,9 +66,9 @@ impl Nonce {
     }
 }
 
-impl From<Nonce> for event::Nonce {
+impl From<Nonce> for core::Nonce {
     fn from(nonce: Nonce) -> Self {
-        event::Nonce {
+        core::Nonce {
             ed25519: nonce.ed25519,
             secp256k1: nonce.secp256k1,
         }
@@ -90,12 +90,12 @@ struct Attestation {
 impl Attestation {
     pub fn from_core_domain(
         event_id: EventId,
-        event::Attestation {
+        core::Attestation {
             outcome,
             time,
             scalars,
             ..
-        }: event::Attestation,
+        }: core::Attestation,
     ) -> Self {
         Attestation {
             time: time,
@@ -107,7 +107,7 @@ impl Attestation {
     }
 }
 
-impl From<Attestation> for event::Attestation {
+impl From<Attestation> for core::Attestation {
     fn from(
         Attestation {
             outcome,
@@ -117,7 +117,7 @@ impl From<Attestation> for event::Attestation {
             ..
         }: Attestation,
     ) -> Self {
-        event::Attestation::new(outcome, time, Scalars { ed25519, secp256k1 })
+        core::Attestation::new(outcome, time, Scalars { ed25519, secp256k1 })
     }
 }
 
@@ -131,15 +131,15 @@ struct ObservedEvent {
     attestation: Option<Attestation>,
 }
 
-impl From<ObservedEvent> for event::ObservedEvent {
+impl From<ObservedEvent> for core::ObservedEvent {
     fn from(
         ObservedEvent {
             event,
             nonce,
             attestation,
         }: ObservedEvent,
-    ) -> event::ObservedEvent {
-        event::ObservedEvent {
+    ) -> Self {
+        core::ObservedEvent {
             event: event.into(),
             nonce: nonce.into(),
             attestation: attestation.map(|a| a.into()),
@@ -147,13 +147,13 @@ impl From<ObservedEvent> for event::ObservedEvent {
     }
 }
 
-impl From<event::ObservedEvent> for ObservedEvent {
+impl From<core::ObservedEvent> for ObservedEvent {
     fn from(
-        event::ObservedEvent {
+        core::ObservedEvent {
             event,
             nonce,
             attestation,
-        }: event::ObservedEvent,
+        }: core::ObservedEvent,
     ) -> Self {
         Self {
             event: event.clone().into(),

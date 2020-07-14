@@ -1,5 +1,5 @@
 use crate::{
-    event::{Attestation, Event, EventId, ObservedEvent, PathRef},
+    core::{Attestation, Event, EventId, ObservedEvent},
     oracle,
 };
 pub mod diesel;
@@ -19,7 +19,7 @@ pub struct Item {
 #[async_trait]
 pub trait DbRead: Send + Sync {
     async fn get_event(&self, id: &EventId) -> Result<Option<ObservedEvent>, Error>;
-    async fn get_node(&self, path: PathRef<'_>) -> Result<Option<Item>, Error>;
+    async fn get_node(&self, path: &str) -> Result<Option<Item>, Error>;
 }
 
 #[async_trait]
