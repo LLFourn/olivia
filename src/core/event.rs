@@ -75,7 +75,7 @@ impl EventId {
 
     pub fn parties(&self) -> Option<(&str, &str)> {
         if let EventKind::VsMatch(_) = self.event_kind() {
-            let mut parties = self.node().slug().split('_');
+            let mut parties = self.node().last().split('_');
             Some((parties.next().unwrap(), parties.next().unwrap()))
         } else {
             None
@@ -83,9 +83,9 @@ impl EventId {
     }
 
     pub fn event_kind(&self) -> EventKind {
-        let slug = self.as_path().slug();
-        let index = slug.find('.').unwrap();
-        let event_kind = &slug[index + 1..];
+        let last = self.as_path().last();
+        let index = last.find('.').unwrap();
+        let event_kind = &last[index + 1..];
         match event_kind {
             "vs" | "left-win" | "right-win" => {
                 let vs_kind = match event_kind {
@@ -130,7 +130,7 @@ impl FromStr for EventId {
                 let path = PathRef::from(captures.name("path").unwrap().as_str());
                 let event_kind = captures.name("event_kind").unwrap().as_str();
                 let valid_kind = match event_kind {
-                    "vs" | "left-win" | "right-win" => match VS_RE.captures(path.slug()) {
+                    "vs" | "left-win" | "right-win" => match VS_RE.captures(path.last()) {
                         Some(capture) => {
                             capture.get(0).unwrap().as_str() != capture.get(1).unwrap().as_str()
                         }
@@ -174,7 +174,11 @@ impl<'a> PathRef<'a> {
         self.0.rfind('/').map(|at| PathRef(&self.0[..at]))
     }
 
-    pub fn slug(self) -> &'a str {
+    pub fn first(self) -> &'a str {
+        self.0.find('/').map(|at| &self.0[0..at]).unwrap_or(self.0)
+    }
+
+    pub fn last(self) -> &'a str {
         self.0
             .rfind('/')
             .map(|at| &self.0[at + 1..])
@@ -213,6 +217,7 @@ impl fmt::Display for PathRef<'_> {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Event {
     pub id: EventId,
     pub expected_outcome_time: Option<NaiveDateTime>,
@@ -287,10 +292,10 @@ mod serde_impl {
 mod test {
     use super::*;
 
-    use crate::core::{ParsedOutcome, VsOutcome};
+    use crate::core::{Outcome, VsOutcome};
     impl EventId {
-        pub fn default_outcome(&self) -> ParsedOutcome {
-            use ParsedOutcome::*;
+        pub fn default_outcome(&self) -> Outcome {
+            use Outcome::*;
 
             match self.event_kind() {
                 EventKind::VsMatch(kind) => {
@@ -306,7 +311,7 @@ mod test {
                         },
                     }
                 }
-                EventKind::SingleOccurrence => ParsedOutcome::Occurred,
+                EventKind::SingleOccurrence => Outcome::Occurred,
             }
         }
     }

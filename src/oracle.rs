@@ -1,5 +1,5 @@
 use crate::{
-    core::{Attestation, Event, ObservedEvent, Outcome},
+    core::{Attestation, Event, EventOutcome, ObservedEvent},
     curve::{ed25519, secp256k1},
     db,
     keychain::KeyChain,
@@ -90,10 +90,10 @@ impl Oracle {
                 attestation: Some(_),
                 ..
             })) => EventResult::AlreadyCompleted,
-            Ok(Some(ObservedEvent { event, .. })) if event == new_event => {
+            Ok(Some(ObservedEvent { .. })) => {
+                // TODO: update exected_outcome_time
                 EventResult::AlreadyExists
             }
-            Ok(Some(ObservedEvent { .. })) => unimplemented!("havent implemented updating yet"),
             Ok(None) => {
                 let public_nonces = self.keychain.nonces_for_event(&new_event.id).into();
                 let insert_result = self
@@ -114,9 +114,9 @@ impl Oracle {
         }
     }
 
-    pub async fn complete_event(&self, outcome: Outcome) -> OutcomeResult {
-        let existing = self.db.get_event(&outcome.event_id).await;
-        let outcome_str = format!("{}", outcome.outcome);
+    pub async fn complete_event(&self, event_outcome: EventOutcome) -> OutcomeResult {
+        let existing = self.db.get_event(&event_outcome.event_id).await;
+        let outcome_str = format!("{}", event_outcome.outcome);
         match existing {
             Ok(None) => OutcomeResult::EventNotExist,
             Ok(Some(ObservedEvent {
@@ -133,8 +133,8 @@ impl Oracle {
                 }
             }
             Ok(Some(ObservedEvent { event, .. })) => {
-                let scalars = self.keychain.scalars_for_event_outcome(&outcome);
-                let attest = Attestation::new(outcome_str, outcome.time, scalars);
+                let scalars = self.keychain.scalars_for_event_outcome(&event_outcome);
+                let attest = Attestation::new(outcome_str, event_outcome.time, scalars);
 
                 match self.db.complete_event(&event.id, attest).await {
                     Ok(()) => OutcomeResult::Completed,

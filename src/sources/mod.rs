@@ -5,7 +5,7 @@ pub mod redis;
 pub mod time_ticker;
 
 pub struct Update<E> {
-    pub update: E, // An Event or Outcome
+    pub update: E, // An Event or EventOutcome
     pub processed_notifier: Option<Sender<()>>,
 }
 

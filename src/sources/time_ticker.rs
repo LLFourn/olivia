@@ -1,5 +1,5 @@
 use crate::{
-    core::{Event, EventId, Outcome, ParsedOutcome},
+    core::{Event, EventId, EventOutcome, Outcome},
     db::Db,
     sources::Update,
 };
@@ -63,7 +63,7 @@ pub fn time_events_stream(
 pub fn time_outcomes_stream(
     db: Arc<dyn Db>,
     logger: slog::Logger,
-) -> impl stream::Stream<Item = Update<Outcome>> {
+) -> impl stream::Stream<Item = Update<EventOutcome>> {
     stream::unfold(None, move |waiting| {
         let db = db.clone();
         let logger = logger.clone();
@@ -105,9 +105,9 @@ pub fn time_outcomes_stream(
 
             Some((
                 Update {
-                    update: Outcome {
+                    update: EventOutcome {
                         event_id: event.id.clone(),
-                        outcome: ParsedOutcome::Occurred,
+                        outcome: Outcome::Occurred,
                         time: now(), // tell the actual truth about when we actually figured it was done
                     },
                     processed_notifier: Some(sender),
@@ -190,6 +190,15 @@ pub mod test {
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:20:00").unwrap();
                 let mut obs_event = ObservedEvent::test_new(&time_to_id(time));
+                obs_event.attestation = None;
+                obs_event.event.expected_outcome_time = Some(time);
+                obs_event
+            },
+            {
+                // put in a non time event which *SHOULD* be ignored
+                let time = NaiveDateTime::from_str("2020-03-01T00:11:00").unwrap();
+                let mut obs_event =
+                    ObservedEvent::test_new(&EventId::from_str("foo/bar/baz.occur").unwrap());
                 obs_event.attestation = None;
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event
@@ -366,7 +375,7 @@ pub mod test {
         );
         assert_eq!(
             outcome.outcome,
-            ParsedOutcome::Occurred,
+            Outcome::Occurred,
             "outcome string should be true"
         );
         assert!(

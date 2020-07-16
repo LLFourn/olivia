@@ -4,28 +4,30 @@ use core::{convert::TryFrom, fmt};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct WireOutcome {
+#[serde(deny_unknown_fields)]
+pub struct WireEventOutcome {
     pub event_id: EventId,
     pub outcome: String,
-    pub time: NaiveDateTime,
+    pub time: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(try_from = "WireOutcome")]
-pub struct Outcome {
+#[serde(deny_unknown_fields)]
+#[serde(try_from = "WireEventOutcome")]
+pub struct EventOutcome {
     pub event_id: EventId,
-    pub outcome: ParsedOutcome,
+    pub outcome: Outcome,
     pub time: NaiveDateTime,
 }
 
-impl Outcome {
-    pub fn completed_event_id(&self) -> String {
+impl EventOutcome {
+    pub fn attestation_string(&self) -> String {
         format!("{}={}", self.event_id, self.outcome)
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ParsedOutcome {
+pub enum Outcome {
     Occurred,
     Vs(VsOutcome),
     Win {
@@ -34,9 +36,9 @@ pub enum ParsedOutcome {
     },
 }
 
-impl fmt::Display for ParsedOutcome {
+impl fmt::Display for Outcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use ParsedOutcome::*;
+        use Outcome::*;
         use VsOutcome::*;
         write!(
             f,
@@ -76,26 +78,25 @@ pub enum OutcomeError {
     BadFormat,
 }
 
-impl TryFrom<WireOutcome> for Outcome {
+impl TryFrom<WireEventOutcome> for EventOutcome {
     type Error = OutcomeError;
 
-    fn try_from(outcome: WireOutcome) -> Result<Outcome, Self::Error> {
-        let parsed_outcome =
-            ParsedOutcome::try_from_id_and_outcome(&outcome.event_id, &outcome.outcome)?;
-        Ok(Outcome {
+    fn try_from(outcome: WireEventOutcome) -> Result<Self, Self::Error> {
+        let parsed_outcome = Outcome::try_from_id_and_outcome(&outcome.event_id, &outcome.outcome)?;
+        Ok(Self {
             event_id: outcome.event_id,
             outcome: parsed_outcome,
-            time: outcome.time,
+            time: outcome.time.unwrap_or(chrono::Utc::now().naive_utc()),
         })
     }
 }
 
-impl ParsedOutcome {
+impl Outcome {
     pub fn try_from_id_and_outcome(
         event_id: &EventId,
         outcome: &str,
-    ) -> Result<ParsedOutcome, OutcomeError> {
-        use ParsedOutcome::*;
+    ) -> Result<Self, OutcomeError> {
+        use Outcome::*;
         use VsOutcome::*;
         match event_id.event_kind() {
             EventKind::SingleOccurrence => {

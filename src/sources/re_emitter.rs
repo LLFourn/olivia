@@ -1,12 +1,12 @@
 use crate::{
-    core::{Event, EventKind, Outcome, ParsedOutcome, VsMatchKind, VsOutcome},
+    core::{Event, EventKind, EventOutcome, Outcome, VsMatchKind, VsOutcome},
     sources::Update,
 };
 use futures::{Stream, StreamExt};
 
-pub struct VsReEmitter;
+pub struct Vs;
 
-impl VsReEmitter {
+impl Vs {
     pub fn re_emit_events(
         &self,
         events: impl Stream<Item = Update<Event>>,
@@ -37,9 +37,9 @@ impl VsReEmitter {
 
     pub fn re_emit_outcomes(
         &self,
-        outcomes: impl Stream<Item = Update<Outcome>>,
-    ) -> impl Stream<Item = Update<Outcome>> {
-        use ParsedOutcome::*;
+        outcomes: impl Stream<Item = Update<EventOutcome>>,
+    ) -> impl Stream<Item = Update<EventOutcome>> {
+        use Outcome::*;
         use VsOutcome::*;
         outcomes
             .map(|update| {
@@ -51,11 +51,11 @@ impl VsReEmitter {
                     let (left, right) = id.parties().unwrap();
                     for &right_posited_to_win in &[true, false] {
                         let new_outcome = match vs_outcome {
-                            Winner(winner) => ParsedOutcome::Win {
+                            Winner(winner) => Outcome::Win {
                                 winning_side: winner.clone(),
                                 posited_won: right_posited_to_win == (right == winner),
                             },
-                            Draw => ParsedOutcome::Win {
+                            Draw => Outcome::Win {
                                 winning_side: if right_posited_to_win {
                                     left.to_string()
                                 } else {
@@ -64,7 +64,7 @@ impl VsReEmitter {
                                 posited_won: false,
                             },
                         };
-                        re_emit.push(Update::from(Outcome {
+                        re_emit.push(Update::from(EventOutcome {
                             event_id: id.replace_kind(EventKind::VsMatch(VsMatchKind::Win {
                                 right_posited_to_win,
                             })),
@@ -96,7 +96,7 @@ mod test {
             EventId::from_str("foo/baz/FOO_BAZ.vs").unwrap().into(),
         ];
 
-        let re_emitter = VsReEmitter;
+        let re_emitter = Vs;
 
         let mut outcoming = rt.block_on(
             re_emitter
@@ -122,37 +122,39 @@ mod test {
 
     #[test]
     fn vs_re_emit_outcomes() {
-        use ParsedOutcome::*;
-        use VsOutcome::*;
         let mut rt = tokio::runtime::Runtime::new().unwrap();
         let time = chrono::Utc::now().naive_utc();
-        let incoming: Vec<Update<Outcome>> = vec![
-            Outcome {
-                event_id: EventId::from_str("foo/bar/FOO1_BAR1.vs").unwrap(),
-                outcome: Vs(Winner("FOO1".to_string())),
-                time,
-            },
-            Outcome {
-                event_id: EventId::from_str("foo/bar/FOO2_BAR2.vs").unwrap(),
-                outcome: Vs(Winner("BAR2".to_string())),
-                time,
-            },
-            Outcome {
-                event_id: EventId::from_str("foo/bar/FOO3_BAR3.vs").unwrap(),
-                outcome: Vs(Draw),
-                time,
-            },
-        ]
-        .into_iter()
-        .map(Update::from)
-        .collect();
+        let incoming: Vec<Update<EventOutcome>> = {
+            use Outcome::*;
+            use VsOutcome::*;
+            vec![
+                EventOutcome {
+                    event_id: EventId::from_str("foo/bar/FOO1_BAR1.vs").unwrap(),
+                    outcome: Vs(Winner("FOO1".to_string())),
+                    time,
+                },
+                EventOutcome {
+                    event_id: EventId::from_str("foo/bar/FOO2_BAR2.vs").unwrap(),
+                    outcome: Vs(Winner("BAR2".to_string())),
+                    time,
+                },
+                EventOutcome {
+                    event_id: EventId::from_str("foo/bar/FOO3_BAR3.vs").unwrap(),
+                    outcome: Vs(Draw),
+                    time,
+                },
+            ]
+            .into_iter()
+            .map(Update::from)
+            .collect()
+        };
 
-        let re_emitter = VsReEmitter;
+        let re_emitter = Vs;
 
         let mut outcoming = rt.block_on(
             re_emitter
                 .re_emit_outcomes(futures::stream::iter(incoming))
-                .map(|update| update.update.completed_event_id())
+                .map(|update| update.update.attestation_string())
                 .collect::<Vec<String>>(),
         );
 

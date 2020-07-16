@@ -1,5 +1,5 @@
 use crate::{
-    core::{EventId, Nonce, Outcome, Scalars},
+    core::{EventId, EventOutcome, Nonce, Scalars},
     curve::{ed25519, secp256k1, Curve, Ed25519, Secp256k1},
     oracle::OraclePubkeys,
     seed::Seed,
@@ -38,8 +38,8 @@ impl KeyChain {
         }
     }
 
-    pub fn scalars_for_event_outcome(&self, outcome: &Outcome) -> Scalars {
-        let outcome_long_id = outcome.completed_event_id();
+    pub fn scalars_for_event_outcome(&self, outcome: &EventOutcome) -> Scalars {
+        let outcome_long_id = outcome.attestation_string();
         let event_idx = self.event_seed.child(outcome.event_id.as_bytes());
 
         let ed25519_s = Ed25519::reveal_signature_s(

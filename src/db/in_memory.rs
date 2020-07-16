@@ -101,7 +101,10 @@ impl DbWrite for InMemory {
 impl TimeTickerDb for InMemory {
     async fn latest_time_event(&self) -> Result<Option<Event>, crate::db::Error> {
         let db = self.inner.read().unwrap();
-        let mut obs_events: Vec<&ObservedEvent> = db.values().collect();
+        let mut obs_events: Vec<&ObservedEvent> = db
+            .values()
+            .filter(|obs_event| obs_event.event.id.as_path().first() == "time")
+            .collect();
         obs_events.sort_by_cached_key(|obs_event| obs_event.event.expected_outcome_time);
         Ok(obs_events.last().map(|obs_event| obs_event.event.clone()))
     }
@@ -109,7 +112,9 @@ impl TimeTickerDb for InMemory {
         let db = self.inner.read().unwrap();
         let mut obs_events: Vec<&ObservedEvent> = db
             .values()
-            .filter(|obs_event| obs_event.attestation == None)
+            .filter(|obs_event| {
+                obs_event.event.id.as_path().first() == "time" && obs_event.attestation == None
+            })
             .collect();
         obs_events.sort_by_cached_key(|obs_event| obs_event.event.expected_outcome_time);
         Ok(obs_events.first().map(|obs_event| obs_event.event.clone()))

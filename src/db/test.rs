@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    core::{Event, Outcome, PathRef},
+    core::{Event, EventOutcome, PathRef},
     keychain::KeyChain,
     seed::Seed,
 };
@@ -10,18 +10,18 @@ const TEST_SEED: Seed = Seed::new([42u8; 64]);
 
 impl Attestation {
     pub fn test_new(event_id: &EventId) -> Self {
-        let outcome = Outcome::test_new(event_id);
+        let event_outcome = EventOutcome::test_new(event_id);
         Attestation::new(
-            format!("{}", outcome.outcome),
+            format!("{}", event_outcome.outcome),
             chrono::Utc::now().naive_utc(),
-            KeyChain::new(TEST_SEED).scalars_for_event_outcome(&outcome),
+            KeyChain::new(TEST_SEED).scalars_for_event_outcome(&event_outcome),
         )
     }
 }
 
-impl Outcome {
+impl EventOutcome {
     pub fn test_new(event_id: &EventId) -> Self {
-        Outcome {
+        EventOutcome {
             event_id: event_id.clone(),
             time: chrono::Utc::now().naive_utc(),
             outcome: event_id.default_outcome(),
@@ -219,6 +219,20 @@ fn test_child_event_of_node_with_event(rt: &mut tokio::runtime::Runtime, db: &dy
     assert_eq!(
         parent.children,
         ["test/db/test-insert-attested/test-sub-event"]
+    );
+
+    let parent = rt
+        .block_on(db.get_node("test/db/test-insert-attested/test-sub-event"))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        parent
+            .events
+            .iter()
+            .map(EventId::as_str)
+            .collect::<Vec<_>>(),
+        ["test/db/test-insert-attested/test-sub-event.occur"]
     );
 }
 

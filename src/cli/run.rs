@@ -1,6 +1,6 @@
 use crate::{
     config::{Config, DbConfig},
-    core::{Event, Outcome},
+    core::{Event, EventOutcome},
     db::{self, diesel::postgres::PgBackend, Db},
     oracle::Oracle,
     sources::Update,
@@ -45,6 +45,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         // Processing new events
         let event_loop = stream::select_all(event_streams)
             .for_each(
+                // FIXME: make this an async function
                 |Update {
                      update: event,
                      processed_notifier,
@@ -52,12 +53,16 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     let event_id = event.id.clone();
                     let logger = logger
                         .new(o!("type" => "new_event", "event_id" => format!("{}", &event_id)));
-                    oracle.add_event(event).map(move |res| {
-                        res.log(logger);
-                        if let Some(processed_notifier) = processed_notifier {
-                            let _ = processed_notifier.send(());
-                        }
-                    })
+
+                    oracle
+                        .add_event(event)
+                        .map(move |res| {
+                            res.log(logger);
+                            if let Some(processed_notifier) = processed_notifier {
+                                let _ = processed_notifier.send(());
+                            }
+                        })
+                        .boxed()
                 },
             )
             .boxed();
@@ -68,7 +73,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                 |Update {
                      update: outcome,
                      processed_notifier,
-                 }: Update<Outcome>| {
+                 }: Update<EventOutcome>| {
                     let logger = logger.new(
                         o!("type" => "new_outcome", "event_id" => format!("{}", outcome.event_id)),
                     );

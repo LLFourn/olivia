@@ -1,6 +1,6 @@
 use crate::seed::Seed;
 use chrono::NaiveDateTime;
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
 mod config_impls;
 
@@ -11,7 +11,7 @@ pub type RootDrain = Box<
 >;
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
@@ -41,7 +41,7 @@ pub struct RedisConfig {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "snake_case", tag = "backend")]
+#[serde(rename_all = "kebab-case", tag = "backend")]
 #[serde(deny_unknown_fields)]
 pub enum DbConfig {
     Postgres { url: String },
@@ -55,51 +55,72 @@ impl Default for DbConfig {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "snake_case", tag = "type")]
+#[serde(rename_all = "kebab-case", tag = "type")]
 #[serde(deny_unknown_fields)]
 pub enum EventSourceConfig {
+    #[serde(rename_all = "kebab-case")]
     TimeTicker {
         interval: u32,
         look_ahead: u32,
         initial_time: Option<NaiveDateTime>,
     },
     Redis(RedisConfig),
+    #[serde(rename_all = "kebab-case")]
     ReEmitter {
         source: Box<EventSourceConfig>,
-        re_emitter: ReEmitterConfig,
+        re_emitter: EventReEmitterConfig,
     },
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "snake_case", tag = "type")]
+#[serde(rename_all = "kebab-case", tag = "type")]
 #[serde(deny_unknown_fields)]
-pub enum ReEmitterConfig {
-    VsReEmitter,
+pub enum EventReEmitterConfig {
+    Vs,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "snake_case", tag = "type")]
+#[serde(rename_all = "kebab-case", tag = "type")]
+#[serde(deny_unknown_fields)]
+pub enum OutcomeReEmitterConfig {
+    Vs,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "kebab-case", tag = "type")]
 #[serde(deny_unknown_fields)]
 pub enum OutcomeSourceConfig {
     TimeTicker {},
     Redis(RedisConfig),
+    ReEmitter {
+        source: Box<OutcomeSourceConfig>,
+        re_emitter: OutcomeReEmitterConfig,
+    },
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "snake_case", tag = "type")]
+#[serde(rename_all = "kebab-case", tag = "type")]
 #[serde(deny_unknown_fields)]
 pub enum LoggerConfig {
-    Stdout {
-        #[serde(default)]
-        color: Option<bool>,
-    },
-    Stderr {
+    Term {
+        #[serde(deserialize_with = "deser_log_level")]
+        level: slog::Level,
+        out: TermConfig,
         #[serde(default)]
         color: Option<bool>,
     },
     File {
+        #[serde(deserialize_with = "deser_log_level")]
+        level: slog::Level,
         path: String,
     },
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub enum TermConfig {
+    Stdout,
+    Stderr,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -107,7 +128,11 @@ pub struct LoggersConfig(Vec<LoggerConfig>);
 
 impl Default for LoggersConfig {
     fn default() -> Self {
-        LoggersConfig(vec![LoggerConfig::Stdout { color: None }])
+        LoggersConfig(vec![LoggerConfig::Term {
+            out: TermConfig::Stdout,
+            color: None,
+            level: slog::Level::Info,
+        }])
     }
 }
 
@@ -130,6 +155,24 @@ pub fn deser_redis_connection_info<'a, D: serde::Deserializer<'a>>(
             use redis::IntoConnectionInfo;
             data.into_connection_info()
                 .map_err(|e| serde::de::Error::custom(e))
+        }
+    }
+
+    d.deserialize_str(MyVisitor)
+}
+
+fn deser_log_level<'a, D: serde::Deserializer<'a>>(d: D) -> Result<slog::Level, D::Error> {
+    struct MyVisitor;
+
+    impl<'a> serde::de::Visitor<'a> for MyVisitor {
+        type Value = slog::Level;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "a log level ({})", slog::LOG_LEVEL_NAMES.join(", "))
+        }
+
+        fn visit_str<E: serde::de::Error>(self, data: &str) -> Result<Self::Value, E> {
+            slog::Level::from_str(data).map_err(|_| serde::de::Error::custom("not a log level"))
         }
     }
 

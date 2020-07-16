@@ -39,11 +39,15 @@ pub fn event_stream<StrList: IntoIterator<Item = String>, I: DeserializeOwned + 
                         })
                         .is_err()
                     {
+                        info!(
+                            logger,
+                            "Redis loop has shut down because channel has been dropped"
+                        );
                         break;
                     }
                 }
                 Err(e) => {
-                    crit!(
+                    error!(
                         logger,
                         "Failed to deserialize event";
                         "list_name" => list_name,
@@ -77,11 +81,6 @@ pub fn event_stream<StrList: IntoIterator<Item = String>, I: DeserializeOwned + 
                 }
             }
         }
-
-        info!(
-            logger,
-            "Redis loop has shut down because channel has been dropped"
-        );
     });
 
     Ok(receiver)

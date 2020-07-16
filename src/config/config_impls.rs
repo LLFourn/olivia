@@ -7,9 +7,12 @@ impl LoggerConfig {
     pub fn to_slog_drain(&self) -> Result<RootDrain, Box<dyn std::error::Error>> {
         use crate::slog::Drain;
         use LoggerConfig::*;
-        match self {
-            Stdout { color } => {
-                let mut decorator = slog_term::TermDecorator::new().stdout();
+        match &self {
+            Term { out, color, level } => {
+                let mut decorator = match out {
+                    TermConfig::Stdout => slog_term::TermDecorator::new().stdout(),
+                    TermConfig::Stderr => slog_term::TermDecorator::new().stderr(),
+                };
                 if let Some(color) = color {
                     decorator = if *color {
                         decorator.force_color()
@@ -17,22 +20,16 @@ impl LoggerConfig {
                         decorator.force_plain()
                     }
                 }
-                let drain = slog_term::FullFormat::new(decorator.build()).build().fuse();
-                Ok(Box::new(slog_async::Async::new(drain).build().fuse()))
+                let drain = slog_term::FullFormat::new(decorator.build())
+                    .build()
+                    .fuse()
+                    .filter_level(*level)
+                    .ignore_res();
+                Ok(Box::new(
+                    slog_async::Async::new(drain).chan_size(4096).build().fuse(),
+                ))
             }
-            Stderr { color } => {
-                let mut decorator = slog_term::TermDecorator::new().stderr();
-                if let Some(color) = color {
-                    decorator = if *color {
-                        decorator.force_color()
-                    } else {
-                        decorator.force_plain()
-                    }
-                }
-                let drain = slog_term::FullFormat::new(decorator.build()).build().fuse();
-                Ok(Box::new(slog_async::Async::new(drain).build().fuse()))
-            }
-            File { path } => {
+            File { path, level } => {
                 let open_file = fs::OpenOptions::new()
                     .create(true)
                     .write(true)
@@ -40,7 +37,11 @@ impl LoggerConfig {
                     .open(path)?;
 
                 let decorator = slog_term::PlainDecorator::new(open_file);
-                let drain = slog_term::FullFormat::new(decorator).build().fuse();
+                let drain = slog_term::FullFormat::new(decorator)
+                    .build()
+                    .fuse()
+                    .filter_level(*level)
+                    .ignore_res();
                 Ok(Box::new(slog_async::Async::new(drain).build().fuse()))
             }
         }
@@ -82,8 +83,8 @@ impl EventSourceConfig {
             }) => {
                 info!(
                     logger,
-                    "Connecting to {:?} to receive events for ‘{}’",
-                    connection_info, name;
+                    "Connecting to redis://{}/{} to receive events for '{}'",
+                    connection_info.addr, connection_info.db, name;
                 );
 
                 Ok(sources::redis::event_stream(
@@ -120,8 +121,8 @@ impl EventSourceConfig {
             EventSourceConfig::ReEmitter { source, re_emitter } => {
                 let stream = source.to_event_stream(&name, logger, db);
                 match re_emitter {
-                    ReEmitterConfig::VsReEmitter => {
-                        let emitter = crate::sources::re_emitter::VsReEmitter;
+                    EventReEmitterConfig::Vs => {
+                        let emitter = crate::sources::re_emitter::Vs;
                         stream.map(|stream| emitter.re_emit_events(stream).boxed())
                     }
                 }
@@ -136,17 +137,20 @@ impl OutcomeSourceConfig {
         name: &str,
         logger: slog::Logger,
         db: Arc<dyn db::Db>,
-    ) -> Result<impl Stream<Item = sources::Update<core::Outcome>>, Box<dyn std::error::Error>>
-    {
+    ) -> Result<
+        std::pin::Pin<Box<dyn Stream<Item = sources::Update<core::EventOutcome>> + Send>>,
+        Box<dyn std::error::Error>,
+    > {
+        use OutcomeSourceConfig::*;
         match self.clone() {
-            OutcomeSourceConfig::Redis(RedisConfig {
+            Redis(RedisConfig {
                 connection_info,
                 lists,
             }) => {
                 info!(
                     logger,
-                    "Connecting to {:?} to receive outcomes for ‘{}’",
-                    connection_info, name;
+                    "Connecting to redis://{}/{} to receive outcomes for '{}'",
+                    connection_info.addr, connection_info.db, name;
                 );
                 Ok(
                     sources::redis::event_stream(
@@ -157,11 +161,20 @@ impl OutcomeSourceConfig {
                         .boxed()
                 )
             }
-            OutcomeSourceConfig::TimeTicker {} => {
+            TimeTicker {} => {
                 Ok(sources::time_ticker::time_outcomes_stream(
                     db.clone(),
                     logger.new(o!("type" => "outcome_source", "name" => name.to_owned(), "source_type" => "time_ticker"))
                 ).boxed())
+            }
+            ReEmitter { source, re_emitter } => {
+                let stream = source.to_outcome_stream(&name, logger, db);
+                match re_emitter {
+                    OutcomeReEmitterConfig::Vs => {
+                        let emitter = crate::sources::re_emitter::Vs;
+                        stream.map(|stream| emitter.re_emit_outcomes(stream).boxed())
+                    }
+                }
             }
         }
     }
