@@ -88,7 +88,7 @@ fn test_insert_unattested(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
         );
 
         let path = rt.block_on(db.get_node("test")).unwrap().unwrap();
-        assert_eq!(path.events, []);
+        assert_eq!(path.events, [""; 0]);
         assert_eq!(path.children[..], ["test/db".to_string()]);
         assert_eq!(
             rt.block_on(db.get_node("test/db"))
@@ -195,7 +195,7 @@ fn test_insert_grandchild_event(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
         .block_on(db.get_node("test/db/dbchild"))
         .unwrap()
         .unwrap();
-    assert_eq!(dbchild.events, []);
+    assert_eq!(dbchild.events, [""; 0]);
     assert_eq!(dbchild.children[..], ["test/db/dbchild/grandchild"]);
 
     let grandchild = rt

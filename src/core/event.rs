@@ -166,6 +166,19 @@ impl From<EventId> for Event {
     }
 }
 
+impl PartialEq<str> for EventId {
+    fn eq(&self, rhs: &str) -> bool {
+        self.0 == rhs
+    }
+}
+
+// rust made me do it
+impl PartialEq<&str> for EventId {
+    fn eq(&self, rhs: &&str) -> bool {
+        self.0 == *rhs
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PathRef<'a>(&'a str);
 

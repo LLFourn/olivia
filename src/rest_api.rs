@@ -4,8 +4,8 @@ use crate::{
     oracle,
 };
 use core::str::FromStr;
-use std::sync::Arc;
-use warp::{self, Filter};
+use std::{convert::Infallible, sync::Arc};
+use warp::{self, http, Filter};
 
 #[derive(Debug)]
 struct DbError;
@@ -21,10 +21,14 @@ impl warp::reject::Reject for NotAnEvent {}
 pub struct PathResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_keys: Option<oracle::OraclePubkeys>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub events: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<EventId>,
     pub children: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ErrorMessage {
+    code: u16,
+    error: String,
 }
 
 pub mod filters {
@@ -103,7 +107,7 @@ pub mod filters {
 
 pub fn routes(
     db: Arc<dyn Db>,
-) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+) -> impl Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
     let event = warp::get()
         .and(filters::get_event(db.clone()))
         .map(|event: ObservedEvent| warp::reply::json(&event));
@@ -127,7 +131,29 @@ pub fn routes(
             })
         });
 
-    root.or(event).or(path)
+    root.or(event).or(path).recover(handle_rejection)
+}
+
+async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, Infallible> {
+    // This sucks see: https://github.com/seanmonstar/warp/issues/451
+    let code;
+    let message = None;
+    if let Some(DbError) = err.find() {
+        code = http::StatusCode::INTERNAL_SERVER_ERROR;
+    } else if err.is_not_found() {
+        code = http::StatusCode::NOT_FOUND;
+    } else if let Some(NotAnEvent) = err.find() {
+        code = http::StatusCode::NOT_FOUND;
+    } else {
+        code = http::StatusCode::BAD_REQUEST;
+    }
+
+    let json = warp::reply::json(&ErrorMessage {
+        code: code.as_u16(),
+        error: message.unwrap_or(code.canonical_reason().unwrap()).into(),
+    });
+
+    Ok(warp::reply::with_status(json, code))
 }
 
 #[cfg(test)]
@@ -137,55 +163,73 @@ mod test {
         core::{EventId, ObservedEvent},
         db::Db,
     };
+    use serde_json::from_slice as j;
     use std::sync::Arc;
 
     #[tokio::test]
     async fn get_path() {
         let db: Arc<dyn Db> = Arc::new(crate::db::in_memory::InMemory::default());
-        let event_id = EventId::from_str("test/one/two/three.occur").unwrap();
+        let event_id = EventId::from_str("test/one/two/3.occur").unwrap();
         let node = event_id.node();
         let obs_event = ObservedEvent::test_new(&event_id);
-        let filter = filters::get_path(db.clone());
+        let routes = routes(db.clone());
 
-        assert!(warp::test::request()
-            .path(&format!("/{}", node))
-            .filter(&filter)
-            .await
-            .is_err());
+        {
+            let res = warp::test::request()
+                .path(&format!("/{}", node))
+                .reply(&routes)
+                .await;
+
+            assert_eq!(res.status(), 404);
+            let body = j::<ErrorMessage>(&res.body()).expect("returns an error body");
+            assert_eq!(
+                body.error,
+                http::StatusCode::NOT_FOUND.canonical_reason().unwrap()
+            );
+        }
 
         db.insert_event(obs_event.clone()).await.unwrap();
 
-        let item = warp::test::request()
-            .path(&format!("/{}", node))
-            .filter(&filter)
-            .await
-            .unwrap();
+        for path in &[format!("/{}", node), format!("/{}/", node)] {
+            let res = warp::test::request().path(path).reply(&routes).await;
 
-        assert_eq!(item.events, [event_id.clone()]);
+            assert_eq!(res.status(), 200);
+            let body = j::<PathResponse>(&res.body()).unwrap();
+            assert_eq!(body.events, [event_id.clone()]);
+        }
 
-        let item = warp::test::request()
-            .path(&format!("/{}/", node))
-            .filter(&filter)
-            .await
-            .unwrap();
+        db.insert_event(ObservedEvent::test_new(
+            &EventId::from_str("test/one/two/4.occur").unwrap(),
+        ))
+        .await
+        .unwrap();
 
-        assert_eq!(item.events, [event_id]);
+        let res = warp::test::request()
+            .path(&format!("/{}", node.parent().unwrap()))
+            .reply(&routes)
+            .await;
+        let body = j::<PathResponse>(&res.body()).unwrap();
+        assert_eq!(body.children, ["test/one/two/3", "test/one/two/4"]);
     }
 
     //TODO: test get event
+    #[tokio::test]
+    async fn get_root() {
+        let db: Arc<dyn Db> = Arc::new(crate::db::in_memory::InMemory::default());
+        let pubkeys =
+            crate::keychain::KeyChain::new(crate::seed::Seed::new([42u8; 64])).oracle_pubkeys();
+        db.set_public_keys(pubkeys.clone()).await.unwrap();
+        let obs_event =
+            ObservedEvent::test_new(&EventId::from_str("test/one/two/three.occur").unwrap());
 
-    // #[tokio::test]
-    // async fn get_root() {
-    //     let db: Arc<dyn Db> = Arc::new(crate::db::in_memory::InMemory::default());
-    //     let path = "test/one/two/three";
-    //     let obs_event = ObservedEvent::test_new(&EventId::from(path.to_string()));
-    //     db.insert_event(obs_event.clone()).await.unwrap();
-    //     let filter = filters::get_root(db.clone());
+        db.insert_event(obs_event.clone()).await.unwrap();
 
-    //     let root = warp::test::request()
-    //         .path("")
-    //         .filter(&filter)
-    //         .await
-    //         .unwrap();
-    // }
+        let routes = routes(db);
+
+        let res = warp::test::request().path("/").reply(&routes).await;
+        assert_eq!(res.status(), 200);
+        let body = j::<PathResponse>(&res.body()).unwrap();
+        assert_eq!(body.children, ["test"]);
+        assert_eq!(body.public_keys, Some(pubkeys));
+    }
 }
