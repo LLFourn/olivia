@@ -8,6 +8,7 @@ pub trait Curve {
     type SchnorrScalar: PartialEq + Clone + core::fmt::Debug;
     type PublicKey: PartialEq + Clone + core::fmt::Debug;
     type KeyPair: Into<Self::PublicKey>;
+    type SchnorrSignature: PartialEq + Clone + core::fmt::Debug;
 
     fn derive_keypair(seed: &Seed) -> Self::KeyPair;
     fn derive_nonce_keypair(seed: &Seed) -> Self::KeyPair;
@@ -16,4 +17,13 @@ pub trait Curve {
         nonce_key: &Self::KeyPair,
         message: &[u8],
     ) -> Self::SchnorrScalar;
+    fn signature_from_scalar_and_nonce(
+        scalar: Self::SchnorrScalar,
+        nonce: Self::PublicKey,
+    ) -> Self::SchnorrSignature;
+    fn verify_signature(
+        public_key: &Self::PublicKey,
+        message: &[u8],
+        sig: &Self::SchnorrSignature,
+    ) -> bool;
 }

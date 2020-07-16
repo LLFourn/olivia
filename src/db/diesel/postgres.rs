@@ -300,8 +300,8 @@ mod test {
         //TODO: Test for the error or test that it automatically reconnects
     }
 
-    #[test]
-    fn time_ticker_postgres() {
+    #[tokio::test]
+    async fn time_ticker_postgres() {
         use crate::{db::DbWrite, sources::time_ticker};
         let docker = clients::Cli::default();
         let (db, _container) = new_backend!(docker);
@@ -311,6 +311,13 @@ mod test {
             rt.block_on(db.insert_event(time_event)).unwrap();
         }
 
-        crate::sources::time_ticker::test::test_time_ticker_db(Arc::new(db));
+        crate::sources::time_ticker::test::test_time_ticker_db(Arc::new(db)).await;
+    }
+
+    #[tokio::test]
+    async fn postgres_test_against_oracle() {
+        let docker = clients::Cli::default();
+        let (db, _container) = new_backend!(docker);
+        crate::oracle::test::test_oracle_event_lifecycle(Arc::new(db)).await
     }
 }

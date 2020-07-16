@@ -163,7 +163,6 @@ pub mod test {
     use crate::{core::ObservedEvent, db::in_memory::InMemory};
     use futures::stream::StreamExt;
     use std::str::FromStr;
-    use tokio::runtime::Runtime;
 
     fn logger() -> slog::Logger {
         slog::Logger::root(slog::Discard, o!())
@@ -227,17 +226,18 @@ pub mod test {
         ]
     }
 
-    pub fn test_time_ticker_db(db: Arc<dyn Db>) {
-        let mut rt = Runtime::new().unwrap();
-        let latest_time_event = rt
-            .block_on(db.latest_time_event())
+    pub async fn test_time_ticker_db(db: Arc<dyn Db>) {
+        let latest_time_event = db
+            .latest_time_event()
+            .await
             .expect("latest_time_event isn't Err")
             .expect("latest_time_event isn't None");
 
         assert_eq!(latest_time_event, time_ticker_db_test_data()[1].event);
 
-        let earliest_unattested_time_event = rt
-            .block_on(db.earliest_unattested_time_event())
+        let earliest_unattested_time_event = db
+            .earliest_unattested_time_event()
+            .await
             .expect("earliest_unattested_time_event isn't Err")
             .expect("earliest_unattested_time_event isn't None");
 

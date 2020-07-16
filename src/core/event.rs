@@ -1,4 +1,8 @@
-use crate::curve::{ed25519, secp256k1};
+use crate::curve::{
+    ed25519::{self, Ed25519},
+    secp256k1::{self, Secp256k1},
+    Curve,
+};
 use chrono::NaiveDateTime;
 use core::fmt;
 use std::str::FromStr;
@@ -247,6 +251,29 @@ pub struct ObservedEvent {
     pub event: Event,
     pub nonce: Nonce,
     pub attestation: Option<crate::core::Attestation>,
+}
+
+impl ObservedEvent {
+    pub fn signatures(&self) -> Option<Signatures> {
+        self.attestation.clone().map(|attestation| {
+            let scalars = attestation.scalars;
+            Signatures {
+                secp256k1: Secp256k1::signature_from_scalar_and_nonce(
+                    scalars.secp256k1,
+                    self.nonce.secp256k1.clone(),
+                ),
+                ed25519: Ed25519::signature_from_scalar_and_nonce(
+                    scalars.ed25519,
+                    self.nonce.ed25519.clone(),
+                ),
+            }
+        })
+    }
+}
+
+pub struct Signatures {
+    pub ed25519: <ed25519::Ed25519 as Curve>::SchnorrSignature,
+    pub secp256k1: <secp256k1::Secp256k1 as Curve>::SchnorrSignature,
 }
 
 mod sql_impls {

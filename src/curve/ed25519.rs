@@ -71,6 +71,7 @@ impl super::Curve for Ed25519 {
     type KeyPair = KeyPair;
     type SchnorrScalar = SchnorrScalar;
     type PublicKey = PublicKey;
+    type SchnorrSignature = ed25519_dalek::Signature;
 
     fn derive_keypair(seed: &Seed) -> Self::KeyPair {
         let mut hash = seed.to_blake2b();
@@ -101,6 +102,27 @@ impl super::Curve for Ed25519 {
 
         SchnorrScalar(s)
     }
+
+    fn signature_from_scalar_and_nonce(
+        scalar: Self::SchnorrScalar,
+        nonce: Self::PublicKey,
+    ) -> Self::SchnorrSignature {
+        let mut bytes = [0u8; 64];
+        bytes[..32].copy_from_slice(nonce.0.compress().as_bytes());
+        bytes[32..].copy_from_slice(scalar.0.as_bytes());
+        ed25519_dalek::Signature::from_bytes(&bytes[..]).expect("it's in the correct form")
+    }
+
+    fn verify_signature(
+        public_key: &Self::PublicKey,
+        message: &[u8],
+        sig: &Self::SchnorrSignature,
+    ) -> bool {
+        let pk = ed25519_dalek::PublicKey::from_bytes(public_key.0.compress().as_bytes())
+            .expect("will always be correct since it comes directly from a point");
+
+        pk.verify_strict(message, sig).is_ok()
+    }
 }
 
 mod diesel_impl {
@@ -121,8 +143,12 @@ mod diesel_impl {
             let mut scalar_bytes = [0u8; 32];
             scalar_bytes.copy_from_slice(&bytes[..]);
             Ok(Self(
-                //XXX: This does a modular reduction. Use from_cannonical_bytes instead.
-                curve25519_dalek::scalar::Scalar::from_bytes_mod_order(scalar_bytes),
+                curve25519_dalek::scalar::Scalar::from_canonical_bytes(scalar_bytes).ok_or(
+                    format!(
+                        "Invalid curve25519 scalar from database: {}",
+                        crate::util::to_hex(&scalar_bytes)
+                    ),
+                )?,
             ))
         }
     }

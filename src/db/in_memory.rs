@@ -145,17 +145,21 @@ mod test {
         crate::db::test::test_db(db.as_ref());
     }
 
-    #[test]
-    fn time_ticker_in_memory() {
+    #[tokio::test]
+    async fn time_ticker_in_memory() {
         use crate::sources::time_ticker;
         let db = InMemory::default();
 
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
-
         for time_event in time_ticker::test::time_ticker_db_test_data() {
-            rt.block_on(db.insert_event(time_event)).unwrap();
+            db.insert_event(time_event).await.unwrap();
         }
 
-        time_ticker::test::test_time_ticker_db(Arc::new(db));
+        time_ticker::test::test_time_ticker_db(Arc::new(db)).await;
+    }
+
+    #[tokio::test]
+    async fn test_against_oracle() {
+        let db = InMemory::default();
+        crate::oracle::test::test_oracle_event_lifecycle(Arc::new(db)).await
     }
 }

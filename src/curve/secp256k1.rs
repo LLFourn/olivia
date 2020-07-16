@@ -4,7 +4,7 @@ use diesel::sql_types;
 use digest::{Input, VariableOutput};
 pub use schnorr_fun::{
     fun::{self, marker::*, s, Scalar, XOnly, G},
-    Schnorr,
+    Schnorr, Signature,
 };
 
 pub struct Secp256k1;
@@ -61,6 +61,7 @@ impl super::Curve for Secp256k1 {
     type KeyPair = KeyPair;
     type PublicKey = PublicKey;
     type SchnorrScalar = SchnorrScalar;
+    type SchnorrSignature = Signature;
 
     fn derive_keypair(seed: &Seed) -> Self::KeyPair {
         let mut hash = seed.to_blake2b_32();
@@ -87,14 +88,35 @@ impl super::Curve for Secp256k1 {
         nonce_keypair: &Self::KeyPair,
         message: &[u8],
     ) -> Self::SchnorrScalar {
-        let (r, R) = signing_keypair.as_tuple();
-        let (x, X) = nonce_keypair.as_tuple();
+        let (x, X) = signing_keypair.as_tuple();
+        let (r, R) = nonce_keypair.as_tuple();
         let c = SCHNORR.challenge(
             &R.0.clone().mark::<SquareY>(),
             &X.0.clone().mark::<EvenY>(),
             message.mark::<Public>(),
         );
         SchnorrScalar(s!(r + c * x).mark::<Public>())
+    }
+
+    fn signature_from_scalar_and_nonce(
+        scalar: Self::SchnorrScalar,
+        nonce: Self::PublicKey,
+    ) -> Self::SchnorrSignature {
+        Signature {
+            R: nonce.0.mark::<SquareY>(),
+            s: scalar.0,
+        }
+    }
+
+    fn verify_signature(
+        public_key: &Self::PublicKey,
+        message: &[u8],
+        sig: &Self::SchnorrSignature,
+    ) -> bool {
+        let public_key = public_key.0.clone().mark::<EvenY>();
+        let message = message.mark::<Public>();
+        let verification_key = public_key.to_point();
+        SCHNORR.verify(&verification_key, message, sig)
     }
 }
 

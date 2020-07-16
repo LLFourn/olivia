@@ -13,6 +13,7 @@ pub struct OraclePubkeys {
     pub secp256k1: secp256k1::PublicKey,
 }
 
+#[derive(Debug)]
 pub enum EventResult {
     AlreadyExists,
     AlreadyCompleted,
@@ -23,6 +24,7 @@ pub enum EventResult {
     DbWriteErr(crate::db::Error),
 }
 
+#[derive(Debug)]
 pub enum OutcomeResult {
     Completed,
     AlreadyCompleted,
@@ -143,5 +145,70 @@ impl Oracle {
             }
             Err(e) => OutcomeResult::DbReadErr(e),
         }
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use crate::{
+        core::{EventId, WireEventOutcome},
+        curve::{ed25519::Ed25519, secp256k1::Secp256k1, Curve},
+        db::Db,
+    };
+    use core::{convert::TryInto, str::FromStr};
+
+    pub async fn test_oracle_event_lifecycle(db: Arc<dyn Db>) {
+        let oracle = Oracle::new(crate::seed::Seed::new([42u8; 64]), db.clone())
+            .await
+            .expect("should be able to create oracle");
+        let public_keys = db
+            .get_public_keys()
+            .await
+            .unwrap()
+            .expect("creating oracle should have set public keys");
+        let event_id = EventId::from_str("foo/bar/baz.occur").unwrap();
+        assert!(
+            if let EventResult::Created = oracle.add_event(event_id.clone().into()).await {
+                true
+            } else {
+                false
+            }
+        );
+
+        let outcome: EventOutcome = WireEventOutcome {
+            event_id: event_id.clone(),
+            outcome: "true".into(),
+            time: None,
+        }
+        .try_into()
+        .unwrap();
+
+        assert!(
+            if let OutcomeResult::Completed = oracle.complete_event(outcome.clone()).await {
+                true
+            } else {
+                false
+            }
+        );
+
+        let obs_event = db
+            .get_event(&event_id)
+            .await
+            .unwrap()
+            .expect("event should still be there");
+        let signatures = obs_event.signatures().expect("should be attested to");
+
+        assert!(Secp256k1::verify_signature(
+            &public_keys.secp256k1,
+            outcome.attestation_string().as_bytes(),
+            &signatures.secp256k1
+        ));
+
+        assert!(Ed25519::verify_signature(
+            &public_keys.ed25519,
+            outcome.attestation_string().as_bytes(),
+            &signatures.ed25519
+        ));
     }
 }
