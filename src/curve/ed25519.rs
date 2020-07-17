@@ -6,6 +6,7 @@ pub use curve25519_dalek::{
 };
 use diesel::sql_types;
 use digest::generic_array::typenum::U64;
+use ed25519_dalek::ed25519::signature::Signature;
 use sha2::{Digest, Sha512};
 
 pub struct Ed25519;
