@@ -1,5 +1,6 @@
 use crate::{
     core::{self, EventId, Scalars},
+    curve::{ed25519::Ed25519, secp256k1::Secp256k1, Curve},
     oracle,
 };
 use diesel::Insertable;
@@ -49,8 +50,8 @@ impl From<core::Event> for Event {
 #[primary_key(event_id)]
 struct Nonce {
     pub event_id: String,
-    pub ed25519: crate::curve::ed25519::PublicKey,
-    pub secp256k1: crate::curve::secp256k1::PublicKey,
+    pub ed25519: <Ed25519 as Curve>::PublicNonce,
+    pub secp256k1: <Secp256k1 as Curve>::PublicNonce,
 }
 
 impl Nonce {

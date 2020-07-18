@@ -242,8 +242,8 @@ pub struct Event {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Nonce {
-    pub ed25519: ed25519::PublicKey,
-    pub secp256k1: secp256k1::PublicKey,
+    pub ed25519: <Ed25519 as Curve>::PublicNonce,
+    pub secp256k1: <Secp256k1 as Curve>::PublicNonce,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]

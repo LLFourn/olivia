@@ -25,8 +25,9 @@ impl KeyChain {
 
     pub fn oracle_pubkeys(&self) -> OraclePubkeys {
         OraclePubkeys {
-            ed25519: self.ed25519_keypair.public_key.clone(),
-            secp256k1: self.secp256k1_keypair.public_key.clone(),
+            ed25519: self.ed25519_keypair.clone().into(),
+            // TODO: Make this symmetric
+            secp256k1: self.secp256k1_keypair.public_key().clone().into(),
         }
     }
 
@@ -63,8 +64,8 @@ impl KeyChain {
 
 #[derive(Debug, Clone)]
 pub struct NonceKeyPairs {
-    pub ed25519: ed25519::KeyPair,
-    pub secp256k1: secp256k1::KeyPair,
+    pub ed25519: <Ed25519 as Curve>::NonceKeyPair,
+    pub secp256k1: <Secp256k1 as Curve>::NonceKeyPair,
 }
 
 impl From<NonceKeyPairs> for Nonce {

@@ -98,7 +98,66 @@ macro_rules! impl_fromstr_deserailize {
                 }
             }
         }
+    };
+}
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_fromsql {
+    (
+        name => $name:literal,
+        fn from_bytes$(<$($tpl:ident  $(: $tcl:ident)?),*>)?($input:ident : [u8;$len:literal]) ->  Option<$type:path> $block:block
+    ) => {
+        impl<DB: diesel::backend::Backend>
+            diesel::deserialize::FromSql<diesel::sql_types::Binary, DB> for $type
+        where
+            Vec<u8>: diesel::deserialize::FromSql<diesel::sql_types::Binary, DB>,
+        {
+            fn from_sql(bytes: Option<&DB::RawValue>) -> diesel::deserialize::Result<Self> {
+                let vec = <Vec<u8> as diesel::deserialize::FromSql<
+                    diesel::sql_types::Binary,
+                    DB,
+                >>::from_sql(bytes)?;
+                if vec.len() != $len {
+                    return Err(format!(
+                        "wrong length for {}, expected {} got {}",
+                        $name,
+                        $len,
+                        vec.len()
+                    ))?;
+                }
+                let mut $input = [0u8; $len];
+                $input.copy_from_slice(&vec[..]);
+                let result = $block;
+                Ok(result.ok_or(format!(
+                    "Invalid {} from database '{}'",
+                    $name,
+                    $crate::util::to_hex(&$input[..])
+                ))?)
+            }
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_tosql {
+    (fn to_bytes$(<$($tpl:ident  $(: $tcl:ident)?),*>)?($self:ident : &$type:path) -> $(&)?[u8;$len:literal] $block:block) => {
+        impl<DB: diesel::backend::Backend> diesel::serialize::ToSql<sql_types::Binary, DB>
+            for $type
+        {
+            fn to_sql<W: std::io::Write>(
+                &self,
+                out: &mut diesel::serialize::Output<W, DB>,
+            ) -> diesel::serialize::Result {
+                let $self = self;
+                let bytes = $block;
+                diesel::serialize::ToSql::<diesel::sql_types::Binary, DB>::to_sql(
+                    bytes.as_ref(),
+                    out,
+                )
+            }
+        }
     };
 }
 
@@ -192,5 +251,23 @@ macro_rules! impl_display_debug_serialize {
     ($($tt:tt)+) => {
         $crate::impl_serialize!($($tt)+);
         $crate::impl_display_debug!($($tt)+);
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! impl_display_debug_serialize_tosql {
+    ($($tt:tt)+) => {
+        $crate::impl_display_debug_serialize!($($tt)+);
+        $crate::impl_tosql!($($tt)+);
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! impl_fromstr_deserailize_fromsql {
+    ($($tt:tt)+) => {
+        $crate::impl_fromstr_deserailize!($($tt)+);
+        $crate::impl_fromsql!($($tt)+);
     };
 }

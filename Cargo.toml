@@ -31,10 +31,10 @@ diesel_migrations = "1.4"
 structopt = "0.3"
 thiserror = "1.0"
 serde_yaml = "0.8"
+rand = "0.7"
 
 [dev-dependencies]
-rand = "0.7"
-testcontainers = { git = "https://github.com/llfourn/testcontainers-rs" }
+testcontainers = { git = "https://github.com/llfourn/testcontainers-rs", rev = "15bd98c" }
 
 [features]
 docker_tests = []
