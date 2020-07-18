@@ -305,10 +305,9 @@ mod test {
         use crate::{db::DbWrite, sources::time_ticker};
         let docker = clients::Cli::default();
         let (db, _container) = new_backend!(docker);
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
 
         for time_event in time_ticker::test::time_ticker_db_test_data() {
-            rt.block_on(db.insert_event(time_event)).unwrap();
+            db.insert_event(time_event).await.unwrap();
         }
 
         crate::sources::time_ticker::test::test_time_ticker_db(Arc::new(db)).await;
