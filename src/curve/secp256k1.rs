@@ -4,7 +4,7 @@ use diesel::sql_types;
 use digest::{Input, VariableOutput};
 pub use schnorr_fun::{
     fun::{self, marker::*, s, Scalar, XOnly, G},
-    KeyPair, Schnorr, Signature,
+    KeyPair, Schnorr,
 };
 
 pub struct Secp256k1;
@@ -60,6 +60,23 @@ crate::impl_fromstr_deserailize_fromsql! {
     }
 }
 
+#[derive(PartialEq, Clone, FromSqlRow, AsExpression)]
+#[sql_type = "sql_types::Binary"]
+pub struct SchnorrSignature(schnorr_fun::Signature);
+
+crate::impl_display_debug_serialize_tosql! {
+    fn to_bytes(sig: &SchnorrSignature) -> [u8;64] {
+        sig.0.to_bytes()
+    }
+}
+
+crate::impl_fromstr_deserailize_fromsql! {
+    name => "bip340 schnorr signature",
+    fn from_bytes(bytes: [u8;64]) ->  Option<SchnorrSignature> {
+        schnorr_fun::Signature::from_bytes(bytes).map(SchnorrSignature)
+    }
+}
+
 lazy_static::lazy_static! {
     static ref SCHNORR: Schnorr = Schnorr::from_tag(b"oracle");
 }
@@ -89,7 +106,7 @@ impl super::Curve for Secp256k1 {
     type PublicNonce = PublicNonce;
     type SchnorrScalar = SchnorrScalar;
     type NonceKeyPair = (Scalar, XOnly<SquareY>);
-    type SchnorrSignature = Signature;
+    type SchnorrSignature = SchnorrSignature;
 
     fn derive_keypair(seed: &Seed) -> Self::KeyPair {
         let mut hash = seed.to_blake2b_32();
@@ -130,10 +147,10 @@ impl super::Curve for Secp256k1 {
         scalar: Self::SchnorrScalar,
         nonce: Self::PublicNonce,
     ) -> Self::SchnorrSignature {
-        Signature {
+        SchnorrSignature(schnorr_fun::Signature {
             R: nonce.0,
             s: scalar.0,
-        }
+        })
     }
 
     fn verify_signature(
@@ -144,14 +161,14 @@ impl super::Curve for Secp256k1 {
         let public_key = public_key.0.clone().mark::<EvenY>();
         let message = message.mark::<Public>();
         let verification_key = public_key.to_point();
-        SCHNORR.verify(&verification_key, message, sig)
+        SCHNORR.verify(&verification_key, message, &sig.0)
     }
 
     fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::SchnorrSignature {
-        SCHNORR.sign(
+        SchnorrSignature(SCHNORR.sign(
             keypair,
             message.mark::<Public>(),
             fun::hash::Derivation::rng(&mut rand::thread_rng()),
-        )
+        ))
     }
 }

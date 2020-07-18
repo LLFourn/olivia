@@ -1,6 +1,9 @@
 use crate::{
-    core::{Attestation, Event, EventOutcome, ObservedEvent},
-    curve::{ed25519, secp256k1},
+    core::{AnnouncedEvent, Attestation, Event, EventOutcome},
+    curve::{
+        ed25519::{self},
+        secp256k1::{self},
+    },
     db,
     keychain::KeyChain,
     seed::Seed,
@@ -86,23 +89,27 @@ impl Oracle {
         Ok(Self { db, keychain })
     }
 
+    pub fn public_keys(&self) -> OraclePubkeys {
+        self.keychain.oracle_pubkeys()
+    }
+
     pub async fn add_event(&self, new_event: Event) -> EventResult {
         match self.db.get_event(&new_event.id).await {
-            Ok(Some(ObservedEvent {
+            Ok(Some(AnnouncedEvent {
                 attestation: Some(_),
                 ..
             })) => EventResult::AlreadyCompleted,
-            Ok(Some(ObservedEvent { .. })) => {
+            Ok(Some(AnnouncedEvent { .. })) => {
                 // TODO: update exected_outcome_time
                 EventResult::AlreadyExists
             }
             Ok(None) => {
-                let public_nonces = self.keychain.nonces_for_event(&new_event.id).into();
+                let announcement = self.keychain.create_announcement(&new_event.id);
                 let insert_result = self
                     .db
-                    .insert_event(ObservedEvent {
+                    .insert_event(AnnouncedEvent {
                         event: new_event,
-                        nonce: public_nonces,
+                        announcement,
                         attestation: None,
                     })
                     .await;
@@ -121,7 +128,7 @@ impl Oracle {
         let outcome_str = format!("{}", event_outcome.outcome);
         match existing {
             Ok(None) => OutcomeResult::EventNotExist,
-            Ok(Some(ObservedEvent {
+            Ok(Some(AnnouncedEvent {
                 attestation: Some(attestation),
                 ..
             })) => {
@@ -134,7 +141,7 @@ impl Oracle {
                     }
                 }
             }
-            Ok(Some(ObservedEvent { event, .. })) => {
+            Ok(Some(AnnouncedEvent { event, .. })) => {
                 let scalars = self.keychain.scalars_for_event_outcome(&event_outcome);
                 let attest = Attestation::new(outcome_str, event_outcome.time, scalars);
 

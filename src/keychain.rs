@@ -1,5 +1,5 @@
 use crate::{
-    core::{EventId, EventOutcome, Nonce, Scalars},
+    core::{Announcement, EventId, EventOutcome, NonceAndSig, Nonces, Scalars},
     curve::{ed25519, secp256k1, Curve, Ed25519, Secp256k1},
     oracle::OraclePubkeys,
     seed::Seed,
@@ -60,6 +60,25 @@ impl KeyChain {
             secp256k1: secp256k1_s,
         }
     }
+
+    pub fn create_announcement(&self, event_id: &EventId) -> Announcement {
+        let public_nonces = self.nonces_for_event(&event_id).into();
+        let to_sign = event_id.announcement_messages(&public_nonces);
+
+        let secp256k1_sig = Secp256k1::sign(&self.secp256k1_keypair, to_sign.secp256k1.as_bytes());
+        let ed25519_sig = Ed25519::sign(&self.ed25519_keypair, to_sign.ed25519.as_bytes());
+
+        Announcement {
+            ed25519: NonceAndSig {
+                nonce: public_nonces.ed25519,
+                signature: ed25519_sig,
+            },
+            secp256k1: NonceAndSig {
+                nonce: public_nonces.secp256k1,
+                signature: secp256k1_sig,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -68,9 +87,9 @@ pub struct NonceKeyPairs {
     pub secp256k1: <Secp256k1 as Curve>::NonceKeyPair,
 }
 
-impl From<NonceKeyPairs> for Nonce {
+impl From<NonceKeyPairs> for Nonces {
     fn from(kp: NonceKeyPairs) -> Self {
-        Nonce {
+        Self {
             ed25519: kp.ed25519.into(),
             secp256k1: kp.secp256k1.into(),
         }

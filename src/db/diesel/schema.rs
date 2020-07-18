@@ -1,4 +1,14 @@
 table! {
+    announcements (event_id) {
+        event_id -> Text,
+        ed25519_nonce -> Bytea,
+        ed25519_signature -> Bytea,
+        secp256k1_nonce -> Bytea,
+        secp256k1_signature -> Bytea,
+    }
+}
+
+table! {
     attestations (event_id) {
         event_id -> Text,
         outcome -> Text,
@@ -24,22 +34,20 @@ table! {
 }
 
 table! {
-    nonces (event_id) {
-        event_id -> Text,
-        ed25519 -> Bytea,
-        secp256k1 -> Bytea,
-    }
-}
-
-table! {
     tree (id) {
         id -> Text,
         parent -> Nullable<Text>,
     }
 }
 
+joinable!(announcements -> events (event_id));
 joinable!(attestations -> events (event_id));
 joinable!(events -> tree (node));
-joinable!(nonces -> events (event_id));
 
-allow_tables_to_appear_in_same_query!(attestations, events, meta, nonces, tree,);
+allow_tables_to_appear_in_same_query!(
+    announcements,
+    attestations,
+    events,
+    meta,
+    tree,
+);

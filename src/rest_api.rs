@@ -1,5 +1,5 @@
 use crate::{
-    core::{EventId, ObservedEvent, PathRef},
+    core::{AnnouncedEvent, EventId, PathRef},
     db::{self, Db},
     oracle,
 };
@@ -42,7 +42,7 @@ pub mod filters {
 
     pub fn get_event(
         db: Arc<dyn Db>,
-    ) -> impl Filter<Extract = (ObservedEvent,), Error = warp::reject::Rejection> + Clone {
+    ) -> impl Filter<Extract = (AnnouncedEvent,), Error = warp::reject::Rejection> + Clone {
         warp::path::tail()
             .and_then(async move |tail: warp::filters::path::Tail| {
                 match EventId::from_str(tail.as_str()) {
@@ -110,7 +110,7 @@ pub fn routes(
 ) -> impl Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
     let event = warp::get()
         .and(filters::get_event(db.clone()))
-        .map(|event: ObservedEvent| warp::reply::json(&event));
+        .map(|event: AnnouncedEvent| warp::reply::json(&event));
     let root = warp::path::end()
         .and(filters::get_root(db.clone()))
         .map(|children, public_keys| {
@@ -159,20 +159,25 @@ async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, Infa
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
-        core::{EventId, ObservedEvent},
-        db::Db,
-    };
+    use crate::{core::EventId, db::Db};
     use serde_json::from_slice as j;
     use std::sync::Arc;
 
+    macro_rules! setup {
+        () => {{
+            let db: Arc<dyn Db> = Arc::new(crate::db::in_memory::InMemory::default());
+            let oracle = crate::oracle::Oracle::new(crate::seed::Seed::new([42u8; 64]), db.clone())
+                .await
+                .unwrap();
+            (oracle, routes(db))
+        }};
+    }
+
     #[tokio::test]
     async fn get_path() {
-        let db: Arc<dyn Db> = Arc::new(crate::db::in_memory::InMemory::default());
+        let (oracle, routes) = setup!();
         let event_id = EventId::from_str("test/one/two/3.occur").unwrap();
         let node = event_id.node();
-        let obs_event = ObservedEvent::test_new(&event_id);
-        let routes = routes(db.clone());
 
         {
             let res = warp::test::request()
@@ -188,7 +193,7 @@ mod test {
             );
         }
 
-        db.insert_event(obs_event.clone()).await.unwrap();
+        oracle.add_event(event_id.clone().into()).await;
 
         for path in &[format!("/{}", node), format!("/{}/", node)] {
             let res = warp::test::request().path(path).reply(&routes).await;
@@ -198,11 +203,9 @@ mod test {
             assert_eq!(body.events, [event_id.clone()]);
         }
 
-        db.insert_event(ObservedEvent::test_new(
-            &EventId::from_str("test/one/two/4.occur").unwrap(),
-        ))
-        .await
-        .unwrap();
+        oracle
+            .add_event(EventId::from_str("test/one/two/4.occur").unwrap().into())
+            .await;
 
         let res = warp::test::request()
             .path(&format!("/{}", node.parent().unwrap()))
@@ -212,24 +215,42 @@ mod test {
         assert_eq!(body.children, ["test/one/two/3", "test/one/two/4"]);
     }
 
-    //TODO: test get event
     #[tokio::test]
     async fn get_root() {
-        let db: Arc<dyn Db> = Arc::new(crate::db::in_memory::InMemory::default());
-        let pubkeys =
-            crate::keychain::KeyChain::new(crate::seed::Seed::new([42u8; 64])).oracle_pubkeys();
-        db.set_public_keys(pubkeys.clone()).await.unwrap();
-        let obs_event =
-            ObservedEvent::test_new(&EventId::from_str("test/one/two/three.occur").unwrap());
-
-        db.insert_event(obs_event.clone()).await.unwrap();
-
-        let routes = routes(db);
+        let (oracle, routes) = setup!();
+        oracle
+            .add_event(
+                EventId::from_str("test/one/two/three.occur")
+                    .unwrap()
+                    .into(),
+            )
+            .await;
 
         let res = warp::test::request().path("/").reply(&routes).await;
         assert_eq!(res.status(), 200);
         let body = j::<PathResponse>(&res.body()).unwrap();
         assert_eq!(body.children, ["test"]);
-        assert_eq!(body.public_keys, Some(pubkeys));
+        assert_eq!(body.public_keys, Some(oracle.public_keys()));
+    }
+
+    #[tokio::test]
+    async fn get_event() {
+        let (oracle, routes) = setup!();
+        let event_id = EventId::from_str("test/one/two/three.occur").unwrap();
+
+        oracle.add_event(event_id.clone().clone().into()).await;
+
+        let res = warp::test::request()
+            .path(&format!("/{}", &event_id))
+            .reply(&routes)
+            .await;
+
+        let body = j::<AnnouncedEvent>(&res.body()).unwrap();
+
+        assert!(crate::core::verify_announcement(
+            &oracle.public_keys(),
+            &event_id,
+            &body.announcement
+        ))
     }
 }

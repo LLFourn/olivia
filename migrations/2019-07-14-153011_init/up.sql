@@ -14,10 +14,12 @@ CREATE TABLE events (
        expected_outcome_time timestamp
 );
 
-CREATE TABLE nonces (
+CREATE TABLE announcements (
        event_id text NOT NULL PRIMARY KEY REFERENCES events (id),
-       ed25519 bytea NOT NULL,
-       secp256k1 bytea NOT NULL
+       ed25519_nonce bytea NOT NULL,
+       ed25519_signature bytea NOT NULL,
+       secp256k1_nonce bytea NOT NULL,
+       secp256k1_signature bytea NOT NULL
 );
 
 CREATE TABLE attestations (

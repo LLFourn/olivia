@@ -1,6 +1,6 @@
 use super::{
-    schema::{self, attestations, events, nonces, tree},
-    Attestation, Event, MetaRow, Node, ObservedEvent,
+    schema::{self, announcements, attestations, events, tree},
+    AnnouncedEvent, Attestation, Event, MetaRow, Node,
 };
 use crate::{
     core::{self, EventId, PathRef},
@@ -44,7 +44,7 @@ impl crate::db::DbRead for PgBackend {
     async fn get_event(
         &self,
         event_id: &EventId,
-    ) -> Result<Option<core::ObservedEvent>, db::Error> {
+    ) -> Result<Option<core::AnnouncedEvent>, db::Error> {
         let db_mutex = self.conn.clone();
         let event_id = event_id.clone();
 
@@ -54,9 +54,9 @@ impl crate::db::DbRead for PgBackend {
 
             let observed_event = events::table()
                 .find(event_id.as_str())
-                .inner_join(nonces::table)
+                .inner_join(announcements::table)
                 .left_outer_join(attestations::table)
-                .first::<ObservedEvent>(db);
+                .first::<AnnouncedEvent>(db);
 
             match observed_event {
                 Err(DieselError::NotFound) => Ok(None),
@@ -109,7 +109,7 @@ impl crate::db::DbRead for PgBackend {
 
 #[async_trait]
 impl crate::db::DbWrite for PgBackend {
-    async fn insert_event(&self, obs_event: core::ObservedEvent) -> Result<(), db::Error> {
+    async fn insert_event(&self, obs_event: core::AnnouncedEvent) -> Result<(), db::Error> {
         let node = obs_event.event.id.node();
         let parents = std::iter::successors(Some(node), |parent| (*parent).parent());
 
@@ -127,19 +127,23 @@ impl crate::db::DbWrite for PgBackend {
         tokio::task::spawn_blocking(move || {
             let db = &mut *db_mutex.lock().unwrap();
             db.transaction(|| {
-                let ObservedEvent {
+                let AnnouncedEvent {
                     event,
-                    nonce,
+                    announcement,
                     attestation,
                 } = obs_event.into();
-                use schema::{attestations::dsl::*, events::dsl::*, nonces::dsl::*, tree::dsl::*};
+                use schema::{
+                    announcements::dsl::*, attestations::dsl::*, events::dsl::*, tree::dsl::*,
+                };
 
                 nodes
                     .insert_into(tree::table())
                     .on_conflict_do_nothing()
                     .execute(db)?;
                 event.insert_into(events::table()).execute(db)?;
-                nonce.insert_into(nonces::table()).execute(db)?;
+                announcement
+                    .insert_into(announcements::table())
+                    .execute(db)?;
 
                 if let Some(attestation) = attestation {
                     attestation.insert_into(attestations::table()).execute(db)?;
@@ -286,7 +290,7 @@ mod test {
         container.stop();
         let db: Arc<dyn crate::db::Db> = Arc::new(db);
         let mut rt = tokio::runtime::Runtime::new().unwrap();
-        let event = core::ObservedEvent::test_new(
+        let event = core::AnnouncedEvent::test_new(
             &EventId::from_str("test/postgres/database_fail.occur").unwrap(),
         );
 

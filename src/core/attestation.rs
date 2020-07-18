@@ -1,7 +1,7 @@
 use crate::curve::{ed25519, secp256k1};
 use chrono::NaiveDateTime;
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Attestation {
     pub outcome: String,
     pub time: NaiveDateTime,
@@ -20,7 +20,7 @@ impl Attestation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Scalars {
     pub ed25519: ed25519::SchnorrScalar,
     pub secp256k1: secp256k1::SchnorrScalar,

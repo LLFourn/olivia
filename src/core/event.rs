@@ -115,6 +115,12 @@ impl EventId {
     pub fn replace_kind(&self, kind: EventKind) -> EventId {
         EventId(format!("{}.{}", self.node(), kind))
     }
+
+    pub fn announcement_messages(&self, nonces: &Nonces) -> AnnouncementMessages {
+        let secp256k1 = format!("{}!00{}", &self, &nonces.secp256k1);
+        let ed25519 = format!("{}!00{}", &self, &nonces.ed25519);
+        AnnouncementMessages { secp256k1, ed25519 }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -240,31 +246,59 @@ pub struct Event {
     pub expected_outcome_time: Option<NaiveDateTime>,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct Nonce {
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NonceAndSig<N, S> {
+    pub nonce: N,
+    pub signature: S,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Announcement {
+    pub ed25519: NonceAndSig<<Ed25519 as Curve>::PublicNonce, <Ed25519 as Curve>::SchnorrSignature>,
+    pub secp256k1:
+        NonceAndSig<<Secp256k1 as Curve>::PublicNonce, <Secp256k1 as Curve>::SchnorrSignature>,
+}
+
+impl Announcement {
+    pub fn nonces(&self) -> Nonces {
+        Nonces {
+            ed25519: self.ed25519.nonce.clone(),
+            secp256k1: self.secp256k1.nonce.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AnnouncedEvent {
+    pub event: Event,
+    pub announcement: Announcement,
+    pub attestation: Option<crate::core::Attestation>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Nonces {
     pub ed25519: <Ed25519 as Curve>::PublicNonce,
     pub secp256k1: <Secp256k1 as Curve>::PublicNonce,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct ObservedEvent {
-    pub event: Event,
-    pub nonce: Nonce,
-    pub attestation: Option<crate::core::Attestation>,
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnnouncementMessages {
+    pub ed25519: String,
+    pub secp256k1: String,
 }
 
-impl ObservedEvent {
+impl AnnouncedEvent {
     pub fn signatures(&self) -> Option<Signatures> {
         self.attestation.clone().map(|attestation| {
             let scalars = attestation.scalars;
             Signatures {
                 secp256k1: Secp256k1::signature_from_scalar_and_nonce(
                     scalars.secp256k1,
-                    self.nonce.secp256k1.clone(),
+                    self.announcement.secp256k1.nonce.clone(),
                 ),
                 ed25519: Ed25519::signature_from_scalar_and_nonce(
                     scalars.ed25519,
-                    self.nonce.ed25519.clone(),
+                    self.announcement.ed25519.nonce.clone(),
                 ),
             }
         })
@@ -274,6 +308,24 @@ impl ObservedEvent {
 pub struct Signatures {
     pub ed25519: <ed25519::Ed25519 as Curve>::SchnorrSignature,
     pub secp256k1: <secp256k1::Secp256k1 as Curve>::SchnorrSignature,
+}
+
+#[must_use]
+pub fn verify_announcement(
+    pubkeys: &crate::oracle::OraclePubkeys,
+    event_id: &EventId,
+    announcement: &Announcement,
+) -> bool {
+    let messages = event_id.announcement_messages(&announcement.nonces());
+    Ed25519::verify_signature(
+        &pubkeys.ed25519,
+        &messages.ed25519.as_bytes(),
+        &announcement.ed25519.signature,
+    ) && Secp256k1::verify_signature(
+        &pubkeys.secp256k1,
+        &messages.secp256k1.as_bytes(),
+        &announcement.secp256k1.signature,
+    )
 }
 
 mod sql_impls {

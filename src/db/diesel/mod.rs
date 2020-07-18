@@ -4,7 +4,7 @@ use crate::{
     oracle,
 };
 use diesel::Insertable;
-use schema::{attestations, events, meta, nonces, tree};
+use schema::{announcements, attestations, events, meta, tree};
 use std::convert::TryFrom;
 
 pub mod postgres;
@@ -46,32 +46,42 @@ impl From<core::Event> for Event {
 
 #[derive(Identifiable, Queryable, Associations, Debug, Insertable, Clone, PartialEq)]
 #[belongs_to(Event)]
-#[table_name = "nonces"]
+#[table_name = "announcements"]
 #[primary_key(event_id)]
-struct Nonce {
+struct Announcement {
     pub event_id: String,
-    pub ed25519: <Ed25519 as Curve>::PublicNonce,
-    pub secp256k1: <Secp256k1 as Curve>::PublicNonce,
+    pub ed25519_nonce: <Ed25519 as Curve>::PublicNonce,
+    pub ed25519_signature: <Ed25519 as Curve>::SchnorrSignature,
+    pub secp256k1_nonce: <Secp256k1 as Curve>::PublicNonce,
+    pub secp256k1_signature: <Secp256k1 as Curve>::SchnorrSignature,
 }
 
-impl Nonce {
+impl Announcement {
     fn from_core_domain(
         event_id: EventId,
-        core::Nonce { ed25519, secp256k1 }: core::Nonce,
+        core::Announcement { ed25519, secp256k1 }: core::Announcement,
     ) -> Self {
         Self {
             event_id: event_id.into(),
-            ed25519,
-            secp256k1,
+            ed25519_nonce: ed25519.nonce,
+            ed25519_signature: ed25519.signature,
+            secp256k1_nonce: secp256k1.nonce,
+            secp256k1_signature: secp256k1.signature,
         }
     }
 }
 
-impl From<Nonce> for core::Nonce {
-    fn from(nonce: Nonce) -> Self {
-        core::Nonce {
-            ed25519: nonce.ed25519,
-            secp256k1: nonce.secp256k1,
+impl From<Announcement> for core::Announcement {
+    fn from(ann: Announcement) -> Self {
+        Self {
+            ed25519: core::NonceAndSig {
+                nonce: ann.ed25519_nonce,
+                signature: ann.ed25519_signature,
+            },
+            secp256k1: core::NonceAndSig {
+                nonce: ann.secp256k1_nonce,
+                signature: ann.secp256k1_signature,
+            },
         }
     }
 }
@@ -123,42 +133,42 @@ impl From<Attestation> for core::Attestation {
 }
 
 #[derive(Debug, Clone, PartialEq, Queryable)]
-struct ObservedEvent {
+struct AnnouncedEvent {
     #[diesel(embed)]
     event: Event,
     #[diesel(embed)]
-    nonce: Nonce,
+    announcement: Announcement,
     #[diesel(embed)]
     attestation: Option<Attestation>,
 }
 
-impl From<ObservedEvent> for core::ObservedEvent {
+impl From<AnnouncedEvent> for core::AnnouncedEvent {
     fn from(
-        ObservedEvent {
+        AnnouncedEvent {
             event,
-            nonce,
+            announcement,
             attestation,
-        }: ObservedEvent,
+        }: AnnouncedEvent,
     ) -> Self {
-        core::ObservedEvent {
+        core::AnnouncedEvent {
             event: event.into(),
-            nonce: nonce.into(),
-            attestation: attestation.map(|a| a.into()),
+            announcement: announcement.into(),
+            attestation: attestation.map(Into::into),
         }
     }
 }
 
-impl From<core::ObservedEvent> for ObservedEvent {
+impl From<core::AnnouncedEvent> for AnnouncedEvent {
     fn from(
-        core::ObservedEvent {
+        core::AnnouncedEvent {
             event,
-            nonce,
+            announcement,
             attestation,
-        }: core::ObservedEvent,
+        }: core::AnnouncedEvent,
     ) -> Self {
         Self {
             event: event.clone().into(),
-            nonce: Nonce::from_core_domain(event.id.clone(), nonce),
+            announcement: Announcement::from_core_domain(event.id.clone(), announcement),
             attestation: attestation.map(|a| Attestation::from_core_domain(event.id.clone(), a)),
         }
     }

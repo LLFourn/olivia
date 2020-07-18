@@ -160,7 +160,7 @@ fn now() -> NaiveDateTime {
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use crate::{core::ObservedEvent, db::in_memory::InMemory};
+    use crate::{core::AnnouncedEvent, db::in_memory::InMemory};
     use futures::stream::StreamExt;
     use std::str::FromStr;
 
@@ -170,25 +170,25 @@ pub mod test {
 
     /// this is called from tests for particular DB to populate their
     /// db before called test_time_ticker_db
-    pub fn time_ticker_db_test_data() -> Vec<ObservedEvent> {
+    pub fn time_ticker_db_test_data() -> Vec<AnnouncedEvent> {
         vec![
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:25:00").unwrap();
-                let mut obs_event = ObservedEvent::test_new(&time_to_id(time));
+                let mut obs_event = AnnouncedEvent::test_new(&time_to_id(time));
                 obs_event.attestation = None;
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:30:00").unwrap();
-                let mut obs_event = ObservedEvent::test_new(&time_to_id(time));
+                let mut obs_event = AnnouncedEvent::test_new(&time_to_id(time));
                 obs_event.attestation = None;
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:20:00").unwrap();
-                let mut obs_event = ObservedEvent::test_new(&time_to_id(time));
+                let mut obs_event = AnnouncedEvent::test_new(&time_to_id(time));
                 obs_event.attestation = None;
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event
@@ -197,28 +197,28 @@ pub mod test {
                 // put in a non time event which *SHOULD* be ignored
                 let time = NaiveDateTime::from_str("2020-03-01T00:11:00").unwrap();
                 let mut obs_event =
-                    ObservedEvent::test_new(&EventId::from_str("foo/bar/baz.occur").unwrap());
+                    AnnouncedEvent::test_new(&EventId::from_str("foo/bar/baz.occur").unwrap());
                 obs_event.attestation = None;
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:10:00").unwrap();
-                let mut obs_event = ObservedEvent::test_new(&time_to_id(time));
+                let mut obs_event = AnnouncedEvent::test_new(&time_to_id(time));
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event.attestation.as_mut().unwrap().time = time;
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:05:00").unwrap();
-                let mut obs_event = ObservedEvent::test_new(&time_to_id(time));
+                let mut obs_event = AnnouncedEvent::test_new(&time_to_id(time));
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event.attestation.as_mut().unwrap().time = time;
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:15:00").unwrap();
-                let mut obs_event = ObservedEvent::test_new(&time_to_id(time));
+                let mut obs_event = AnnouncedEvent::test_new(&time_to_id(time));
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event.attestation.as_mut().unwrap().time = time;
                 obs_event
@@ -262,7 +262,7 @@ pub mod test {
             let update = rt.block_on(stream.next()).expect("Not None");
             let event = update.update;
             assert_eq!(event.id, time_to_id(cur));
-            rt.block_on(db.insert_event(ObservedEvent::from(event)))
+            rt.block_on(db.insert_event(AnnouncedEvent::from(event)))
                 .unwrap();
             let _ = update.processed_notifier.unwrap().send(());
         }
@@ -273,7 +273,7 @@ pub mod test {
             let update = rt.block_on(stream.next()).expect("Not None");
             let event = update.update;
             assert_eq!(event.id, time_to_id(cur));
-            rt.block_on(db.insert_event(ObservedEvent::from(event)))
+            rt.block_on(db.insert_event(AnnouncedEvent::from(event)))
                 .unwrap();
             let _ = update.processed_notifier.unwrap().send(());
         }
@@ -284,7 +284,7 @@ pub mod test {
             let update = rt.block_on(stream.next()).expect("Not None");
             let event = update.update;
             assert_eq!(event.id, time_to_id(cur));
-            rt.block_on(db.insert_event(ObservedEvent::from(event)))
+            rt.block_on(db.insert_event(AnnouncedEvent::from(event)))
                 .unwrap();
             let _ = update.processed_notifier.unwrap().send(());
         }
@@ -298,7 +298,7 @@ pub mod test {
             let update = rt.block_on(stream.next()).expect("Not None");
             let event = update.update;
             assert_eq!(event.id, time_to_id(cur));
-            rt.block_on(db.insert_event(ObservedEvent::from(event)))
+            rt.block_on(db.insert_event(AnnouncedEvent::from(event)))
                 .unwrap();
             let _ = update.processed_notifier.unwrap().send(());
         }
@@ -335,7 +335,7 @@ pub mod test {
         let mut rt = tokio::runtime::Runtime::new().unwrap();
         let start = now();
 
-        rt.block_on(db.insert_event(ObservedEvent::from(Event::from(
+        rt.block_on(db.insert_event(AnnouncedEvent::from(Event::from(
             start + Duration::seconds(1),
         ))))
         .unwrap();
@@ -357,7 +357,7 @@ pub mod test {
         let mut rt = tokio::runtime::Runtime::new().unwrap();
         let start = now();
 
-        rt.block_on(db.insert_event(ObservedEvent::from(Event::from(start))))
+        rt.block_on(db.insert_event(AnnouncedEvent::from(Event::from(start))))
             .unwrap();
 
         let mut stream = time_outcomes_stream(db.clone(), logger()).boxed();
@@ -395,17 +395,17 @@ pub mod test {
         dbg!(&start);
 
         // add some time events in the future out of order
-        rt.block_on(db.insert_event(ObservedEvent::from(Event::from(
+        rt.block_on(db.insert_event(AnnouncedEvent::from(Event::from(
             start + Duration::seconds(3),
         ))))
         .unwrap();
 
-        rt.block_on(db.insert_event(ObservedEvent::from(Event::from(
+        rt.block_on(db.insert_event(AnnouncedEvent::from(Event::from(
             start + Duration::seconds(1),
         ))))
         .unwrap();
 
-        rt.block_on(db.insert_event(ObservedEvent::from(Event::from(
+        rt.block_on(db.insert_event(AnnouncedEvent::from(Event::from(
             start + Duration::seconds(2),
         ))))
         .unwrap();

@@ -1,5 +1,5 @@
 use crate::{
-    core::{Attestation, Event, EventId, ObservedEvent},
+    core::{AnnouncedEvent, Attestation, Event, EventId},
     db::*,
     oracle,
 };
@@ -9,12 +9,12 @@ use std::{collections::HashMap, sync::RwLock};
 #[derive(Default)]
 pub struct InMemory {
     public_keys: RwLock<Option<oracle::OraclePubkeys>>,
-    inner: RwLock<HashMap<EventId, ObservedEvent>>,
+    inner: RwLock<HashMap<EventId, AnnouncedEvent>>,
 }
 
 #[async_trait]
 impl DbRead for InMemory {
-    async fn get_event(&self, id: &EventId) -> Result<Option<ObservedEvent>, crate::db::Error> {
+    async fn get_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent>, crate::db::Error> {
         let db = &*self.inner.read().unwrap();
         Ok(db.get(&id).map(Clone::clone))
     }
@@ -73,7 +73,7 @@ impl DbRead for InMemory {
 
 #[async_trait]
 impl DbWrite for InMemory {
-    async fn insert_event(&self, observed_event: ObservedEvent) -> Result<(), crate::db::Error> {
+    async fn insert_event(&self, observed_event: AnnouncedEvent) -> Result<(), crate::db::Error> {
         let db = &mut *self.inner.write().unwrap();
         db.insert(observed_event.event.id.clone(), observed_event);
         Ok(())
@@ -101,7 +101,7 @@ impl DbWrite for InMemory {
 impl TimeTickerDb for InMemory {
     async fn latest_time_event(&self) -> Result<Option<Event>, crate::db::Error> {
         let db = self.inner.read().unwrap();
-        let mut obs_events: Vec<&ObservedEvent> = db
+        let mut obs_events: Vec<&AnnouncedEvent> = db
             .values()
             .filter(|obs_event| obs_event.event.id.as_path().first() == "time")
             .collect();
@@ -110,7 +110,7 @@ impl TimeTickerDb for InMemory {
     }
     async fn earliest_unattested_time_event(&self) -> Result<Option<Event>, crate::db::Error> {
         let db = self.inner.read().unwrap();
-        let mut obs_events: Vec<&ObservedEvent> = db
+        let mut obs_events: Vec<&AnnouncedEvent> = db
             .values()
             .filter(|obs_event| {
                 obs_event.event.id.as_path().first() == "time" && obs_event.attestation == None

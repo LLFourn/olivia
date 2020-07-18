@@ -46,6 +46,22 @@ crate::impl_fromstr_deserailize_fromsql! {
         Scalar::from_canonical_bytes(bytes).map(SchnorrScalar)
     }
 }
+#[derive(PartialEq, Clone, FromSqlRow, AsExpression)]
+#[sql_type = "sql_types::Binary"]
+pub struct SchnorrSignature(ed25519_dalek::Signature);
+
+crate::impl_display_debug_serialize_tosql! {
+    fn to_bytes(scalar: &SchnorrSignature) -> &[u8;64] {
+        scalar.0.as_bytes()
+    }
+}
+
+crate::impl_fromstr_deserailize_fromsql! {
+    name => "ed25519 signature",
+    fn from_bytes(bytes: [u8;64]) ->  Option<SchnorrSignature> {
+        ed25519_dalek::Signature::from_bytes(&bytes[..]).map(SchnorrSignature).ok()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct KeyPair {
@@ -86,7 +102,7 @@ impl super::Curve for Ed25519 {
     type KeyPair = KeyPair;
     type SchnorrScalar = SchnorrScalar;
     type PublicKey = PublicKey;
-    type SchnorrSignature = ed25519_dalek::Signature;
+    type SchnorrSignature = SchnorrSignature;
     type PublicNonce = PublicKey;
     type NonceKeyPair = KeyPair;
 
@@ -127,7 +143,9 @@ impl super::Curve for Ed25519 {
         let mut bytes = [0u8; 64];
         bytes[..32].copy_from_slice(nonce.0.compress().as_bytes());
         bytes[32..].copy_from_slice(scalar.0.as_bytes());
-        ed25519_dalek::Signature::from_bytes(&bytes[..]).expect("it's in the correct form")
+        SchnorrSignature(
+            ed25519_dalek::Signature::from_bytes(&bytes[..]).expect("it's in the correct form"),
+        )
     }
 
     fn verify_signature(
@@ -138,7 +156,7 @@ impl super::Curve for Ed25519 {
         let pk = ed25519_dalek::PublicKey::from_bytes(public_key.0.compress().as_bytes())
             .expect("will always be correct since it comes directly from a point");
 
-        pk.verify_strict(message, sig).is_ok()
+        pk.verify_strict(message, &sig.0).is_ok()
     }
 
     fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::SchnorrSignature {

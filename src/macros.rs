@@ -25,7 +25,7 @@ macro_rules! impl_fromstr_deserailize {
                     }
 
                     let $input = buf;
-                    let result = $block;
+                    let result: Option<$type> = $block;
                     result.ok_or($crate::HexError::InvalidEncoding)
                 }
             }
