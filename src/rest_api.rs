@@ -17,12 +17,30 @@ struct NotAnEvent;
 
 impl warp::reject::Reject for NotAnEvent {}
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PathResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_keys: Option<oracle::OraclePubkeys>,
     pub events: Vec<EventId>,
     pub children: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_outcome_time: Option<chrono::NaiveDateTime>,
+    pub announcement: crate::core::Announcement,
+    pub attestation: Option<crate::core::Attestation>,
+}
+
+impl From<AnnouncedEvent> for EventResponse {
+    fn from(ann: AnnouncedEvent) -> Self {
+        EventResponse {
+            expected_outcome_time: ann.event.expected_outcome_time,
+            announcement: ann.announcement,
+            attestation: ann.attestation,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,7 +60,7 @@ pub mod filters {
 
     pub fn get_event(
         db: Arc<dyn Db>,
-    ) -> impl Filter<Extract = (AnnouncedEvent,), Error = warp::reject::Rejection> + Clone {
+    ) -> impl Filter<Extract = (EventResponse,), Error = warp::reject::Rejection> + Clone {
         warp::path::tail()
             .and_then(async move |tail: warp::filters::path::Tail| {
                 match EventId::from_str(tail.as_str()) {
@@ -54,7 +72,7 @@ pub mod filters {
             .and_then(async move |event_id: EventId, db: Arc<dyn Db>| {
                 let res = db.get_event(&event_id).await;
                 match res {
-                    Ok(Some(event)) => Ok(event),
+                    Ok(Some(event)) => Ok(event.into()),
                     Ok(None) => Err(warp::reject::not_found()),
                     Err(_e) => Err(warp::reject::custom(DbError)),
                 }
@@ -110,7 +128,7 @@ pub fn routes(
 ) -> impl Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
     let event = warp::get()
         .and(filters::get_event(db.clone()))
-        .map(|event: AnnouncedEvent| warp::reply::json(&event));
+        .map(|event: EventResponse| warp::reply::json(&event));
     let root = warp::path::end()
         .and(filters::get_root(db.clone()))
         .map(|children, public_keys| {
