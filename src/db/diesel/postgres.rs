@@ -85,6 +85,7 @@ impl crate::db::DbRead for PgBackend {
                     tree::table
                         .filter(tree::dsl::parent.eq(node.as_str()))
                         .select(tree::dsl::id)
+                        .limit(100) //TODO: figure out what to do here
                         .get_results(db)?
                 };
 
