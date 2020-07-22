@@ -263,7 +263,7 @@ mod test {
             .reply(&routes)
             .await;
 
-        let body = j::<AnnouncedEvent>(&res.body()).unwrap();
+        let body = j::<EventResponse>(&res.body()).unwrap();
 
         assert!(crate::core::verify_announcement(
             &oracle.public_keys(),
