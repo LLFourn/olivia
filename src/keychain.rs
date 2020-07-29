@@ -45,13 +45,13 @@ impl KeyChain {
 
         let ed25519_s = Ed25519::reveal_signature_s(
             &self.ed25519_keypair,
-            &Ed25519::derive_nonce_keypair(&event_idx),
+            Ed25519::derive_nonce_keypair(&event_idx),
             outcome_long_id.as_bytes(),
         );
 
         let secp256k1_s = Secp256k1::reveal_signature_s(
             &self.secp256k1_keypair,
-            &Secp256k1::derive_nonce_keypair(&event_idx),
+            Secp256k1::derive_nonce_keypair(&event_idx),
             outcome_long_id.as_bytes(),
         );
 

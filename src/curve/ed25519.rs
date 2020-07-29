@@ -118,7 +118,7 @@ impl super::Curve for Ed25519 {
 
     fn reveal_signature_s(
         signing_keypair: &Self::KeyPair,
-        nonce_keypair: &Self::NonceKeyPair,
+        nonce_keypair: Self::NonceKeyPair,
         message: &[u8],
     ) -> Self::SchnorrScalar {
         let (a, A) = signing_keypair.as_tuple();

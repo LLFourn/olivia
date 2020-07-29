@@ -133,12 +133,12 @@ impl super::Curve for Secp256k1 {
 
     fn reveal_signature_s(
         signing_keypair: &Self::KeyPair,
-        nonce_keypair: &Self::NonceKeyPair,
+        nonce_keypair: Self::NonceKeyPair,
         message: &[u8],
     ) -> Self::SchnorrScalar {
         let (x, X) = signing_keypair.as_tuple();
         let (r, R) = nonce_keypair;
-        let c = SCHNORR.challenge(R, X, message.mark::<Public>());
+        let c = SCHNORR.challenge(&R, X, message.mark::<Public>());
         let s = s!(r + c * x);
         SchnorrScalar(s.mark::<Public>())
     }

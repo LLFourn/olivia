@@ -16,7 +16,7 @@ pub trait Curve {
     fn derive_nonce_keypair(seed: &Seed) -> Self::NonceKeyPair;
     fn reveal_signature_s(
         signing_key: &Self::KeyPair,
-        nonce_key: &Self::NonceKeyPair,
+        nonce_key: Self::NonceKeyPair,
         message: &[u8],
     ) -> Self::SchnorrScalar;
     fn signature_from_scalar_and_nonce(
