@@ -92,6 +92,7 @@ pub enum OutcomeReEmitterConfig {
 pub enum OutcomeSourceConfig {
     TimeTicker {},
     Redis(RedisConfig),
+    #[serde(rename_all = "kebab-case")]
     ReEmitter {
         source: Box<OutcomeSourceConfig>,
         re_emitter: OutcomeReEmitterConfig,

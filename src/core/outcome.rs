@@ -6,6 +6,7 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WireEventOutcome {
+    #[serde(rename = "id")]
     pub event_id: EventId,
     pub outcome: String,
     pub time: Option<NaiveDateTime>,
