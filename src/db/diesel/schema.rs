@@ -44,10 +44,4 @@ joinable!(announcements -> events (event_id));
 joinable!(attestations -> events (event_id));
 joinable!(events -> tree (node));
 
-allow_tables_to_appear_in_same_query!(
-    announcements,
-    attestations,
-    events,
-    meta,
-    tree,
-);
+allow_tables_to_appear_in_same_query!(announcements, attestations, events, meta, tree,);
