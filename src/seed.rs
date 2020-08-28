@@ -1,5 +1,4 @@
-use blake2::{Blake2b, VarBlake2b};
-use crypto_mac::Mac;
+use blake2::{crypto_mac::NewMac, Blake2b, VarBlake2b};
 use digest::generic_array::{typenum::U64, GenericArray};
 
 #[derive(Clone)]
@@ -29,9 +28,9 @@ impl Seed {
 
     pub fn child(&self, tag: &[u8]) -> Self {
         let mut hash = self.to_blake2b();
-        hash.input(tag);
+        digest::Digest::update(&mut hash, tag);
         let mut result = [0u8; 64];
-        result.copy_from_slice(&digest::Digest::result(hash));
+        result.copy_from_slice(&digest::Digest::finalize(hash));
         Seed(result)
     }
 

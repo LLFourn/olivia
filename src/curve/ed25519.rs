@@ -108,7 +108,7 @@ impl super::Curve for Ed25519 {
 
     fn derive_keypair(seed: &Seed) -> Self::KeyPair {
         let mut hash = seed.to_blake2b();
-        hash.input(b"ed25519");
+        hash.update(b"ed25519");
         KeyPair::from_hash(hash)
     }
 
@@ -125,9 +125,9 @@ impl super::Curve for Ed25519 {
         let (r, R) = nonce_keypair.as_tuple();
         let c = {
             let mut h = Sha512::default();
-            h.input(R.0.compress().as_bytes());
-            h.input(A.0.compress().as_bytes());
-            h.input(&message);
+            h.update(R.0.compress().as_bytes());
+            h.update(A.0.compress().as_bytes());
+            h.update(&message);
             Scalar::from_hash(h)
         };
 
@@ -175,9 +175,9 @@ impl super::Curve for Ed25519 {
 
         let c = {
             let mut h = Sha512::default();
-            h.input(R.compress().as_bytes());
-            h.input(A.0.compress().as_bytes());
-            h.input(&message);
+            h.update(R.compress().as_bytes());
+            h.update(A.0.compress().as_bytes());
+            h.update(&message);
             Scalar::from_hash(h)
         };
 

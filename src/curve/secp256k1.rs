@@ -1,11 +1,13 @@
 use crate::seed::Seed;
-
 use diesel::sql_types;
-use digest::{Input, VariableOutput};
+use digest::{Update, VariableOutput};
+use rand::prelude::ThreadRng;
 pub use schnorr_fun::{
-    fun::{self, marker::*, s, Scalar, XOnly, G},
-    KeyPair, Schnorr,
+    fun::{self, marker::*, nonce, s, Scalar, XOnly, G},
+    KeyPair, MessageKind, Schnorr,
 };
+use sha2::Sha256;
+use std::borrow::Borrow;
 
 pub struct Secp256k1;
 
@@ -78,7 +80,7 @@ crate::impl_fromstr_deserailize_fromsql! {
 }
 
 lazy_static::lazy_static! {
-    static ref SCHNORR: Schnorr = Schnorr::from_tag(b"oracle");
+    static ref SCHNORR: Schnorr<Sha256, nonce::Synthetic<Sha256, nonce::GlobalRng<ThreadRng>>> = Schnorr::new(nonce::Synthetic::<Sha256, nonce::GlobalRng<ThreadRng>>::default(), MessageKind::Plain { tag: "oracle" });
 }
 
 impl From<XOnly<EvenY>> for PublicKey {
@@ -110,8 +112,8 @@ impl super::Curve for Secp256k1 {
 
     fn derive_keypair(seed: &Seed) -> Self::KeyPair {
         let mut hash = seed.to_blake2b_32();
-        hash.input(b"secp256k1");
-        let x = Scalar::from_slice_mod_order(&hash.vec_result())
+        hash.update(b"secp256k1");
+        let x = Scalar::from_slice_mod_order(&hash.finalize_boxed().borrow())
             .expect("hash output is 32-bytes long")
             .mark::<NonZero>()
             .expect("will not be zero");
@@ -120,13 +122,13 @@ impl super::Curve for Secp256k1 {
 
     fn derive_nonce_keypair(seed: &Seed) -> Self::NonceKeyPair {
         let mut hash = seed.to_blake2b_32();
-        hash.input(b"secp256k1");
-        let mut r = Scalar::from_slice_mod_order(&hash.vec_result())
+        hash.update(b"secp256k1");
+        let mut r = Scalar::from_slice_mod_order(&hash.finalize_boxed().borrow())
             .expect("hash output is 32-bytes long")
             .mark::<NonZero>()
             .expect("will not be zero");
 
-        let R = XOnly::from_scalar_mul(&SCHNORR.G, &mut r);
+        let R = XOnly::from_scalar_mul(&SCHNORR.G(), &mut r);
 
         (r, R)
     }
@@ -165,10 +167,6 @@ impl super::Curve for Secp256k1 {
     }
 
     fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::SchnorrSignature {
-        SchnorrSignature(SCHNORR.sign(
-            keypair,
-            message.mark::<Public>(),
-            fun::hash::Derivation::rng(&mut rand::thread_rng()),
-        ))
+        SchnorrSignature(SCHNORR.sign(keypair, message.mark::<Public>()))
     }
 }
