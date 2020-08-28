@@ -174,7 +174,7 @@ pub mod test {
             .await
             .unwrap()
             .expect("creating oracle should have set public keys");
-        let event_id = EventId::from_str("foo/bar/baz.occur").unwrap();
+        let event_id = EventId::from_str("/foo/bar/baz?occur").unwrap();
         assert!(
             if let EventResult::Created = oracle.add_event(event_id.clone().into()).await {
                 true
@@ -182,6 +182,11 @@ pub mod test {
                 false
             }
         );
+
+        db.get_event(&event_id)
+            .await
+            .unwrap()
+            .expect("event should be there");
 
         let outcome: EventOutcome = WireEventOutcome {
             event_id: event_id.clone(),

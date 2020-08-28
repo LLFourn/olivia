@@ -907,6 +907,7 @@ dependencies = [
  "testcontainers 0.9.1 (git+https://github.com/llfourn/testcontainers-rs?rev=5e1b6bd)",
  "thiserror 1.0.20 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.2.22 (registry+https://github.com/rust-lang/crates.io-index)",
+ "url 2.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "warp 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1769,6 +1770,7 @@ dependencies = [
  "idna 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "matches 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "percent-encoding 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.115 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

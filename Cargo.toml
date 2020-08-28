@@ -31,6 +31,7 @@ structopt = "0.3"
 thiserror = "1.0"
 serde_yaml = "0.8"
 rand = "0.7"
+url = {  version = "2.1", features = ["serde"]}
 
 [dev-dependencies]
 testcontainers = { git = "https://github.com/llfourn/testcontainers-rs", rev = "5e1b6bd" }

@@ -37,7 +37,7 @@ impl From<Event> for core::Event {
 impl From<core::Event> for Event {
     fn from(event: core::Event) -> Self {
         Event {
-            node: event.id.node().as_str().into(),
+            node: event.id.as_path().as_str().into(),
             id: event.id.into(),
             expected_outcome_time: event.expected_outcome_time,
         }

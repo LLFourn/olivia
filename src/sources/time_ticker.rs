@@ -143,7 +143,8 @@ impl From<NaiveDateTime> for Event {
 }
 
 pub fn time_to_id(dt: NaiveDateTime) -> EventId {
-    EventId(format!("time/{}.occur", dt.format("%FT%T")))
+    use std::str::FromStr;
+    EventId::from_str(&format!("/time/{}?occur", dt.format("%FT%T"))).unwrap()
 }
 
 async fn delay_until(until: NaiveDateTime) {
@@ -197,7 +198,7 @@ pub mod test {
                 // put in a non time event which *SHOULD* be ignored
                 let time = NaiveDateTime::from_str("2020-03-01T00:11:00").unwrap();
                 let mut obs_event =
-                    AnnouncedEvent::test_new(&EventId::from_str("foo/bar/baz.occur").unwrap());
+                    AnnouncedEvent::test_new(&EventId::from_str("/foo/bar/baz?occur").unwrap());
                 obs_event.attestation = None;
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event
@@ -392,7 +393,6 @@ pub mod test {
         let mut rt = tokio::runtime::Runtime::new().unwrap();
         let mut stream = time_outcomes_stream(db.clone(), logger()).boxed();
         let start = now();
-        dbg!(&start);
 
         // add some time events in the future out of order
         rt.block_on(db.insert_event(AnnouncedEvent::from(Event::from(
@@ -416,7 +416,6 @@ pub mod test {
             first.update.event_id,
             time_to_id(start + Duration::seconds(1))
         );
-        assert!(dbg!(now()) >= dbg!(start + Duration::seconds(1)));
         assert!(now() < start + Duration::milliseconds(1100));
         rt.block_on(db.complete_event(
             &first.update.event_id,
@@ -430,7 +429,6 @@ pub mod test {
             second.update.event_id,
             time_to_id(start + Duration::seconds(2))
         );
-        assert!(dbg!(now()) >= dbg!(start + Duration::seconds(2)));
         assert!(now() < start + Duration::milliseconds(2100));
         rt.block_on(db.complete_event(
             &second.update.event_id,

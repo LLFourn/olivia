@@ -62,12 +62,16 @@ pub mod filters {
         db: Arc<dyn Db>,
     ) -> impl Filter<Extract = (EventResponse,), Error = warp::reject::Rejection> + Clone {
         warp::path::tail()
-            .and_then(async move |tail: warp::filters::path::Tail| {
-                match EventId::from_str(tail.as_str()) {
-                    Ok(event_id) => Ok(event_id),
-                    Err(_) => Err(warp::reject::custom(NotAnEvent)),
-                }
-            })
+            .and(warp::query::raw())
+            .and_then(
+                async move |tail: warp::filters::path::Tail, query: String| {
+                    let id = format!("/{}?{}", tail.as_str(), query);
+                    match EventId::from_str(&id) {
+                        Ok(event_id) => Ok(event_id),
+                        Err(_) => Err(warp::reject::custom(NotAnEvent)),
+                    }
+                },
+            )
             .and(with_db(db))
             .and_then(async move |event_id: EventId, db: Arc<dyn Db>| {
                 let res = db.get_event(&event_id).await;
@@ -85,7 +89,8 @@ pub mod filters {
         warp::path::tail().and(with_db(db)).and_then(
             async move |tail: warp::filters::path::Tail, db: Arc<dyn Db>| {
                 let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
-                let res = db.get_node(tail).await;
+                let path = &format!("/{}", tail);
+                let res = db.get_node(&path).await;
                 match res {
                     Ok(Some(event)) => Ok(event),
                     Ok(None) => Err(warp::reject::not_found()),
@@ -194,12 +199,12 @@ mod test {
     #[tokio::test]
     async fn get_path() {
         let (oracle, routes) = setup!();
-        let event_id = EventId::from_str("test/one/two/3.occur").unwrap();
-        let node = event_id.node();
+        let event_id = EventId::from_str("/test/one/two/3?occur").unwrap();
+        let node = event_id.as_path();
 
         {
             let res = warp::test::request()
-                .path(&format!("/{}", node))
+                .path(event_id.as_str())
                 .reply(&routes)
                 .await;
 
@@ -213,7 +218,7 @@ mod test {
 
         oracle.add_event(event_id.clone().into()).await;
 
-        for path in &[format!("/{}", node), format!("/{}/", node)] {
+        for path in &[format!("{}", node), format!("{}/", node)] {
             let res = warp::test::request().path(path).reply(&routes).await;
 
             assert_eq!(res.status(), 200);
@@ -222,15 +227,15 @@ mod test {
         }
 
         oracle
-            .add_event(EventId::from_str("test/one/two/4.occur").unwrap().into())
+            .add_event(EventId::from_str("/test/one/two/4?occur").unwrap().into())
             .await;
 
         let res = warp::test::request()
-            .path(&format!("/{}", node.parent().unwrap()))
+            .path(&format!("{}", node.parent().unwrap()))
             .reply(&routes)
             .await;
         let body = j::<PathResponse>(&res.body()).unwrap();
-        assert_eq!(body.children, ["test/one/two/3", "test/one/two/4"]);
+        assert_eq!(body.children, ["/test/one/two/3", "/test/one/two/4"]);
     }
 
     #[tokio::test]
@@ -238,7 +243,7 @@ mod test {
         let (oracle, routes) = setup!();
         oracle
             .add_event(
-                EventId::from_str("test/one/two/three.occur")
+                EventId::from_str("/test/one/two/three?occur")
                     .unwrap()
                     .into(),
             )
@@ -247,19 +252,19 @@ mod test {
         let res = warp::test::request().path("/").reply(&routes).await;
         assert_eq!(res.status(), 200);
         let body = j::<PathResponse>(&res.body()).unwrap();
-        assert_eq!(body.children, ["test"]);
+        assert_eq!(body.children, ["/test"]);
         assert_eq!(body.public_keys, Some(oracle.public_keys()));
     }
 
     #[tokio::test]
     async fn get_event() {
         let (oracle, routes) = setup!();
-        let event_id = EventId::from_str("test/one/two/three.occur").unwrap();
+        let event_id = EventId::from_str("/test/one/two/three?occur").unwrap();
 
         oracle.add_event(event_id.clone().clone().into()).await;
 
         let res = warp::test::request()
-            .path(&format!("/{}", &event_id))
+            .path(event_id.as_str())
             .reply(&routes)
             .await;
 

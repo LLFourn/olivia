@@ -44,19 +44,13 @@ impl fmt::Display for EventKind {
 }
 
 lazy_static! {
-    static ref EVENT_ID_RE: regex::Regex = regex::Regex::new(
-        r"^(?P<path>[a-zA-Z][0-9a-zA-Z:_-]*(?:/[0-9A-Za-z:_-]+)+)\.(?P<event_kind>[a-z0-9-]+)$"
-    )
-    .unwrap();
     static ref VS_RE: regex::Regex =
         regex::Regex::new(r"^([a-zA-Z0-9:-]+)_([a-zA-z0-9:-]+)$").unwrap();
 }
 
-#[derive(
-    Clone, Debug, PartialEq, Hash, Eq, FromSqlRow, AsExpression, Serialize, PartialOrd, Ord,
-)]
+#[derive(Clone, Debug, PartialEq, Hash, Eq, FromSqlRow, AsExpression, PartialOrd, Ord)]
 #[sql_type = "diesel::sql_types::Text"]
-pub struct EventId(pub(crate) String);
+pub struct EventId(url::Url);
 
 impl EventId {
     pub fn as_bytes(&self) -> &[u8] {
@@ -64,22 +58,17 @@ impl EventId {
     }
 
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        let scheme_pos = self.0.as_str().find(':').expect("there is always a scheme");
+        &self.0.as_str()[scheme_pos + 1..]
     }
 
     pub fn as_path(&self) -> PathRef<'_> {
-        PathRef(self.0.as_str())
-    }
-
-    pub fn node(&self) -> PathRef<'_> {
-        let s = self.0.as_str();
-        let dot_index = s.rfind('.').unwrap();
-        PathRef(&s[..dot_index])
+        PathRef(self.0.path())
     }
 
     pub fn parties(&self) -> Option<(&str, &str)> {
         if let EventKind::VsMatch(_) = self.event_kind() {
-            let mut parties = self.node().last().split('_');
+            let mut parties = self.as_path().last().split('_');
             Some((parties.next().unwrap(), parties.next().unwrap()))
         } else {
             None
@@ -87,9 +76,10 @@ impl EventId {
     }
 
     pub fn event_kind(&self) -> EventKind {
-        let last = self.as_path().last();
-        let index = last.find('.').unwrap();
-        let event_kind = &last[index + 1..];
+        let event_kind = self
+            .0
+            .query()
+            .expect("event ids always have a query string");
         match event_kind {
             "vs" | "left-win" | "right-win" => {
                 let vs_kind = match event_kind {
@@ -113,7 +103,9 @@ impl EventId {
     }
 
     pub fn replace_kind(&self, kind: EventKind) -> EventId {
-        EventId(format!("{}.{}", self.node(), kind))
+        let mut replaced = self.0.clone();
+        replaced.set_query(Some(&kind.to_string()));
+        EventId(replaced)
     }
 
     pub fn announcement_messages(&self, nonces: &Nonces) -> AnnouncementMessages {
@@ -135,35 +127,39 @@ impl FromStr for EventId {
     type Err = EventIdError;
 
     fn from_str(string: &str) -> Result<EventId, Self::Err> {
-        match EVENT_ID_RE.captures(&string) {
-            Some(captures) => {
-                let path = PathRef::from(captures.name("path").unwrap().as_str());
-                let event_kind = captures.name("event_kind").unwrap().as_str();
-                let valid_kind = match event_kind {
-                    "vs" | "left-win" | "right-win" => match VS_RE.captures(path.last()) {
-                        Some(capture) => {
-                            capture.get(0).unwrap().as_str() != capture.get(1).unwrap().as_str()
-                        }
-                        _ => return Err(EventIdError::BadFormat),
-                    },
-                    "occur" => true,
-                    _ => false,
-                };
+        let url =
+            url::Url::parse(&format!("event:{}", string)).map_err(|_| EventIdError::BadFormat)?;
+        let event_kind = url.query().ok_or(EventIdError::BadFormat)?;
+        let path = url
+            .path_segments()
+            .ok_or(EventIdError::BadFormat)?
+            .collect::<Vec<_>>();
 
-                if !valid_kind {
-                    return Err(EventIdError::UnknownEventKind(event_kind.into()));
+        let valid_kind = match event_kind {
+            "vs" | "left-win" | "right-win" => {
+                let last = path.last().ok_or(EventIdError::BadFormat)?;
+                match VS_RE.captures(last) {
+                    Some(capture) => {
+                        capture.get(0).unwrap().as_str() != capture.get(1).unwrap().as_str()
+                    }
+                    _ => return Err(EventIdError::BadFormat),
                 }
-
-                Ok(EventId(string.to_string()))
             }
-            None => Err(EventIdError::BadFormat),
+            "occur" => true,
+            _ => false,
+        };
+
+        if !valid_kind {
+            return Err(EventIdError::UnknownEventKind(event_kind.into()));
         }
+
+        Ok(EventId(url))
     }
 }
 
 impl From<EventId> for String {
     fn from(eid: EventId) -> Self {
-        eid.0
+        eid.as_str().to_owned()
     }
 }
 
@@ -178,14 +174,14 @@ impl From<EventId> for Event {
 
 impl PartialEq<str> for EventId {
     fn eq(&self, rhs: &str) -> bool {
-        self.0 == rhs
+        self.as_str() == rhs
     }
 }
 
 // rust made me do it
 impl PartialEq<&str> for EventId {
     fn eq(&self, rhs: &&str) -> bool {
-        self.0 == *rhs
+        self.as_str() == *rhs
     }
 }
 
@@ -194,7 +190,16 @@ pub struct PathRef<'a>(&'a str);
 
 impl<'a> PathRef<'a> {
     pub fn parent(self) -> Option<PathRef<'a>> {
-        self.0.rfind('/').map(|at| PathRef(&self.0[..at]))
+        if self == Self::root() {
+            return None;
+        }
+        self.0.rfind('/').map(|at| {
+            if at == 0 {
+                PathRef::root()
+            } else {
+                PathRef(&self.0[..at])
+            }
+        })
     }
 
     pub fn first(self) -> &'a str {
@@ -213,7 +218,7 @@ impl<'a> PathRef<'a> {
     }
 
     pub fn root() -> Self {
-        PathRef("")
+        PathRef("/")
     }
 
     pub fn is_root(self) -> bool {
@@ -344,7 +349,7 @@ mod sql_impls {
     {
         fn from_sql(bytes: Option<&DB::RawValue>) -> deserialize::Result<Self> {
             let string = <String as FromSql<sql_types::Text, DB>>::from_sql(bytes)?;
-            Ok(EventId(string))
+            Ok(EventId::from_str(&string)?)
         }
     }
 
@@ -376,6 +381,15 @@ mod serde_impl {
             }
 
             deserializer.deserialize_any(Visitor)
+        }
+    }
+
+    impl serde::Serialize for EventId {
+        fn serialize<Ser: serde::Serializer>(
+            &self,
+            serializer: Ser,
+        ) -> Result<Ser::Ok, Ser::Error> {
+            serializer.collect_str(&self)
         }
     }
 }
@@ -410,29 +424,42 @@ mod test {
 
     #[test]
     fn event_id_from_str() {
-        assert!(EventId::from_str("/foo/bar.occur").is_err());
-        assert!(EventId::from_str("foo/bar.occur/").is_err());
-        assert!(EventId::from_str("foo.occur").is_err());
-        assert!(EventId::from_str("foo.occur").is_err());
-        assert!(EventId::from_str("foo/bar.occur").is_ok());
-        assert!(EventId::from_str("foo/bar/baz.occur").is_ok());
-        assert!(EventId::from_str("foo/23/52.occur").is_ok());
-        assert!(EventId::from_str("foo/bar/FOO_BAR.vs").is_ok());
-        assert!(EventId::from_str("foo/bar/FOO-BAR.vs").is_err());
+        assert!(EventId::from_str("/foo/bar?occur").is_ok());
+        assert!(EventId::from_str("foo/bar?occur/").is_err());
+        assert!(EventId::from_str("/foo?occur").is_ok());
+        assert!(EventId::from_str("/foo/bar?occur").is_ok());
+        assert!(EventId::from_str("/foo/bar/baz?occur").is_ok());
+        assert!(EventId::from_str("/foo/23/52?occur").is_ok());
+        assert!(EventId::from_str("/foo/bar/FOO_BAR?vs").is_ok());
+        assert!(EventId::from_str("/foo/bar/FOO-BAR?vs").is_err());
     }
 
     #[test]
     fn event_id_parent() {
-        let event_id = EventId::from_str("one/two/three.occur").unwrap();
-        assert_eq!(event_id.node().as_str(), "one/two/three");
-        assert_eq!(event_id.node().parent().unwrap().as_str(), "one/two");
+        let event_id = EventId::from_str("/one/two/three?occur").unwrap();
+        assert_eq!(event_id.as_path().as_str(), "/one/two/three");
+        assert_eq!(event_id.as_path().parent().unwrap().as_str(), "/one/two");
         assert_eq!(
-            event_id.node().parent().unwrap().parent().unwrap().as_str(),
-            "one",
+            event_id
+                .as_path()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .as_str(),
+            "/one",
         );
         assert_eq!(
-            event_id.node().parent().unwrap().parent().unwrap().parent(),
-            None
+            event_id
+                .as_path()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .as_str(),
+            "/"
         );
     }
 }

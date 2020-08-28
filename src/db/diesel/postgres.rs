@@ -3,7 +3,7 @@ use super::{
     AnnouncedEvent, Attestation, Event, MetaRow, Node,
 };
 use crate::{
-    core::{self, EventId, PathRef},
+    core::{self, EventId},
     db, oracle,
     oracle::OraclePubkeys,
 };
@@ -71,16 +71,7 @@ impl crate::db::DbRead for PgBackend {
         tokio::task::spawn_blocking(move || {
             let db = &*db_mutex.lock().unwrap();
 
-            let (children, events) = if PathRef::from(node.as_str()).is_root() {
-                use schema::tree::dsl::*;
-                (
-                    tree::table()
-                        .filter(parent.is_null())
-                        .select(id)
-                        .get_results(db)?,
-                    vec![],
-                )
-            } else {
+            let (children, events) = {
                 let children = {
                     tree::table
                         .filter(tree::dsl::parent.eq(node.as_str()))
@@ -111,7 +102,7 @@ impl crate::db::DbRead for PgBackend {
 #[async_trait]
 impl crate::db::DbWrite for PgBackend {
     async fn insert_event(&self, obs_event: core::AnnouncedEvent) -> Result<(), db::Error> {
-        let node = obs_event.event.id.node();
+        let node = obs_event.event.id.as_path();
         let parents = std::iter::successors(Some(node), |parent| (*parent).parent());
 
         let nodes = parents
@@ -184,7 +175,7 @@ impl crate::db::TimeTickerDb for PgBackend {
             let db = &*db_mutex.lock().unwrap();
 
             let event = tree::table()
-                .filter(parent.eq("time"))
+                .filter(parent.eq("/time"))
                 .inner_join(events::table)
                 .select(events::all_columns)
                 .order(events::dsl::expected_outcome_time.desc())
@@ -207,7 +198,7 @@ impl crate::db::TimeTickerDb for PgBackend {
             let db = &*db_mutex.lock().unwrap();
             use schema::{attestations::columns::event_id, tree::dsl::*};
             let event = tree::table()
-                .filter(parent.eq("time"))
+                .filter(parent.eq("/time"))
                 .inner_join(events::table)
                 .left_outer_join(attestations::dsl::attestations.on(event_id.eq(events::dsl::id)))
                 .filter(event_id.is_null())
@@ -292,7 +283,7 @@ mod test {
         let db: Arc<dyn crate::db::Db> = Arc::new(db);
         let mut rt = tokio::runtime::Runtime::new().unwrap();
         let event = core::AnnouncedEvent::test_new(
-            &EventId::from_str("test/postgres/database_fail.occur").unwrap(),
+            &EventId::from_str("/test/postgres/database_fail?occur").unwrap(),
         );
 
         let res = rt.block_on(db.insert_event(event.clone()));

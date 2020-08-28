@@ -92,8 +92,8 @@ mod test {
         let mut rt = tokio::runtime::Runtime::new().unwrap();
 
         let incoming: Vec<Update<Event>> = vec![
-            EventId::from_str("foo/bar/FOO_BAR.vs").unwrap().into(),
-            EventId::from_str("foo/baz/FOO_BAZ.vs").unwrap().into(),
+            EventId::from_str("/foo/bar/FOO_BAR?vs").unwrap().into(),
+            EventId::from_str("/foo/baz/FOO_BAZ?vs").unwrap().into(),
         ];
 
         let re_emitter = Vs;
@@ -106,12 +106,12 @@ mod test {
         );
 
         let mut expecting = vec![
-            "foo/bar/FOO_BAR.left-win",
-            "foo/bar/FOO_BAR.right-win",
-            "foo/bar/FOO_BAR.vs",
-            "foo/baz/FOO_BAZ.left-win",
-            "foo/baz/FOO_BAZ.right-win",
-            "foo/baz/FOO_BAZ.vs",
+            "/foo/bar/FOO_BAR?left-win",
+            "/foo/bar/FOO_BAR?right-win",
+            "/foo/bar/FOO_BAR?vs",
+            "/foo/baz/FOO_BAZ?left-win",
+            "/foo/baz/FOO_BAZ?right-win",
+            "/foo/baz/FOO_BAZ?vs",
         ];
 
         expecting.sort();
@@ -129,17 +129,17 @@ mod test {
             use VsOutcome::*;
             vec![
                 EventOutcome {
-                    event_id: EventId::from_str("foo/bar/FOO1_BAR1.vs").unwrap(),
+                    event_id: EventId::from_str("/foo/bar/FOO1_BAR1?vs").unwrap(),
                     outcome: Vs(Winner("FOO1".to_string())),
                     time,
                 },
                 EventOutcome {
-                    event_id: EventId::from_str("foo/bar/FOO2_BAR2.vs").unwrap(),
+                    event_id: EventId::from_str("/foo/bar/FOO2_BAR2?vs").unwrap(),
                     outcome: Vs(Winner("BAR2".to_string())),
                     time,
                 },
                 EventOutcome {
-                    event_id: EventId::from_str("foo/bar/FOO3_BAR3.vs").unwrap(),
+                    event_id: EventId::from_str("/foo/bar/FOO3_BAR3?vs").unwrap(),
                     outcome: Vs(Draw),
                     time,
                 },
@@ -159,20 +159,18 @@ mod test {
         );
 
         let mut expecting = vec![
-            "foo/bar/FOO1_BAR1.vs=FOO1_win",
-            "foo/bar/FOO1_BAR1.left-win=FOO1_win",
-            "foo/bar/FOO1_BAR1.right-win=FOO1_win-or-draw",
-            "foo/bar/FOO2_BAR2.vs=BAR2_win",
-            "foo/bar/FOO2_BAR2.left-win=BAR2_win-or-draw",
-            "foo/bar/FOO2_BAR2.right-win=BAR2_win",
-            "foo/bar/FOO3_BAR3.vs=draw",
-            "foo/bar/FOO3_BAR3.left-win=BAR3_win-or-draw",
-            "foo/bar/FOO3_BAR3.right-win=FOO3_win-or-draw",
+            "/foo/bar/FOO1_BAR1?vs=FOO1_win",
+            "/foo/bar/FOO1_BAR1?left-win=FOO1_win",
+            "/foo/bar/FOO1_BAR1?right-win=FOO1_win-or-draw",
+            "/foo/bar/FOO2_BAR2?vs=BAR2_win",
+            "/foo/bar/FOO2_BAR2?left-win=BAR2_win-or-draw",
+            "/foo/bar/FOO2_BAR2?right-win=BAR2_win",
+            "/foo/bar/FOO3_BAR3?vs=draw",
+            "/foo/bar/FOO3_BAR3?left-win=BAR3_win-or-draw",
+            "/foo/bar/FOO3_BAR3?right-win=FOO3_win-or-draw",
         ];
         outcoming.sort();
         expecting.sort();
-
-        dbg!(&outcoming);
 
         assert_eq!(outcoming, expecting)
     }

@@ -22,8 +22,8 @@ impl DbRead for InMemory {
     async fn get_node(&self, node: &str) -> Result<Option<Item>, Error> {
         let db = &*self.inner.read().unwrap();
         let mut children: Vec<String> = {
-            let path = if node.is_empty() {
-                "".to_string()
+            let path = if node == "/" {
+                "/".to_string()
             } else {
                 format!("{}/", node)
             };
@@ -34,9 +34,9 @@ impl DbRead for InMemory {
                     let key = key.as_str();
                     if let Some(remaining) = key.strip_prefix(&path) {
                         let end = remaining
-                            .find(['/', '.'].as_ref())
+                            .find(['/', '?'].as_ref())
                             .map(|end| end + path.len())
-                            .expect("always has a ‘.’");
+                            .expect("always has a ‘?’");
 
                         Some(key[..end].to_string())
                     } else {
@@ -54,7 +54,7 @@ impl DbRead for InMemory {
                 .into_iter()
                 .filter(|key| {
                     if let Some(remaining) = key.as_str().strip_prefix(node) {
-                        remaining.starts_with('.')
+                        remaining.starts_with('?')
                     } else {
                         false
                     }
@@ -103,7 +103,7 @@ impl TimeTickerDb for InMemory {
         let db = self.inner.read().unwrap();
         let mut obs_events: Vec<&AnnouncedEvent> = db
             .values()
-            .filter(|obs_event| obs_event.event.id.as_path().first() == "time")
+            .filter(|obs_event| obs_event.event.id.as_str().starts_with("/time"))
             .collect();
         obs_events.sort_by_cached_key(|obs_event| obs_event.event.expected_outcome_time);
         Ok(obs_events.last().map(|obs_event| obs_event.event.clone()))
@@ -113,7 +113,7 @@ impl TimeTickerDb for InMemory {
         let mut obs_events: Vec<&AnnouncedEvent> = db
             .values()
             .filter(|obs_event| {
-                obs_event.event.id.as_path().first() == "time" && obs_event.attestation == None
+                obs_event.event.id.as_str().starts_with("/time") && obs_event.attestation == None
             })
             .collect();
         obs_events.sort_by_cached_key(|obs_event| obs_event.event.expected_outcome_time);

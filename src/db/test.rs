@@ -66,7 +66,7 @@ pub fn test_db(db: &dyn Db) {
 }
 
 fn test_insert_unattested(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
-    let unattested_id = EventId::from_str("test/db/test-insert-unattested.occur").unwrap();
+    let unattested_id = EventId::from_str("/test/db/test-insert-unattested?occur").unwrap();
     let mut obs_event = AnnouncedEvent::test_new(&unattested_id);
     obs_event.attestation = None;
 
@@ -84,22 +84,22 @@ fn test_insert_unattested(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
                 .unwrap()
                 .unwrap()
                 .children,
-            ["test"]
+            ["/test"]
         );
 
-        let path = rt.block_on(db.get_node("test")).unwrap().unwrap();
+        let path = rt.block_on(db.get_node("/test")).unwrap().unwrap();
         assert_eq!(path.events, [""; 0]);
-        assert_eq!(path.children[..], ["test/db".to_string()]);
+        assert_eq!(path.children[..], ["/test/db".to_string()]);
         assert_eq!(
-            rt.block_on(db.get_node("test/db"))
+            rt.block_on(db.get_node("/test/db"))
                 .unwrap()
                 .unwrap()
                 .children[..],
-            ["test/db/test-insert-unattested"]
+            ["/test/db/test-insert-unattested"]
         );
 
         let node_path = rt
-            .block_on(db.get_node("test/db/test-insert-unattested"))
+            .block_on(db.get_node("/test/db/test-insert-unattested"))
             .unwrap()
             .unwrap();
         assert_eq!(node_path.children.len(), 0);
@@ -108,7 +108,7 @@ fn test_insert_unattested(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
 }
 
 fn test_insert_attested(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
-    let insert_attested_id = EventId::from_str("test/db/test-insert-attested.occur").unwrap();
+    let insert_attested_id = EventId::from_str("/test/db/test-insert-attested?occur").unwrap();
     let obs_event = AnnouncedEvent::test_new(&insert_attested_id);
     rt.block_on(db.insert_event(obs_event.clone())).unwrap();
     let entry = rt
@@ -123,13 +123,13 @@ fn test_insert_attested(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
 
     {
         assert_eq!(
-            rt.block_on(db.get_node("test")).unwrap().unwrap().children[..],
-            ["test/db"],
+            rt.block_on(db.get_node("/test")).unwrap().unwrap().children[..],
+            ["/test/db"],
             "new event did not duplicate parent path"
         );
 
         let mut children = rt
-            .block_on(db.get_node("test/db"))
+            .block_on(db.get_node("/test/db"))
             .unwrap()
             .unwrap()
             .children;
@@ -138,8 +138,8 @@ fn test_insert_attested(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
         assert_eq!(
             children[..],
             [
-                "test/db/test-insert-attested",
-                "test/db/test-insert-unattested"
+                "/test/db/test-insert-attested",
+                "/test/db/test-insert-unattested"
             ]
         );
     }
@@ -147,7 +147,7 @@ fn test_insert_attested(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
 
 fn test_insert_unattested_then_complete(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
     let unattested_then_complete_id =
-        EventId::from_str("test/db/test-insert-unattested-then-complete.occur").unwrap();
+        EventId::from_str("/test/db/test-insert-unattested-then-complete?occur").unwrap();
 
     let mut obs_event = AnnouncedEvent::test_new(&unattested_then_complete_id);
     let attestation = obs_event.attestation.take().unwrap();
@@ -169,12 +169,12 @@ fn test_insert_unattested_then_complete(rt: &mut tokio::runtime::Runtime, db: &d
 }
 
 fn test_insert_grandchild_event(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
-    let grandchild_id = EventId::from_str("test/db/dbchild/grandchild.occur").unwrap();
+    let grandchild_id = EventId::from_str("/test/db/dbchild/grandchild?occur").unwrap();
     rt.block_on(db.insert_event(AnnouncedEvent::test_new(&grandchild_id)))
         .unwrap();
 
     let mut db_children = rt
-        .block_on(db.get_node("test/db"))
+        .block_on(db.get_node("/test/db"))
         .unwrap()
         .unwrap()
         .children;
@@ -184,22 +184,22 @@ fn test_insert_grandchild_event(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
     assert_eq!(
         db_children[..],
         [
-            "test/db/dbchild",
-            "test/db/test-insert-attested",
-            "test/db/test-insert-unattested",
-            "test/db/test-insert-unattested-then-complete",
+            "/test/db/dbchild",
+            "/test/db/test-insert-attested",
+            "/test/db/test-insert-unattested",
+            "/test/db/test-insert-unattested-then-complete",
         ]
     );
 
     let dbchild = rt
-        .block_on(db.get_node("test/db/dbchild"))
+        .block_on(db.get_node("/test/db/dbchild"))
         .unwrap()
         .unwrap();
     assert_eq!(dbchild.events, [""; 0]);
-    assert_eq!(dbchild.children[..], ["test/db/dbchild/grandchild"]);
+    assert_eq!(dbchild.children[..], ["/test/db/dbchild/grandchild"]);
 
     let grandchild = rt
-        .block_on(db.get_node("test/db/dbchild/grandchild"))
+        .block_on(db.get_node("/test/db/dbchild/grandchild"))
         .unwrap()
         .unwrap();
 
@@ -208,21 +208,21 @@ fn test_insert_grandchild_event(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
 }
 
 fn test_child_event_of_node_with_event(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
-    let child = EventId::from_str("test/db/test-insert-attested/test-sub-event.occur").unwrap();
+    let child = EventId::from_str("/test/db/test-insert-attested/test-sub-event?occur").unwrap();
     rt.block_on(db.insert_event(AnnouncedEvent::test_new(&child)))
         .unwrap();
     let parent = rt
-        .block_on(db.get_node("test/db/test-insert-attested"))
+        .block_on(db.get_node("/test/db/test-insert-attested"))
         .unwrap()
         .unwrap();
 
     assert_eq!(
         parent.children,
-        ["test/db/test-insert-attested/test-sub-event"]
+        ["/test/db/test-insert-attested/test-sub-event"]
     );
 
     let parent = rt
-        .block_on(db.get_node("test/db/test-insert-attested/test-sub-event"))
+        .block_on(db.get_node("/test/db/test-insert-attested/test-sub-event"))
         .unwrap()
         .unwrap();
 
@@ -232,22 +232,22 @@ fn test_child_event_of_node_with_event(rt: &mut tokio::runtime::Runtime, db: &dy
             .iter()
             .map(EventId::as_str)
             .collect::<Vec<_>>(),
-        ["test/db/test-insert-attested/test-sub-event.occur"]
+        ["/test/db/test-insert-attested/test-sub-event?occur"]
     );
 }
 
 fn test_get_non_existent_events(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
-    let non_existent = EventId::from_str("test/db/dont-exist.occur").unwrap();
+    let non_existent = EventId::from_str("/test/db/dont-exist?occur").unwrap();
     assert!(rt.block_on(db.get_event(&non_existent)).unwrap().is_none());
     assert!(rt
-        .block_on(db.get_node("test/db/dont-exist"))
+        .block_on(db.get_node("/test/db/dont-exist"))
         .unwrap()
         .is_none());
 }
 
 fn test_multiple_events_on_one_node(rt: &mut tokio::runtime::Runtime, db: &dyn Db) {
-    let first = EventId::from_str("test/db/RED_BLUE.vs").unwrap();
-    let second = EventId::from_str("test/db/RED_BLUE.left-win").unwrap();
+    let first = EventId::from_str("/test/db/RED_BLUE?vs").unwrap();
+    let second = EventId::from_str("/test/db/RED_BLUE?left-win").unwrap();
 
     rt.block_on(db.insert_event(AnnouncedEvent::test_new(&first)))
         .unwrap();
@@ -255,7 +255,7 @@ fn test_multiple_events_on_one_node(rt: &mut tokio::runtime::Runtime, db: &dyn D
         .unwrap();
 
     let mut red_blue = rt
-        .block_on(db.get_node("test/db/RED_BLUE"))
+        .block_on(db.get_node("/test/db/RED_BLUE"))
         .unwrap()
         .unwrap();
 
