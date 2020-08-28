@@ -43,10 +43,7 @@ impl LoggerConfig {
                     .filter_level(*level)
                     .ignore_res();
                 Ok(Box::new(
-                    slog_async::Async::new(drain)
-                        .chain_size(4096)
-                        .build()
-                        .fuse(),
+                    slog_async::Async::new(drain).chan_size(4096).build().fuse(),
                 ))
             }
         }
