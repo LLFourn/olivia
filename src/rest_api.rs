@@ -27,6 +27,7 @@ pub struct PathResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventResponse {
+    pub id: EventId,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_outcome_time: Option<chrono::NaiveDateTime>,
     pub announcement: crate::core::Announcement,
@@ -36,6 +37,7 @@ pub struct EventResponse {
 impl From<AnnouncedEvent> for EventResponse {
     fn from(ann: AnnouncedEvent) -> Self {
         EventResponse {
+            id: ann.event.id,
             expected_outcome_time: ann.event.expected_outcome_time,
             announcement: ann.announcement,
             attestation: ann.attestation,
@@ -274,6 +276,7 @@ mod test {
             .await;
 
         let body = j::<EventResponse>(&res.body()).unwrap();
+        assert_eq!(body.id, event_id);
 
         assert!(crate::core::verify_announcement(
             &oracle.public_keys(),
