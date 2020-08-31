@@ -144,9 +144,7 @@ pub mod test {
             .unwrap()
             .expect("creating oracle should have set public keys");
         let event_id = EventId::from_str("/foo/bar/baz?occur").unwrap();
-        assert!(
-            oracle.add_event(event_id.clone().into()).await.is_ok()
-        );
+        assert!(oracle.add_event(event_id.clone().into()).await.is_ok());
 
         db.get_event(&event_id)
             .await
@@ -161,9 +159,7 @@ pub mod test {
         .try_into()
         .unwrap();
 
-        assert!(
-             oracle.complete_event(outcome.clone()).await.is_ok()
-        );
+        assert!(oracle.complete_event(outcome.clone()).await.is_ok());
 
         let obs_event = db
             .get_event(&event_id)

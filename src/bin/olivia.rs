@@ -38,8 +38,7 @@ fn _main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 }
 
-
-fn main()  {
+fn main() {
     if let Err(e) = _main() {
         eprintln!("{}", e);
     }
