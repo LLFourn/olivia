@@ -21,7 +21,7 @@ pub enum Command {
     Derive { event: String },
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn _main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let opt = Opt::from_args();
     let config: Config = {
         use std::{fs::File, io::Read};
@@ -35,5 +35,12 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Add { entity } => cli::add::add(config, &entity),
         Command::Run => cli::run::run(config),
         Command::Derive { event } => cli::derive::derive(config, EventId::from_str(&event)?),
+    }
+}
+
+
+fn main()  {
+    if let Err(e) = _main() {
+        eprintln!("{}", e);
     }
 }
