@@ -1,21 +1,19 @@
 use crate::{
-    config::{Config, DbConfig},
+    config::Config,
     core::{Event, EventOutcome},
-    db::{self, diesel::postgres::PgBackend, Db},
+    db::Db,
+    log::OracleLog,
     oracle::Oracle,
     sources::Update,
 };
 use futures::{future::FutureExt, stream, stream::StreamExt};
 use std::sync::Arc;
 
-pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut rt = tokio::runtime::Runtime::new()?;
 
     let logger = slog::Logger::root(config.loggers.to_slog_drain()?, o!());
-    let db: Arc<dyn Db> = match config.database {
-        DbConfig::InMemory => Arc::new(db::in_memory::InMemory::default()),
-        DbConfig::Postgres { url } => Arc::new(PgBackend::connect(&url)?),
-    };
+    let db: Arc<dyn Db> = config.database.connect_database()?;
 
     let event_streams: Vec<_> = config
         .events
@@ -41,7 +39,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     // If we have the secret seed then we are running an attesting oracle
     if let Some(secret_seed) = config.secret_seed {
-        let oracle = rt.block_on(Oracle::new(secret_seed, db.clone())).unwrap();
+        let oracle = rt.block_on(Oracle::new(secret_seed, db.clone()))?;
         // Processing new events
         let event_loop = stream::select_all(event_streams)
             .for_each(
@@ -57,7 +55,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     oracle
                         .add_event(event)
                         .map(move |res| {
-                            res.log(logger);
+                            logger.log_event_result(res);
                             if let Some(processed_notifier) = processed_notifier {
                                 let _ = processed_notifier.send(());
                             }
@@ -78,7 +76,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                         o!("type" => "new_outcome", "event_id" => format!("{}", outcome.event_id)),
                     );
                     oracle.complete_event(outcome).map(move |res| {
-                        res.log(logger);
+                        logger.log_outcome_result(res);
                         if let Some(processed_notifier) = processed_notifier {
                             let _ = processed_notifier.send(());
                         }

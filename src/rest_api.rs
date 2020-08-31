@@ -216,7 +216,7 @@ mod test {
             );
         }
 
-        oracle.add_event(event_id.clone().into()).await;
+        oracle.add_event(event_id.clone().into()).await.unwrap();
 
         for path in &[format!("{}", node), format!("{}/", node)] {
             let res = warp::test::request().path(path).reply(&routes).await;
@@ -228,7 +228,7 @@ mod test {
 
         oracle
             .add_event(EventId::from_str("/test/one/two/4?occur").unwrap().into())
-            .await;
+            .await.unwrap();
 
         let res = warp::test::request()
             .path(&format!("{}", node.parent().unwrap()))
@@ -247,7 +247,7 @@ mod test {
                     .unwrap()
                     .into(),
             )
-            .await;
+            .await.unwrap();
 
         let res = warp::test::request().path("/").reply(&routes).await;
         assert_eq!(res.status(), 200);
@@ -261,7 +261,7 @@ mod test {
         let (oracle, routes) = setup!();
         let event_id = EventId::from_str("/test/one/two/three?occur").unwrap();
 
-        oracle.add_event(event_id.clone().clone().into()).await;
+        oracle.add_event(event_id.clone().clone().into()).await.unwrap();
 
         let res = warp::test::request()
             .path(event_id.as_str())

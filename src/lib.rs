@@ -11,6 +11,7 @@ pub mod config;
 pub mod core;
 pub mod curve;
 pub mod keychain;
+pub mod log;
 mod macros;
 pub mod rest_api;
 pub mod sources;

@@ -16,57 +16,32 @@ pub struct OraclePubkeys {
     pub secp256k1: secp256k1::PublicKey,
 }
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum EventResult {
+    #[error("event already exists")]
     AlreadyExists,
+    #[error("event already exists and has been attested to")]
     AlreadyCompleted,
-    Created,
+    #[error("event already exists but was updated")]
     Changed,
-    IncompatibleChange,
+    #[error("unable to read from database: {0}")]
     DbReadErr(crate::db::Error),
+    #[error("unable to write to database: {0}")]
     DbWriteErr(crate::db::Error),
 }
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum OutcomeResult {
-    Completed,
+    #[error("event already attested to")]
     AlreadyCompleted,
+    #[error("event has already been attested to with '{existing}' but you are trying to set it to '{new}'")]
     OutcomeChanged { existing: String, new: String },
+    #[error("the event being attested to does not exist")]
     EventNotExist,
+    #[error("unable to read from database: {0}")]
     DbReadErr(crate::db::Error),
+    #[error("unable to write to database: {0}")]
     DbWriteErr(crate::db::Error),
-}
-
-impl EventResult {
-    pub fn log(&self, logger: slog::Logger) {
-        use EventResult::*;
-        match self {
-            Created => info!(logger, "created"),
-            Changed => info!(logger, "changed"),
-            AlreadyExists => debug!(logger, "ignored - already exists"),
-            AlreadyCompleted => debug!(logger, "ignored - already completed"),
-            IncompatibleChange => error!(logger, "incompatible change"),
-            DbReadErr(e) => crit!(logger,"database read";"error" => format!("{}",e)),
-            DbWriteErr(e) => crit!(logger,"database write"; "error" => format!("{}", e)),
-        }
-    }
-}
-
-impl OutcomeResult {
-    pub fn log(&self, logger: slog::Logger) {
-        use OutcomeResult::*;
-
-        match self {
-            Completed => info!(logger, "completed"),
-            AlreadyCompleted => debug!(logger, "already completed"),
-            OutcomeChanged { existing, new } => {
-                crit!(logger, "outcome changed"; "existing" => existing, "new" => new)
-            }
-            EventNotExist => error!(logger, "event doesn't exist"),
-            DbReadErr(e) => crit!(logger, "database read"; "error" => format!("{}", e)),
-            DbWriteErr(e) => crit!(logger, "database write"; "error" => format!("{}", e)),
-        }
-    }
 }
 
 pub struct Oracle {
@@ -93,64 +68,58 @@ impl Oracle {
         self.keychain.oracle_pubkeys()
     }
 
-    pub async fn add_event(&self, new_event: Event) -> EventResult {
+    pub async fn add_event(&self, new_event: Event) -> Result<(), EventResult> {
         match self.db.get_event(&new_event.id).await {
             Ok(Some(AnnouncedEvent {
                 attestation: Some(_),
                 ..
-            })) => EventResult::AlreadyCompleted,
+            })) => Err(EventResult::AlreadyCompleted),
             Ok(Some(AnnouncedEvent { .. })) => {
                 // TODO: update exected_outcome_time
-                EventResult::AlreadyExists
+                Err(EventResult::AlreadyExists)
             }
             Ok(None) => {
                 let announcement = self.keychain.create_announcement(&new_event.id);
-                let insert_result = self
-                    .db
+                self.db
                     .insert_event(AnnouncedEvent {
                         event: new_event,
                         announcement,
                         attestation: None,
                     })
-                    .await;
-
-                match insert_result {
-                    Ok(()) => EventResult::Created,
-                    Err(e) => EventResult::DbWriteErr(e),
-                }
+                    .await
+                    .map_err(EventResult::DbWriteErr)
             }
-            Err(e) => EventResult::DbReadErr(e),
+            Err(e) => Err(EventResult::DbReadErr(e)),
         }
     }
 
-    pub async fn complete_event(&self, event_outcome: EventOutcome) -> OutcomeResult {
+    pub async fn complete_event(&self, event_outcome: EventOutcome) -> Result<(), OutcomeResult> {
         let existing = self.db.get_event(&event_outcome.event_id).await;
         let outcome_str = format!("{}", event_outcome.outcome);
         match existing {
-            Ok(None) => OutcomeResult::EventNotExist,
+            Ok(None) => Err(OutcomeResult::EventNotExist),
             Ok(Some(AnnouncedEvent {
                 attestation: Some(attestation),
                 ..
             })) => {
                 if attestation.outcome == outcome_str {
-                    OutcomeResult::AlreadyCompleted
+                    Err(OutcomeResult::AlreadyCompleted)
                 } else {
-                    OutcomeResult::OutcomeChanged {
+                    Err(OutcomeResult::OutcomeChanged {
                         existing: attestation.outcome,
                         new: outcome_str,
-                    }
+                    })
                 }
             }
             Ok(Some(AnnouncedEvent { event, .. })) => {
                 let scalars = self.keychain.scalars_for_event_outcome(&event_outcome);
                 let attest = Attestation::new(outcome_str, event_outcome.time, scalars);
-
-                match self.db.complete_event(&event.id, attest).await {
-                    Ok(()) => OutcomeResult::Completed,
-                    Err(e) => OutcomeResult::DbWriteErr(e),
-                }
+                self.db
+                    .complete_event(&event.id, attest)
+                    .await
+                    .map_err(OutcomeResult::DbWriteErr)
             }
-            Err(e) => OutcomeResult::DbReadErr(e),
+            Err(e) => Err(OutcomeResult::DbReadErr(e)),
         }
     }
 }
@@ -176,11 +145,7 @@ pub mod test {
             .expect("creating oracle should have set public keys");
         let event_id = EventId::from_str("/foo/bar/baz?occur").unwrap();
         assert!(
-            if let EventResult::Created = oracle.add_event(event_id.clone().into()).await {
-                true
-            } else {
-                false
-            }
+            oracle.add_event(event_id.clone().into()).await.is_ok()
         );
 
         db.get_event(&event_id)
@@ -197,11 +162,7 @@ pub mod test {
         .unwrap();
 
         assert!(
-            if let OutcomeResult::Completed = oracle.complete_event(outcome.clone()).await {
-                true
-            } else {
-                false
-            }
+             oracle.complete_event(outcome.clone()).await.is_ok()
         );
 
         let obs_event = db

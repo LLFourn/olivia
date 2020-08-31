@@ -4,7 +4,7 @@ use futures::{Stream, StreamExt};
 use std::{fs, sync::Arc};
 
 impl LoggerConfig {
-    pub fn to_slog_drain(&self) -> Result<RootDrain, Box<dyn std::error::Error>> {
+    pub fn to_slog_drain(&self) -> Result<RootDrain, Box<dyn std::error::Error + Send + Sync>> {
         use crate::slog::Drain;
         use LoggerConfig::*;
         match &self {
@@ -51,7 +51,7 @@ impl LoggerConfig {
 }
 
 impl LoggersConfig {
-    pub fn to_slog_drain(&self) -> Result<RootDrain, Box<dyn std::error::Error>> {
+    pub fn to_slog_drain(&self) -> Result<RootDrain, Box<dyn std::error::Error + Send + Sync>> {
         let drains = self
             .0
             .iter()
@@ -75,7 +75,7 @@ impl EventSourceConfig {
         db: Arc<dyn db::Db>,
     ) -> Result<
         std::pin::Pin<Box<dyn Stream<Item = sources::Update<core::Event>> + Send>>,
-        Box<dyn std::error::Error>,
+        Box<dyn std::error::Error + Send + Sync>,
     > {
         let name = name.to_owned();
         match self.clone() {
@@ -141,7 +141,7 @@ impl OutcomeSourceConfig {
         db: Arc<dyn db::Db>,
     ) -> Result<
         std::pin::Pin<Box<dyn Stream<Item = sources::Update<core::EventOutcome>> + Send>>,
-        Box<dyn std::error::Error>,
+        Box<dyn std::error::Error + Send + Sync>,
     > {
         use OutcomeSourceConfig::*;
         match self.clone() {
@@ -177,6 +177,19 @@ impl OutcomeSourceConfig {
                         stream.map(|stream| emitter.re_emit_outcomes(stream).boxed())
                     }
                 }
+            }
+        }
+    }
+}
+
+impl DbConfig {
+    pub fn connect_database(
+        &self,
+    ) -> Result<Arc<dyn db::Db>, Box<dyn std::error::Error + Send + Sync>> {
+        match self {
+            DbConfig::InMemory => Ok(Arc::new(db::in_memory::InMemory::default())),
+            DbConfig::Postgres { url } => {
+                Ok(Arc::new(db::diesel::postgres::PgBackend::connect(&url)?))
             }
         }
     }

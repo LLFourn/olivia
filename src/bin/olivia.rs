@@ -16,11 +16,12 @@ struct Opt {
 
 #[derive(Debug, StructOpt)]
 pub enum Command {
+    Add { entity: String },
     Run,
     Derive { event: String },
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let opt = Opt::from_args();
     let config: Config = {
         use std::{fs::File, io::Read};
@@ -31,6 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     match opt.cmd {
+        Command::Add { entity } => cli::add::add(config, &entity),
         Command::Run => cli::run::run(config),
         Command::Derive { event } => cli::derive::derive(config, EventId::from_str(&event)?),
     }

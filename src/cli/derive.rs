@@ -1,6 +1,9 @@
 use crate::{config::Config, core::EventId, keychain::KeyChain};
 
-pub fn derive(config: Config, event: EventId) -> Result<(), Box<dyn std::error::Error>> {
+pub fn derive(
+    config: Config,
+    event: EventId,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let secret_seed = config
         .secret_seed
         .ok_or("config file needs secret_seed to run".to_string())?;
