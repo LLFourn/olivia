@@ -1,6 +1,6 @@
 use crate::seed::Seed;
 use diesel::sql_types;
-use digest::{Update, VariableOutput};
+use digest::{Digest, Update, VariableOutput};
 use rand::prelude::ThreadRng;
 pub use schnorr_fun::{
     fun::{self, marker::*, nonce, s, Scalar, XOnly, G},
@@ -81,7 +81,7 @@ crate::impl_fromstr_deserailize_fromsql! {
 }
 
 lazy_static::lazy_static! {
-    static ref SCHNORR: Schnorr<Sha256, nonce::Synthetic<Sha256, nonce::GlobalRng<ThreadRng>>> = Schnorr::new(nonce::Synthetic::<Sha256, nonce::GlobalRng<ThreadRng>>::default(), MessageKind::Plain { tag: "oracle" });
+    static ref SCHNORR: Schnorr<Sha256, nonce::Synthetic<Sha256, nonce::GlobalRng<ThreadRng>>> = Schnorr::new(nonce::Synthetic::<Sha256, nonce::GlobalRng<ThreadRng>>::default(), MessageKind::Prehashed);
 }
 
 impl From<XOnly<EvenY>> for PublicKey {
@@ -120,9 +120,10 @@ impl crate::core::Schnorr for Secp256k1 {
         nonce_keypair: Self::NonceKeyPair,
         message: &[u8],
     ) -> Self::SigScalar {
-        let (x, X) = signing_keypair.as_tuple();
+       let (x, X) = signing_keypair.as_tuple();
         let (r, R) = nonce_keypair;
-        let c = SCHNORR.challenge(&R, X, message.mark::<Public>());
+        let message = Digest::chain(Sha256::default(), message).finalize();
+        let c = SCHNORR.challenge(&R, X, (&message[..]).mark::<Public>());
         let s = s!(r + c * x);
         SigScalar(s.mark::<Public>())
     }
@@ -143,13 +144,14 @@ impl crate::core::Schnorr for Secp256k1 {
         sig: &Self::Signature,
     ) -> bool {
         let public_key = public_key.0.clone().mark::<EvenY>();
-        let message = message.mark::<Public>();
+        let message = Digest::chain(Sha256::default(), message).finalize();
         let verification_key = public_key.to_point();
-        SCHNORR.verify(&verification_key, message, &sig.0)
+        SCHNORR.verify(&verification_key, (&message[..]).mark::<Public>(), &sig.0)
     }
 
     fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::Signature {
-        Signature(SCHNORR.sign(keypair, message.mark::<Public>()))
+        let message = Digest::chain(Sha256::default(), message).finalize();
+        Signature(SCHNORR.sign(keypair, ( &message[..] ).mark::<Public>()))
     }
 
     fn test_keypair() -> Self::KeyPair {
