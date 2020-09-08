@@ -16,18 +16,15 @@ CREATE TABLE events (
 
 CREATE TABLE announcements (
        event_id text NOT NULL PRIMARY KEY REFERENCES events (id),
-       ed25519_nonce bytea NOT NULL,
-       ed25519_signature bytea NOT NULL,
-       secp256k1_nonce bytea NOT NULL,
-       secp256k1_signature bytea NOT NULL
+       nonce bytea NOT NULL,
+       signature bytea NOT NULL
 );
 
 CREATE TABLE attestations (
        event_id text NOT NULL PRIMARY KEY REFERENCES events (id),
        outcome text NOT NULL,
        time timestamp NOT NULL,
-       ed25519 bytea NOT NULL,
-       secp256k1 bytea NOT NULL
+       scalar bytea NOT NULL
 );
 
 CREATE INDEX idx_expected_outcome_time ON events (expected_outcome_time DESC);

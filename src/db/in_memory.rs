@@ -1,20 +1,27 @@
 use crate::{
-    core::{AnnouncedEvent, Attestation, Event, EventId},
+    core::{AnnouncedEvent, Attestation, Event, EventId, Curve},
     db::*,
-    oracle,
 };
 use async_trait::async_trait;
 use std::{collections::HashMap, sync::RwLock};
 
-#[derive(Default)]
-pub struct InMemory {
-    public_keys: RwLock<Option<oracle::OraclePubkeys>>,
-    inner: RwLock<HashMap<EventId, AnnouncedEvent>>,
+pub struct InMemory<C: Curve> {
+    public_key: RwLock<Option<C::PublicKey>>,
+    inner: RwLock<HashMap<EventId, AnnouncedEvent<C>>>,
+}
+
+impl<C: Curve> Default for InMemory<C> {
+    fn default() -> Self {
+        Self {
+            public_key: RwLock::new(None),
+            inner: RwLock::new(HashMap::default())
+        }
+    }
 }
 
 #[async_trait]
-impl DbRead for InMemory {
-    async fn get_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent>, crate::db::Error> {
+impl<C: Curve> DbRead<C> for InMemory<C> {
+    async fn get_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent<C>>, crate::db::Error> {
         let db = &*self.inner.read().unwrap();
         Ok(db.get(&id).map(Clone::clone))
     }
@@ -72,8 +79,8 @@ impl DbRead for InMemory {
 }
 
 #[async_trait]
-impl DbWrite for InMemory {
-    async fn insert_event(&self, observed_event: AnnouncedEvent) -> Result<(), crate::db::Error> {
+impl<C: Curve> DbWrite<C> for InMemory<C> {
+    async fn insert_event(&self, observed_event: AnnouncedEvent<C>) -> Result<(), crate::db::Error> {
         let db = &mut *self.inner.write().unwrap();
         db.insert(observed_event.event.id.clone(), observed_event);
         Ok(())
@@ -81,7 +88,7 @@ impl DbWrite for InMemory {
     async fn complete_event(
         &self,
         event_id: &EventId,
-        attestation: Attestation,
+        attestation: Attestation<C>,
     ) -> Result<(), crate::db::Error> {
         let db = &mut *self.inner.write().unwrap();
         match db.get_mut(&event_id) {
@@ -98,10 +105,10 @@ impl DbWrite for InMemory {
 }
 
 #[async_trait]
-impl TimeTickerDb for InMemory {
+impl<C: Curve> TimeTickerDb for InMemory<C> {
     async fn latest_time_event(&self) -> Result<Option<Event>, crate::db::Error> {
         let db = self.inner.read().unwrap();
-        let mut obs_events: Vec<&AnnouncedEvent> = db
+        let mut obs_events: Vec<&AnnouncedEvent<C>> = db
             .values()
             .filter(|obs_event| obs_event.event.id.as_str().starts_with("/time"))
             .collect();
@@ -110,7 +117,7 @@ impl TimeTickerDb for InMemory {
     }
     async fn earliest_unattested_time_event(&self) -> Result<Option<Event>, crate::db::Error> {
         let db = self.inner.read().unwrap();
-        let mut obs_events: Vec<&AnnouncedEvent> = db
+        let mut obs_events: Vec<&AnnouncedEvent<C>> = db
             .values()
             .filter(|obs_event| {
                 obs_event.event.id.as_str().starts_with("/time") && obs_event.attestation == None
@@ -122,17 +129,18 @@ impl TimeTickerDb for InMemory {
 }
 
 #[async_trait]
-impl DbMeta for InMemory {
-    async fn get_public_keys(&self) -> Result<Option<oracle::OraclePubkeys>, Error> {
-        Ok(self.public_keys.read().unwrap().clone())
+impl<C: Curve> DbMeta<C> for InMemory<C> {
+    async fn get_public_key(&self) -> Result<Option<C::PublicKey>, Error> {
+        Ok(self.public_key.read().unwrap().as_ref().map(Clone::clone))
     }
-    async fn set_public_keys(&self, public_keys: oracle::OraclePubkeys) -> Result<(), Error> {
-        *self.public_keys.write().unwrap() = Some(public_keys);
+
+    async fn set_public_key(&self, public_key: C::PublicKey) -> Result<(), Error> {
+        *self.public_key.write().unwrap() = Some(public_key);
         Ok(())
     }
 }
 
-impl Db for InMemory {}
+impl<C: Curve> Db<C> for InMemory<C> {}
 
 #[cfg(test)]
 mod test {

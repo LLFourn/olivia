@@ -1,9 +1,9 @@
-use crate::core::{EventId, EventKind, VsMatchKind};
+use crate::{EventId, EventKind, VsMatchKind};
+use alloc::string::{String, ToString};
 use chrono::NaiveDateTime;
 use core::{convert::TryFrom, fmt};
-use thiserror::Error;
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WireEventOutcome {
     #[serde(rename = "id")]
@@ -12,7 +12,7 @@ pub struct WireEventOutcome {
     pub time: Option<NaiveDateTime>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(try_from = "WireEventOutcome")]
 pub struct EventOutcome {
@@ -69,14 +69,27 @@ pub enum VsOutcome {
     Draw,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum OutcomeError {
-    #[error("outcome for occur event was not ‘true’ got ‘{got}’")]
     OccurredNotTrue { got: String },
-    #[error("entity ‘{entity}’ refers to something not part of the event")]
     InvalidEntity { entity: String },
-    #[error("badly formatted outcome")]
     BadFormat,
+}
+
+impl core::fmt::Display for OutcomeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            OutcomeError::OccurredNotTrue { got } => {
+                write!(f, "outcome for occur event was not ‘true’ got ‘{}’", got)
+            }
+            OutcomeError::InvalidEntity { entity } => write!(
+                f,
+                "entity ‘{}’ refers to something not part of the event",
+                entity
+            ),
+            OutcomeError::BadFormat => write!(f, "badly formatted outcome"),
+        }
+    }
 }
 
 impl TryFrom<WireEventOutcome> for EventOutcome {

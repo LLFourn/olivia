@@ -8,7 +8,7 @@ extern crate tokio;
 #[derive(Debug, StructOpt)]
 #[structopt(name = "basic")]
 struct Opt {
-    #[structopt(short, long, parse(from_os_str), name = "toml config file")]
+    #[structopt(short, long, parse(from_os_str), name = "yaml config file")]
     config: PathBuf,
     #[structopt(subcommand)]
     cmd: Command,

@@ -1,20 +1,12 @@
 use crate::{
-    core::{AnnouncedEvent, Attestation, Event, EventOutcome},
-    curve::{
-        ed25519::{self},
-        secp256k1::{self},
-    },
+    core::{AnnouncedEvent, Attestation, Event, EventOutcome, Curve},
+    curve::DeriveKeyPair,
     db,
     keychain::KeyChain,
     seed::Seed,
 };
 use std::sync::Arc;
 
-#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
-pub struct OraclePubkeys {
-    pub ed25519: ed25519::PublicKey,
-    pub secp256k1: secp256k1::PublicKey,
-}
 
 #[derive(thiserror::Error, Debug)]
 pub enum EventResult {
@@ -44,28 +36,28 @@ pub enum OutcomeResult {
     DbWriteErr(crate::db::Error),
 }
 
-pub struct Oracle {
-    db: Arc<dyn crate::db::Db>,
-    keychain: KeyChain,
+pub struct Oracle<C: Curve + DeriveKeyPair> {
+    db: Arc<dyn crate::db::Db<C>>,
+    keychain: KeyChain<C>,
 }
 
-impl Oracle {
-    pub async fn new(seed: Seed, db: Arc<dyn crate::db::Db>) -> Result<Self, db::Error> {
+impl<C: Curve + DeriveKeyPair> Oracle<C> {
+    pub async fn new(seed: Seed, db: Arc<dyn crate::db::Db<C>>) -> Result<Self, db::Error> {
         let keychain = KeyChain::new(seed);
-        let public_keys = keychain.oracle_pubkeys();
-        if let Some(db_pubkeys) = db.get_public_keys().await? {
-            if public_keys != db_pubkeys {
-                return Err("public keys derived from seed do not match those in database")?;
+        let public_key = keychain.oracle_public_key();
+        if let Some(db_pubkey) = db.get_public_key().await? {
+            if public_key != db_pubkey {
+                return Err("public key derived from seed does not match database")?;
             }
         } else {
-            db.set_public_keys(public_keys).await?
+            db.set_public_key(public_key).await?
         }
 
         Ok(Self { db, keychain })
     }
 
-    pub fn public_keys(&self) -> OraclePubkeys {
-        self.keychain.oracle_pubkeys()
+    pub fn public_key(&self) -> C::PublicKey {
+        self.keychain.oracle_public_key()
     }
 
     pub async fn add_event(&self, new_event: Event) -> Result<(), EventResult> {
@@ -112,7 +104,7 @@ impl Oracle {
                 }
             }
             Ok(Some(AnnouncedEvent { event, .. })) => {
-                let scalars = self.keychain.scalars_for_event_outcome(&event_outcome);
+                let scalars = self.keychain.scalar_for_event_outcome(&event_outcome);
                 let attest = Attestation::new(outcome_str, event_outcome.time, scalars);
                 self.db
                     .complete_event(&event.id, attest)

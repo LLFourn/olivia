@@ -1,12 +1,10 @@
-use crate::curve::{
-    ed25519::{self, Ed25519},
-    secp256k1::{self, Secp256k1},
-    Curve,
+use crate::Curve;
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
 };
 use chrono::NaiveDateTime;
-use core::fmt;
-use std::str::FromStr;
-use thiserror::Error;
+use core::{fmt, str::FromStr};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventKind {
@@ -43,13 +41,9 @@ impl fmt::Display for EventKind {
     }
 }
 
-lazy_static! {
-    static ref VS_RE: regex::Regex =
-        regex::Regex::new(r"^([a-zA-Z0-9:-]+)_([a-zA-z0-9:-]+)$").unwrap();
-}
-
-#[derive(Clone, Debug, PartialEq, Hash, Eq, FromSqlRow, AsExpression, PartialOrd, Ord)]
-#[sql_type = "diesel::sql_types::Text"]
+#[derive(Clone, Debug, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "diesel", derive(diesel::AsExpression, diesel::FromSqlRow))]
+#[cfg_attr(feature = "diesel", sql_type = "diesel::sql_types::Text")]
 pub struct EventId(url::Url);
 
 impl EventId {
@@ -108,26 +102,38 @@ impl EventId {
         EventId(replaced)
     }
 
-    pub fn announcement_messages(&self, nonces: &Nonces) -> AnnouncementMessages {
-        let secp256k1 = format!("{}!00{}", &self, &nonces.secp256k1);
-        let ed25519 = format!("{}!00{}", &self, &nonces.ed25519);
-        AnnouncementMessages { secp256k1, ed25519 }
+    pub fn announcement_message<C: Curve>(&self, nonce: &C::PublicNonce) -> String {
+        format!("{}#nonce={}", self, nonce)
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone)]
 pub enum EventIdError {
-    #[error("invalid event id format")]
     BadFormat,
-    #[error("unknown event kind {0}")]
     UnknownEventKind(String),
 }
+
+impl core::fmt::Display for EventIdError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            EventIdError::BadFormat => write!(f, "badly formatted event id"),
+            EventIdError::UnknownEventKind(event_kind) => {
+                write!(f, "{} is not a recognized event kind", event_kind)
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for EventIdError {}
 
 impl FromStr for EventId {
     type Err = EventIdError;
 
     fn from_str(string: &str) -> Result<EventId, Self::Err> {
         let url =
+            // this event: prefix is just a ahck to make the Url library parse it.
+            // It shouldn't leak.
             url::Url::parse(&format!("event:{}", string)).map_err(|_| EventIdError::BadFormat)?;
         let event_kind = url.query().ok_or(EventIdError::BadFormat)?;
         let path = url
@@ -135,23 +141,17 @@ impl FromStr for EventId {
             .ok_or(EventIdError::BadFormat)?
             .collect::<Vec<_>>();
 
-        let valid_kind = match event_kind {
+        match event_kind {
             "vs" | "left-win" | "right-win" => {
                 let last = path.last().ok_or(EventIdError::BadFormat)?;
-                match VS_RE.captures(last) {
-                    Some(capture) => {
-                        capture.get(0).unwrap().as_str() != capture.get(1).unwrap().as_str()
-                    }
-                    _ => return Err(EventIdError::BadFormat),
+                let teams: Vec<_> = last.split('_').collect();
+                if teams.len() != 2 || teams[0] == teams[1] {
+                    return Err(EventIdError::BadFormat);
                 }
             }
-            "occur" => true,
-            _ => false,
+            "occur" => (),
+            _ => return Err(EventIdError::UnknownEventKind(event_kind.into())),
         };
-
-        if !valid_kind {
-            return Err(EventIdError::UnknownEventKind(event_kind.into()));
-        }
 
         Ok(EventId(url))
     }
@@ -159,7 +159,7 @@ impl FromStr for EventId {
 
 impl From<EventId> for String {
     fn from(eid: EventId) -> Self {
-        eid.as_str().to_owned()
+        eid.as_str().to_string()
     }
 }
 
@@ -244,95 +244,68 @@ impl fmt::Display for PathRef<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Event {
     pub id: EventId,
     pub expected_outcome_time: Option<NaiveDateTime>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NonceAndSig<N, S> {
-    pub nonce: N,
-    pub signature: S,
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Announcement<C: Curve> {
+    pub nonce: C::PublicNonce,
+    pub signature: C::SchnorrSignature,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Announcement {
-    pub ed25519: NonceAndSig<<Ed25519 as Curve>::PublicNonce, <Ed25519 as Curve>::SchnorrSignature>,
-    pub secp256k1:
-        NonceAndSig<<Secp256k1 as Curve>::PublicNonce, <Secp256k1 as Curve>::SchnorrSignature>,
-}
-
-impl Announcement {
-    pub fn nonces(&self) -> Nonces {
-        Nonces {
-            ed25519: self.ed25519.nonce.clone(),
-            secp256k1: self.secp256k1.nonce.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct AnnouncedEvent {
+pub struct AnnouncedEvent<C: Curve> {
     pub event: Event,
-    pub announcement: Announcement,
-    pub attestation: Option<crate::core::Attestation>,
+    pub announcement: Announcement<C>,
+    pub attestation: Option<crate::Attestation<C>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Nonces {
-    pub ed25519: <Ed25519 as Curve>::PublicNonce,
-    pub secp256k1: <Secp256k1 as Curve>::PublicNonce,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct AnnouncementMessages {
-    pub ed25519: String,
-    pub secp256k1: String,
-}
-
-impl AnnouncedEvent {
-    pub fn signatures(&self) -> Option<Signatures> {
+impl<C: Curve> AnnouncedEvent<C> {
+    pub fn announcement_signature(&self) -> Option<C::SchnorrSignature> {
         self.attestation.clone().map(|attestation| {
-            let scalars = attestation.scalars;
-            Signatures {
-                secp256k1: Secp256k1::signature_from_scalar_and_nonce(
-                    scalars.secp256k1,
-                    self.announcement.secp256k1.nonce.clone(),
-                ),
-                ed25519: Ed25519::signature_from_scalar_and_nonce(
-                    scalars.ed25519,
-                    self.announcement.ed25519.nonce.clone(),
-                ),
-            }
+            C::signature_from_scalar_and_nonce(attestation.scalar, self.announcement.nonce.clone())
         })
     }
 }
 
-pub struct Signatures {
-    pub ed25519: <ed25519::Ed25519 as Curve>::SchnorrSignature,
-    pub secp256k1: <secp256k1::Secp256k1 as Curve>::SchnorrSignature,
+impl From<NaiveDateTime> for Event {
+    fn from(dt: NaiveDateTime) -> Self {
+        Event {
+            id: EventId::from(dt),
+            expected_outcome_time: Some(dt),
+        }
+    }
 }
 
-#[must_use]
-pub fn verify_announcement(
-    pubkeys: &crate::oracle::OraclePubkeys,
-    event_id: &EventId,
-    announcement: &Announcement,
-) -> bool {
-    let messages = event_id.announcement_messages(&announcement.nonces());
-    Ed25519::verify_signature(
-        &pubkeys.ed25519,
-        &messages.ed25519.as_bytes(),
-        &announcement.ed25519.signature,
-    ) && Secp256k1::verify_signature(
-        &pubkeys.secp256k1,
-        &messages.secp256k1.as_bytes(),
-        &announcement.secp256k1.signature,
-    )
+impl From<NaiveDateTime> for EventId {
+    fn from(dt: NaiveDateTime) -> Self {
+        EventId::from_str(&format!("/time/{}?occur", dt.format("%FT%T"))).unwrap()
+    }
 }
 
+// #[must_use]
+// pub fn verify_announcement(
+//     pubkeys: &crate::oracle::OraclePubkeys,
+//     event_id: &EventId,
+//     announcement: &Announcement,
+// ) -> bool {
+//     let messages = event_id.announcement_messages(&announcement.nonces());
+//     Ed25519::verify_signature(
+//         &pubkeys.ed25519,
+//         &messages.ed25519.as_bytes(),
+//         &announcement.ed25519.signature,
+//     ) && Secp256k1::verify_signature(
+//         &pubkeys.secp256k1,
+//         &messages.secp256k1.as_bytes(),
+//         &announcement.secp256k1.signature,
+//     )
+// }
+
+#[cfg(feature = "diesel")]
 mod sql_impls {
     use super::*;
     use diesel::{
@@ -398,7 +371,7 @@ mod serde_impl {
 mod test {
     use super::*;
 
-    use crate::core::{Outcome, VsOutcome};
+    use crate::{Outcome, VsOutcome};
     impl EventId {
         pub fn default_outcome(&self) -> Outcome {
             use Outcome::*;

@@ -1,12 +1,21 @@
+#![no_std]
 mod attestation;
+mod curve;
 mod event;
 mod outcome;
 pub use attestation::*;
+pub use curve::*;
 pub use event::*;
 pub use outcome::*;
 
-use std::str::FromStr;
-use thiserror::Error;
+#[cfg_attr(not(feature = "std"), macro_use)]
+extern crate alloc;
+
+#[cfg(feature = "std")]
+#[macro_use]
+extern crate std;
+
+use core::str::FromStr;
 
 pub enum Entity {
     Event(event::Event),
@@ -36,13 +45,26 @@ impl FromStr for Entity {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Clone, Debug)]
 pub enum ParseEntityError {
-    #[error("invalid event")]
     Event(event::EventIdError),
-    #[error("invalid outcome")]
     Outcome(outcome::OutcomeError),
 }
+
+impl core::fmt::Display for ParseEntityError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            ParseEntityError::Event(event_error) => write!(f, "Invalid event: {}", event_error),
+            ParseEntityError::Outcome(outcome_error) => {
+                write!(f, "Invalid outcome: {}", outcome_error)
+            }
+        }
+    }
+}
+
+
+#[cfg(feature = "std")]
+impl std::error::Error for ParseEntityError {}
 
 impl From<outcome::OutcomeError> for ParseEntityError {
     fn from(e: outcome::OutcomeError) -> Self {

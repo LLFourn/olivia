@@ -9,6 +9,7 @@ pub use schnorr_fun::{
 use sha2::Sha256;
 use std::borrow::Borrow;
 
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Secp256k1;
 
 #[derive(PartialEq, Clone, FromSqlRow, AsExpression)]
@@ -102,7 +103,8 @@ impl From<(Scalar, XOnly<SquareY>)> for PublicNonce {
     }
 }
 
-impl super::Curve for Secp256k1 {
+
+impl crate::core::Curve for Secp256k1 {
     type KeyPair = KeyPair;
     type PublicKey = PublicKey;
     type PublicNonce = PublicNonce;
@@ -110,27 +112,8 @@ impl super::Curve for Secp256k1 {
     type NonceKeyPair = (Scalar, XOnly<SquareY>);
     type SchnorrSignature = SchnorrSignature;
 
-    fn derive_keypair(seed: &Seed) -> Self::KeyPair {
-        let mut hash = seed.to_blake2b_32();
-        hash.update(b"secp256k1");
-        let x = Scalar::from_slice_mod_order(&hash.finalize_boxed().borrow())
-            .expect("hash output is 32-bytes long")
-            .mark::<NonZero>()
-            .expect("will not be zero");
-        SCHNORR.new_keypair(x)
-    }
-
-    fn derive_nonce_keypair(seed: &Seed) -> Self::NonceKeyPair {
-        let mut hash = seed.to_blake2b_32();
-        hash.update(b"secp256k1");
-        let mut r = Scalar::from_slice_mod_order(&hash.finalize_boxed().borrow())
-            .expect("hash output is 32-bytes long")
-            .mark::<NonZero>()
-            .expect("will not be zero");
-
-        let R = XOnly::from_scalar_mul(&SCHNORR.G(), &mut r);
-
-        (r, R)
+    fn name() -> &'static str {
+        "secp256k1"
     }
 
     fn reveal_signature_s(
@@ -170,3 +153,30 @@ impl super::Curve for Secp256k1 {
         SchnorrSignature(SCHNORR.sign(keypair, message.mark::<Public>()))
     }
 }
+
+impl super::DeriveKeyPair for Secp256k1 {
+    fn derive_keypair(seed: &Seed) -> Self::KeyPair {
+        let mut hash = seed.to_blake2b_32();
+        hash.update(b"secp256k1");
+        let x = Scalar::from_slice_mod_order(&hash.finalize_boxed().borrow())
+            .expect("hash output is 32-bytes long")
+            .mark::<NonZero>()
+            .expect("will not be zero");
+        SCHNORR.new_keypair(x)
+    }
+
+    fn derive_nonce_keypair(seed: &Seed) -> Self::NonceKeyPair {
+        let mut hash = seed.to_blake2b_32();
+        hash.update(b"secp256k1");
+        let mut r = Scalar::from_slice_mod_order(&hash.finalize_boxed().borrow())
+            .expect("hash output is 32-bytes long")
+            .mark::<NonZero>()
+            .expect("will not be zero");
+
+        let R = XOnly::from_scalar_mul(&SCHNORR.G(), &mut r);
+
+        (r, R)
+    }
+}
+
+olivia_core::impl_deserialize_curve!(Secp256k1);

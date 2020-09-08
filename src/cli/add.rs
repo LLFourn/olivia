@@ -1,4 +1,4 @@
-use crate::{config::Config, core::Entity, Oracle};
+use crate::{config::Config, core::Entity, Oracle, curve::CurveImpl};
 use std::str::FromStr;
 
 pub fn add(config: Config, entity: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -6,7 +6,7 @@ pub fn add(config: Config, entity: &str) -> Result<(), Box<dyn std::error::Error
         .secret_seed
         .ok_or("Cannot use the add command when oracle is in read-only mode")?;
     let mut rt = tokio::runtime::Runtime::new()?;
-    let db = config.database.connect_database()?;
+    let db = config.database.connect_database::<CurveImpl>()?;
     let oracle = rt.block_on(Oracle::new(secret_seed, db.clone()))?;
 
     match Entity::from_str(entity)? {

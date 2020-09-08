@@ -1,10 +1,9 @@
 use crate::{
-    core::{AnnouncedEvent, EventId, PathRef},
+    core::{AnnouncedEvent, EventId, PathRef, Curve, Announcement, Attestation},
     db::{self, Db},
-    oracle,
 };
 use core::str::FromStr;
-use std::{convert::Infallible, sync::Arc};
+use std::{convert::Infallible, sync::Arc, marker::PhantomData};
 use warp::{self, http, Filter};
 
 #[derive(Debug)]
@@ -18,24 +17,24 @@ struct NotAnEvent;
 impl warp::reject::Reject for NotAnEvent {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PathResponse {
+pub struct PathResponse<C: Curve> {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub public_keys: Option<oracle::OraclePubkeys>,
+    pub public_key: Option<C::PublicKey>,
     pub events: Vec<EventId>,
     pub children: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventResponse {
+pub struct EventResponse<C: Curve> {
     pub id: EventId,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_outcome_time: Option<chrono::NaiveDateTime>,
-    pub announcement: crate::core::Announcement,
-    pub attestation: Option<crate::core::Attestation>,
+    pub announcement: Announcement<C>,
+    pub attestation: Option<Attestation<C>>,
 }
 
-impl From<AnnouncedEvent> for EventResponse {
-    fn from(ann: AnnouncedEvent) -> Self {
+impl<C: Curve> From<AnnouncedEvent<C>> for EventResponse<C> {
+    fn from(ann: AnnouncedEvent<C>) -> Self {
         EventResponse {
             id: ann.event.id,
             expected_outcome_time: ann.event.expected_outcome_time,
@@ -51,18 +50,22 @@ pub struct ErrorMessage {
     error: String,
 }
 
-pub mod filters {
-    use super::*;
+#[derive(Debug, Default, Clone)]
+pub struct Filters<C> {
+    curve: PhantomData<C>
+}
 
-    pub fn with_db(
-        db: Arc<dyn Db>,
-    ) -> impl Filter<Extract = (Arc<dyn Db>,), Error = std::convert::Infallible> + Clone {
+impl<C: Curve> Filters<C> {
+     pub fn with_db(&self,
+        db: Arc<dyn Db<C>>,
+    ) -> impl Filter<Extract = (Arc<dyn Db<C>>,), Error = std::convert::Infallible> + Clone {
         warp::any().map(move || db.clone())
     }
 
     pub fn get_event(
-        db: Arc<dyn Db>,
-    ) -> impl Filter<Extract = (EventResponse,), Error = warp::reject::Rejection> + Clone {
+        &self,
+        db: Arc<dyn Db<C>>,
+    ) -> impl Filter<Extract = (EventResponse<C>,), Error = warp::reject::Rejection> + Clone {
         warp::path::tail()
             .and(warp::query::raw())
             .and_then(
@@ -74,8 +77,8 @@ pub mod filters {
                     }
                 },
             )
-            .and(with_db(db))
-            .and_then(async move |event_id: EventId, db: Arc<dyn Db>| {
+            .and(self.with_db(db))
+            .and_then(async move |event_id: EventId, db: Arc<dyn Db<C>>| {
                 let res = db.get_event(&event_id).await;
                 match res {
                     Ok(Some(event)) => Ok(event.into()),
@@ -86,10 +89,11 @@ pub mod filters {
     }
 
     pub fn get_path(
-        db: Arc<dyn Db>,
+        &self,
+        db: Arc<dyn Db<C>>,
     ) -> impl Filter<Extract = (db::Item,), Error = warp::reject::Rejection> + Clone {
-        warp::path::tail().and(with_db(db)).and_then(
-            async move |tail: warp::filters::path::Tail, db: Arc<dyn Db>| {
+        warp::path::tail().and(self.with_db(db)).and_then(
+            async move |tail: warp::filters::path::Tail, db: Arc<dyn Db<C>>| {
                 let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
                 let path = &format!("/{}", tail);
                 let res = db.get_node(&path).await;
@@ -102,12 +106,13 @@ pub mod filters {
         )
     }
 
-    pub fn get_public_keys(
-        db: Arc<dyn Db>,
-    ) -> impl Filter<Extract = (oracle::OraclePubkeys,), Error = warp::reject::Rejection> + Clone
+    pub fn get_public_key(
+        &self,
+        db: Arc<dyn Db<C>>
+    ) -> impl Filter<Extract = (C::PublicKey,), Error = warp::reject::Rejection> + Clone
     {
-        with_db(db).and_then(async move |db: Arc<dyn Db>| {
-            db.get_public_keys()
+        self.with_db(db).and_then(async move |db: Arc<dyn Db<C>>| {
+            db.get_public_key()
                 .await
                 .map_err(|_e| warp::reject::custom(DbError))
                 .and_then(|opt| opt.ok_or(warp::reject::not_found()))
@@ -115,10 +120,11 @@ pub mod filters {
     }
 
     pub fn get_root(
-        db: Arc<dyn Db>,
-    ) -> impl Filter<Extract = (Vec<String>, oracle::OraclePubkeys), Error = warp::reject::Rejection>
+        &self,
+        db: Arc<dyn Db<C>>,
+    ) -> impl Filter<Extract = (Vec<String>, C::PublicKey), Error = warp::reject::Rejection>
            + Clone {
-        let get_children = with_db(db.clone()).and_then(async move |db: Arc<dyn Db>| {
+        let get_children = self.with_db(db.clone()).and_then(async move |db: Arc<dyn Db<C>>| {
             let res = db.get_node(PathRef::root().as_str()).await;
             match res {
                 Ok(Some(item)) => Ok(item.children),
@@ -126,31 +132,32 @@ pub mod filters {
             }
         });
 
-        get_children.and(get_public_keys(db.clone()))
+        get_children.and(self.get_public_key(db.clone()))
     }
 }
 
-pub fn routes(
-    db: Arc<dyn Db>,
+pub fn routes<C: Curve>(
+    db: Arc<dyn Db<C>>,
 ) -> impl Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
+    let filters = Filters::<C>::default();
     let event = warp::get()
-        .and(filters::get_event(db.clone()))
-        .map(|event: EventResponse| warp::reply::json(&event));
+        .and(filters.get_event(db.clone()))
+        .map(|event: EventResponse<C>| warp::reply::json(&event));
     let root = warp::path::end()
-        .and(filters::get_root(db.clone()))
+        .and(filters.get_root(db.clone()))
         .map(|children, public_keys| {
-            warp::reply::json(&PathResponse {
-                public_keys: Some(public_keys),
+            warp::reply::json(&PathResponse::<C> {
+                public_key: Some(public_keys),
                 events: vec![],
                 children,
             })
         });
 
     let path = warp::get()
-        .and(filters::get_path(db.clone()))
+        .and(filters.get_path(db.clone()))
         .map(|item: db::Item| {
-            warp::reply::json(&PathResponse {
-                public_keys: None,
+            warp::reply::json(&PathResponse::<C> {
+                public_key: None,
                 events: item.events.into_iter().map(Into::into).collect(),
                 children: item.children,
             })
@@ -187,10 +194,11 @@ mod test {
     use crate::{core::EventId, db::Db};
     use serde_json::from_slice as j;
     use std::sync::Arc;
+    use crate::curve::Secp256k1;
 
     macro_rules! setup {
         () => {{
-            let db: Arc<dyn Db> = Arc::new(crate::db::in_memory::InMemory::default());
+            let db: Arc<dyn Db<Secp256k1>> = Arc::new(crate::db::in_memory::InMemory::default());
             let oracle = crate::oracle::Oracle::new(crate::seed::Seed::new([42u8; 64]), db.clone())
                 .await
                 .unwrap();

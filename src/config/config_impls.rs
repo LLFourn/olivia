@@ -1,5 +1,5 @@
 use super::*;
-use crate::{core, db, sources};
+use crate::{core, db, sources, curve::CurveImpl};
 use futures::{Stream, StreamExt};
 use std::{fs, sync::Arc};
 
@@ -68,11 +68,11 @@ impl LoggersConfig {
 }
 
 impl EventSourceConfig {
-    pub fn to_event_stream(
+    pub fn to_event_stream<C: core::Curve>(
         &self,
         name: &str,
         logger: slog::Logger,
-        db: Arc<dyn db::Db>,
+        db: Arc<dyn db::Db<C>>,
     ) -> Result<
         std::pin::Pin<Box<dyn Stream<Item = sources::Update<core::Event>> + Send>>,
         Box<dyn std::error::Error + Send + Sync>,
@@ -134,11 +134,11 @@ impl EventSourceConfig {
 }
 
 impl OutcomeSourceConfig {
-    pub fn to_outcome_stream(
+    pub fn to_outcome_stream<C: core::Curve>(
         &self,
         name: &str,
         logger: slog::Logger,
-        db: Arc<dyn db::Db>,
+        db: Arc<dyn db::Db<C>>,
     ) -> Result<
         std::pin::Pin<Box<dyn Stream<Item = sources::Update<core::EventOutcome>> + Send>>,
         Box<dyn std::error::Error + Send + Sync>,
@@ -183,9 +183,9 @@ impl OutcomeSourceConfig {
 }
 
 impl DbConfig {
-    pub fn connect_database(
+    pub fn connect_database<C: core::Curve>(
         &self,
-    ) -> Result<Arc<dyn db::Db>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Arc<dyn db::Db<CurveImpl>>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
             DbConfig::InMemory => Ok(Arc::new(db::in_memory::InMemory::default())),
             DbConfig::Postgres { url } => {

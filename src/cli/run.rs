@@ -5,6 +5,7 @@ use crate::{
     log::OracleLog,
     oracle::Oracle,
     sources::Update,
+    curve::CurveImpl
 };
 use futures::{future::FutureExt, stream, stream::StreamExt};
 use std::sync::Arc;
@@ -13,7 +14,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error + Send + Sync
     let mut rt = tokio::runtime::Runtime::new()?;
 
     let logger = slog::Logger::root(config.loggers.to_slog_drain()?, o!());
-    let db: Arc<dyn Db> = config.database.connect_database()?;
+    let db: Arc<dyn Db<CurveImpl>> = config.database.connect_database::<CurveImpl>()?;
 
     let event_streams: Vec<_> = config
         .events

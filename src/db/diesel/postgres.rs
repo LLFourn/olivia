@@ -1,11 +1,11 @@
 use super::{
     schema::{self, announcements, attestations, events, tree},
-    AnnouncedEvent, Attestation, Event, MetaRow, Node,
+    AnnouncedEvent, Attestation, Event, MetaRow, Node, PublicKeyMeta,
 };
 use crate::{
     core::{self, EventId},
-    db, oracle,
-    oracle::OraclePubkeys,
+    db,
+    curve::*,
 };
 use async_trait::async_trait;
 use diesel::{
@@ -13,7 +13,6 @@ use diesel::{
     ExpressionMethods, Insertable, JoinOnDsl, QueryDsl, RunQueryDsl,
 };
 use std::{
-    convert::TryInto,
     sync::{Arc, Mutex},
 };
 
@@ -40,11 +39,11 @@ impl PgBackend {
 }
 
 #[async_trait]
-impl crate::db::DbRead for PgBackend {
+impl crate::db::DbRead<CurveImpl> for PgBackend {
     async fn get_event(
         &self,
         event_id: &EventId,
-    ) -> Result<Option<core::AnnouncedEvent>, db::Error> {
+    ) -> Result<Option<core::AnnouncedEvent<CurveImpl>>, db::Error> {
         let db_mutex = self.conn.clone();
         let event_id = event_id.clone();
 
@@ -100,8 +99,8 @@ impl crate::db::DbRead for PgBackend {
 }
 
 #[async_trait]
-impl crate::db::DbWrite for PgBackend {
-    async fn insert_event(&self, obs_event: core::AnnouncedEvent) -> Result<(), db::Error> {
+impl crate::db::DbWrite<CurveImpl> for PgBackend {
+    async fn insert_event(&self, obs_event: core::AnnouncedEvent<CurveImpl>) -> Result<(), db::Error> {
         let node = obs_event.event.id.as_path();
         let parents = std::iter::successors(Some(node), |parent| (*parent).parent());
 
@@ -150,7 +149,7 @@ impl crate::db::DbWrite for PgBackend {
     async fn complete_event(
         &self,
         id: &EventId,
-        attestation: core::Attestation,
+        attestation: core::Attestation<CurveImpl>,
     ) -> Result<(), db::Error> {
         let db_mutex = self.conn.clone();
         let id = id.clone();
@@ -215,32 +214,33 @@ impl crate::db::TimeTickerDb for PgBackend {
     }
 }
 
-impl crate::db::Db for PgBackend {}
+impl crate::db::Db<CurveImpl> for PgBackend {}
 
 #[async_trait]
-impl db::DbMeta for PgBackend {
-    async fn get_public_keys(&self) -> Result<Option<oracle::OraclePubkeys>, db::Error> {
+impl db::DbMeta<CurveImpl> for PgBackend {
+    async fn get_public_key(&self) -> Result<Option<PublicKey>, db::Error> {
         use schema::meta::dsl::*;
         let db_mutex = self.conn.clone();
-        tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || -> Result<Option<PublicKey>, db::Error> {
             let db = &*db_mutex.lock().unwrap();
-            let pubkeys = meta.find("oracle_pubkeys").first::<MetaRow>(db);
-
-            match pubkeys {
+            let meta_row =  meta.find("public_key").first::<MetaRow>(db);
+            match meta_row {
                 Err(DieselError::NotFound) => Ok(None),
-                res => Ok(Some(res?.try_into()?)),
+                Err(e) => Err(e.into()),
+                Ok(meta_row) => Ok(Some(serde_json::from_value::<PublicKeyMeta>(meta_row.value)?.public_key))
             }
         })
         .await?
     }
 
-    async fn set_public_keys(&self, public_keys: OraclePubkeys) -> Result<(), db::Error> {
+    async fn set_public_key(&self, public_key: PublicKey) -> Result<(), db::Error> {
         use schema::meta::dsl::*;
         let db_mutex = self.conn.clone();
-        let meta_value: MetaRow = public_keys.into();
+        let meta_value = serde_json::to_value(PublicKeyMeta { curve: CurveImpl::default(), public_key } )?;
+        let meta_row = MetaRow { key: "public_key".into(), value: meta_value};
         tokio::task::spawn_blocking(move || {
             let db = &*db_mutex.lock().unwrap();
-            meta_value.insert_into(meta::table()).execute(db)?;
+            meta_row.insert_into(meta::table()).execute(db)?;
             Ok(())
         })
         .await?

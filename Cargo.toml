@@ -11,7 +11,7 @@ ed25519-dalek = {version = "1", default-features = false, features = ["rand"] }
 sha2 = "0.9"
 blake2 = "0.9"
 digest = { version = "0.9", features = ["std"] }
-diesel = { version = "1.4", features = ["postgres", "serde_json", "chrono" ] }
+diesel = { version = "1.4.5", features = ["postgres", "serde_json", "chrono" ] }
 chrono = { version = "0.4", features = ["serde"] }
 redis  = { version = "0.16", default-features = false }
 serde = "1"
@@ -31,8 +31,7 @@ structopt = "0.3"
 thiserror = "1.0"
 serde_yaml = "0.8"
 rand = "0.7"
-url = {  version = "2.1", features = ["serde"]}
-
+olivia_core = { path = "./olivia_core", features = ["std", "diesel"] }
 [dev-dependencies]
 testcontainers = { git = "https://github.com/llfourn/testcontainers-rs", rev = "5e1b6bd" }
 

@@ -1,5 +1,5 @@
 use crate::{
-    core::{Event, EventId, EventOutcome, Outcome},
+    core::{Event, EventOutcome, Outcome, Curve},
     db::Db,
     sources::Update,
 };
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::time;
 
 pub fn time_events_stream(
-    db: Arc<dyn Db>,
+    db: Arc<dyn Db<impl Curve>>,
     look_ahead: Duration,
     interval: Duration,
     initial_time: NaiveDateTime,
@@ -60,8 +60,8 @@ pub fn time_events_stream(
     })
 }
 
-pub fn time_outcomes_stream(
-    db: Arc<dyn Db>,
+pub fn time_outcomes_stream<C: crate::core::Curve>(
+    db: Arc<dyn Db<C>>,
     logger: slog::Logger,
 ) -> impl stream::Stream<Item = Update<EventOutcome>> {
     stream::unfold(None, move |waiting| {
@@ -132,20 +132,8 @@ fn time_to_event_update(
     ))
 }
 
-impl From<NaiveDateTime> for Event {
-    fn from(dt: NaiveDateTime) -> Self {
-        let id = time_to_id(dt);
-        Event {
-            id,
-            expected_outcome_time: Some(dt),
-        }
-    }
-}
 
-pub fn time_to_id(dt: NaiveDateTime) -> EventId {
-    use std::str::FromStr;
-    EventId::from_str(&format!("/time/{}?occur", dt.format("%FT%T"))).unwrap()
-}
+
 
 async fn delay_until(until: NaiveDateTime) {
     let delta = until - now();
@@ -175,21 +163,21 @@ pub mod test {
         vec![
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:25:00").unwrap();
-                let mut obs_event = AnnouncedEvent::test_new(&time_to_id(time));
+                let mut obs_event = AnnouncedEvent::test_new(&EventId::from(time));
                 obs_event.attestation = None;
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:30:00").unwrap();
-                let mut obs_event = AnnouncedEvent::test_new(&time_to_id(time));
+                let mut obs_event = AnnouncedEvent::test_new(&EventId::from(time));
                 obs_event.attestation = None;
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:20:00").unwrap();
-                let mut obs_event = AnnouncedEvent::test_new(&time_to_id(time));
+                let mut obs_event = AnnouncedEvent::test_new(&EventId::from(time));
                 obs_event.attestation = None;
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event
@@ -205,21 +193,21 @@ pub mod test {
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:10:00").unwrap();
-                let mut obs_event = AnnouncedEvent::test_new(&time_to_id(time));
+                let mut obs_event = AnnouncedEvent::test_new(&EventId::from(time));
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event.attestation.as_mut().unwrap().time = time;
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:05:00").unwrap();
-                let mut obs_event = AnnouncedEvent::test_new(&time_to_id(time));
+                let mut obs_event = AnnouncedEvent::test_new(&EventId::from(time));
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event.attestation.as_mut().unwrap().time = time;
                 obs_event
             },
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:15:00").unwrap();
-                let mut obs_event = AnnouncedEvent::test_new(&time_to_id(time));
+                let mut obs_event = AnnouncedEvent::test_new(&EventId::from(time));
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event.attestation.as_mut().unwrap().time = time;
                 obs_event
@@ -262,7 +250,7 @@ pub mod test {
         {
             let update = rt.block_on(stream.next()).expect("Not None");
             let event = update.update;
-            assert_eq!(event.id, time_to_id(cur));
+            assert_eq!(event.id, EventId::from(cur));
             rt.block_on(db.insert_event(AnnouncedEvent::from(event)))
                 .unwrap();
             let _ = update.processed_notifier.unwrap().send(());
@@ -273,7 +261,7 @@ pub mod test {
         {
             let update = rt.block_on(stream.next()).expect("Not None");
             let event = update.update;
-            assert_eq!(event.id, time_to_id(cur));
+            assert_eq!(event.id, EventId::from(cur));
             rt.block_on(db.insert_event(AnnouncedEvent::from(event)))
                 .unwrap();
             let _ = update.processed_notifier.unwrap().send(());
@@ -284,7 +272,7 @@ pub mod test {
         {
             let update = rt.block_on(stream.next()).expect("Not None");
             let event = update.update;
-            assert_eq!(event.id, time_to_id(cur));
+            assert_eq!(event.id, EventId::from(cur));
             rt.block_on(db.insert_event(AnnouncedEvent::from(event)))
                 .unwrap();
             let _ = update.processed_notifier.unwrap().send(());
@@ -298,7 +286,7 @@ pub mod test {
         {
             let update = rt.block_on(stream.next()).expect("Not None");
             let event = update.update;
-            assert_eq!(event.id, time_to_id(cur));
+            assert_eq!(event.id, EventId::from(cur));
             rt.block_on(db.insert_event(AnnouncedEvent::from(event)))
                 .unwrap();
             let _ = update.processed_notifier.unwrap().send(());
@@ -371,7 +359,7 @@ pub mod test {
 
         assert_eq!(
             outcome.event_id,
-            time_to_id(start),
+            EventId::from(start),
             "outcome should be for the time that was inserted"
         );
         assert_eq!(
@@ -414,7 +402,7 @@ pub mod test {
         let first = rt.block_on(stream.next()).unwrap();
         assert_eq!(
             first.update.event_id,
-            time_to_id(start + Duration::seconds(1))
+            EventId::from(start + Duration::seconds(1))
         );
         assert!(now() < start + Duration::milliseconds(1100));
         rt.block_on(db.complete_event(
@@ -427,7 +415,7 @@ pub mod test {
         let second = rt.block_on(stream.next()).unwrap();
         assert_eq!(
             second.update.event_id,
-            time_to_id(start + Duration::seconds(2))
+            EventId::from(start + Duration::seconds(2))
         );
         assert!(now() < start + Duration::milliseconds(2100));
         rt.block_on(db.complete_event(
@@ -440,7 +428,7 @@ pub mod test {
         let third = rt.block_on(stream.next()).unwrap();
         assert_eq!(
             third.update.event_id,
-            time_to_id(start + Duration::seconds(3))
+            EventId::from(start + Duration::seconds(3))
         );
         assert!(now() >= start + Duration::seconds(3));
         assert!(now() < start + Duration::milliseconds(3100));
