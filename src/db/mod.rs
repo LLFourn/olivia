@@ -1,6 +1,4 @@
-use crate::{
-    core::{AnnouncedEvent, Attestation, Event, EventId, Curve},
-};
+use crate::core::{AnnouncedEvent, Attestation, Event, EventId, Schnorr};
 pub mod diesel;
 pub mod in_memory;
 use async_trait::async_trait;
@@ -16,19 +14,23 @@ pub struct Item {
 }
 
 #[async_trait]
-pub trait DbRead<C: Curve>: Send + Sync {
+pub trait DbRead<C: Schnorr>: Send + Sync {
     async fn get_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent<C>>, Error>;
     async fn get_node(&self, path: &str) -> Result<Option<Item>, Error>;
 }
 
 #[async_trait]
-pub trait DbWrite<C: Curve>: Send + Sync {
+pub trait DbWrite<C: Schnorr>: Send + Sync {
     async fn insert_event(&self, observed_event: AnnouncedEvent<C>) -> Result<(), Error>;
-    async fn complete_event(&self, event_id: &EventId, outcome: Attestation<C>) -> Result<(), Error>;
+    async fn complete_event(
+        &self,
+        event_id: &EventId,
+        outcome: Attestation<C>,
+    ) -> Result<(), Error>;
 }
 
 #[async_trait]
-pub trait DbMeta<C: Curve>: Send + Sync {
+pub trait DbMeta<C: Schnorr>: Send + Sync {
     async fn get_public_key(&self) -> Result<Option<C::PublicKey>, Error>;
     async fn set_public_key(&self, public_key: C::PublicKey) -> Result<(), Error>;
 }
@@ -39,4 +41,7 @@ pub trait TimeTickerDb {
     async fn earliest_unattested_time_event(&self) -> Result<Option<Event>, Error>;
 }
 
-pub trait Db<C: Curve>: DbRead<C> + DbWrite<C> + TimeTickerDb + DbMeta<C> {  }
+pub trait Db<C: Schnorr = crate::curve::SchnorrImpl>:
+    DbRead<C> + DbWrite<C> + TimeTickerDb + DbMeta<C>
+{
+}

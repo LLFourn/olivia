@@ -25,6 +25,14 @@ impl EventOutcome {
     pub fn attestation_string(&self) -> String {
         format!("{}={}", self.event_id, self.outcome)
     }
+
+    pub fn test_instance(event_id: &EventId) -> Self {
+        Self {
+            event_id: event_id.clone(),
+            time: chrono::Utc::now().naive_utc(),
+            outcome: event_id.test_outcome(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

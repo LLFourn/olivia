@@ -1,9 +1,9 @@
 use crate::{
-    core::{self, EventId}, curve::*,
+    core::{self, EventId},
+    curve::*,
 };
 use diesel::Insertable;
 use schema::{announcements, attestations, events, meta, tree};
-
 
 pub mod postgres;
 pub mod schema;
@@ -48,28 +48,30 @@ impl From<core::Event> for Event {
 #[primary_key(event_id)]
 struct Announcement {
     pub event_id: String,
-    pub signature: SchnorrSignature,
-    pub nonce: PublicNonce
+    pub nonce: PublicNonce,
+    pub signature: Signature,
 }
 
 impl Announcement {
     fn from_core_domain(
         event_id: EventId,
-        core::Announcement { signature, nonce }: core::Announcement<CurveImpl>,
+        core::Announcement { signature, nonce }: core::Announcement<SchnorrImpl>,
     ) -> Self {
         Self {
             event_id: event_id.into(),
             signature,
-            nonce
+            nonce,
         }
     }
 }
 
-impl From<Announcement> for core::Announcement<CurveImpl> {
-    fn from(Announcement { signature, nonce, .. }: Announcement) -> Self {
-        Self {
-            signature, nonce
-        }
+impl From<Announcement> for core::Announcement<SchnorrImpl> {
+    fn from(
+        Announcement {
+            signature, nonce, ..
+        }: Announcement,
+    ) -> Self {
+        Self { signature, nonce }
     }
 }
 
@@ -81,7 +83,7 @@ struct Attestation {
     pub event_id: String,
     pub outcome: String,
     pub time: chrono::NaiveDateTime,
-    pub scalar: SchnorrScalar,
+    pub scalar: SigScalar,
 }
 
 impl Attestation {
@@ -92,18 +94,18 @@ impl Attestation {
             time,
             scalar,
             ..
-        }: core::Attestation<CurveImpl>,
+        }: core::Attestation<SchnorrImpl>,
     ) -> Self {
         Attestation {
             event_id: event_id.into(),
             outcome,
             time,
-            scalar
+            scalar,
         }
     }
 }
 
-impl From<Attestation> for core::Attestation<CurveImpl> {
+impl From<Attestation> for core::Attestation<SchnorrImpl> {
     fn from(
         Attestation {
             outcome,
@@ -112,7 +114,7 @@ impl From<Attestation> for core::Attestation<CurveImpl> {
             ..
         }: Attestation,
     ) -> Self {
-        core::Attestation::new(outcome, time, scalar )
+        core::Attestation::new(outcome, time, scalar)
     }
 }
 
@@ -126,7 +128,7 @@ struct AnnouncedEvent {
     attestation: Option<Attestation>,
 }
 
-impl From<AnnouncedEvent> for core::AnnouncedEvent<CurveImpl> {
+impl From<AnnouncedEvent> for core::AnnouncedEvent<SchnorrImpl> {
     fn from(
         AnnouncedEvent {
             event,
@@ -142,13 +144,13 @@ impl From<AnnouncedEvent> for core::AnnouncedEvent<CurveImpl> {
     }
 }
 
-impl From<core::AnnouncedEvent<CurveImpl>> for AnnouncedEvent {
+impl From<core::AnnouncedEvent<SchnorrImpl>> for AnnouncedEvent {
     fn from(
         core::AnnouncedEvent {
             event,
             announcement,
             attestation,
-        }: core::AnnouncedEvent<CurveImpl>,
+        }: core::AnnouncedEvent<SchnorrImpl>,
     ) -> Self {
         Self {
             event: event.clone().into(),
@@ -168,6 +170,6 @@ struct MetaRow {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct PublicKeyMeta {
-    curve: CurveImpl,
+    curve: SchnorrImpl,
     public_key: PublicKey,
 }

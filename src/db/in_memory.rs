@@ -1,26 +1,26 @@
 use crate::{
-    core::{AnnouncedEvent, Attestation, Event, EventId, Curve},
+    core::{AnnouncedEvent, Attestation, Event, EventId, Schnorr},
     db::*,
 };
 use async_trait::async_trait;
 use std::{collections::HashMap, sync::RwLock};
 
-pub struct InMemory<C: Curve> {
+pub struct InMemory<C: Schnorr> {
     public_key: RwLock<Option<C::PublicKey>>,
     inner: RwLock<HashMap<EventId, AnnouncedEvent<C>>>,
 }
 
-impl<C: Curve> Default for InMemory<C> {
+impl<C: Schnorr> Default for InMemory<C> {
     fn default() -> Self {
         Self {
             public_key: RwLock::new(None),
-            inner: RwLock::new(HashMap::default())
+            inner: RwLock::new(HashMap::default()),
         }
     }
 }
 
 #[async_trait]
-impl<C: Curve> DbRead<C> for InMemory<C> {
+impl<C: Schnorr> DbRead<C> for InMemory<C> {
     async fn get_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent<C>>, crate::db::Error> {
         let db = &*self.inner.read().unwrap();
         Ok(db.get(&id).map(Clone::clone))
@@ -79,8 +79,11 @@ impl<C: Curve> DbRead<C> for InMemory<C> {
 }
 
 #[async_trait]
-impl<C: Curve> DbWrite<C> for InMemory<C> {
-    async fn insert_event(&self, observed_event: AnnouncedEvent<C>) -> Result<(), crate::db::Error> {
+impl<C: Schnorr> DbWrite<C> for InMemory<C> {
+    async fn insert_event(
+        &self,
+        observed_event: AnnouncedEvent<C>,
+    ) -> Result<(), crate::db::Error> {
         let db = &mut *self.inner.write().unwrap();
         db.insert(observed_event.event.id.clone(), observed_event);
         Ok(())
@@ -105,7 +108,7 @@ impl<C: Curve> DbWrite<C> for InMemory<C> {
 }
 
 #[async_trait]
-impl<C: Curve> TimeTickerDb for InMemory<C> {
+impl<C: Schnorr> TimeTickerDb for InMemory<C> {
     async fn latest_time_event(&self) -> Result<Option<Event>, crate::db::Error> {
         let db = self.inner.read().unwrap();
         let mut obs_events: Vec<&AnnouncedEvent<C>> = db
@@ -129,7 +132,7 @@ impl<C: Curve> TimeTickerDb for InMemory<C> {
 }
 
 #[async_trait]
-impl<C: Curve> DbMeta<C> for InMemory<C> {
+impl<C: Schnorr> DbMeta<C> for InMemory<C> {
     async fn get_public_key(&self) -> Result<Option<C::PublicKey>, Error> {
         Ok(self.public_key.read().unwrap().as_ref().map(Clone::clone))
     }
@@ -140,23 +143,24 @@ impl<C: Curve> DbMeta<C> for InMemory<C> {
     }
 }
 
-impl<C: Curve> Db<C> for InMemory<C> {}
+impl<C: Schnorr> Db<C> for InMemory<C> {}
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::curve::SchnorrImpl;
     use std::sync::Arc;
 
     #[test]
     fn generic_test_in_memory() {
-        let db = Arc::new(InMemory::default());
+        let db = Arc::new(InMemory::<SchnorrImpl>::default());
         crate::db::test::test_db(db.as_ref());
     }
 
     #[tokio::test]
     async fn time_ticker_in_memory() {
         use crate::sources::time_ticker;
-        let db = InMemory::default();
+        let db = InMemory::<SchnorrImpl>::default();
 
         for time_event in time_ticker::test::time_ticker_db_test_data() {
             db.insert_event(time_event).await.unwrap();
@@ -167,7 +171,7 @@ mod test {
 
     #[tokio::test]
     async fn test_against_oracle() {
-        let db = InMemory::default();
+        let db = InMemory::<SchnorrImpl>::default();
         crate::oracle::test::test_oracle_event_lifecycle(Arc::new(db)).await
     }
 }

@@ -1,5 +1,5 @@
-pub trait Curve: Clone + Default + PartialEq + serde::Serialize + 'static + Send + Sync {
-    type SchnorrScalar: PartialEq
+pub trait Schnorr: Clone + Default + PartialEq + serde::Serialize + 'static + Send + Sync + core::fmt::Debug {
+    type SigScalar: PartialEq
         + Clone
         + core::fmt::Debug
         + serde::Serialize
@@ -28,7 +28,7 @@ pub trait Curve: Clone + Default + PartialEq + serde::Serialize + 'static + Send
         + Sync
         + 'static;
 
-    type SchnorrSignature: PartialEq
+    type Signature: PartialEq
         + Clone
         + core::fmt::Debug
         + serde::Serialize
@@ -46,20 +46,24 @@ pub trait Curve: Clone + Default + PartialEq + serde::Serialize + 'static + Send
         signing_key: &Self::KeyPair,
         nonce_key: Self::NonceKeyPair,
         message: &[u8],
-    ) -> Self::SchnorrScalar;
+    ) -> Self::SigScalar;
 
     fn signature_from_scalar_and_nonce(
-        scalar: Self::SchnorrScalar,
+        scalar: Self::SigScalar,
         nonce: Self::PublicNonce,
-    ) -> Self::SchnorrSignature;
+    ) -> Self::Signature;
 
     fn verify_signature(
         public_key: &Self::PublicKey,
         message: &[u8],
-        sig: &Self::SchnorrSignature,
+        sig: &Self::Signature,
     ) -> bool;
 
-    fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::SchnorrSignature;
+    fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::Signature;
+
+    fn test_keypair() -> Self::KeyPair;
+
+    fn test_nonce_keypair() -> Self::NonceKeyPair;
 }
 
 #[macro_export]
@@ -69,7 +73,7 @@ macro_rules! impl_deserialize_curve {
             fn deserialize<D: serde::de::Deserializer<'de>>(
                 deserializer: D,
             ) -> Result<$curve, D::Error> {
-                use $crate::Curve;
+                use $crate::Schnorr;
                 let curve = String::deserialize(deserializer)?;
                 if curve == $curve::name() {
                     Ok($curve::default())
@@ -86,7 +90,7 @@ macro_rules! impl_deserialize_curve {
 
         impl serde::Serialize for $curve {
             fn serialize<S: serde::Serializer>(&self,serializer: S) -> Result<S::Ok, S::Error> {
-                use $crate::Curve;
+                use $crate::Schnorr;
                 serializer.serialize_str($curve::name())
             }
         }

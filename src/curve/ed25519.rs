@@ -32,34 +32,34 @@ crate::impl_fromstr_deserailize_fromsql! {
 
 #[derive(PartialEq, Clone, FromSqlRow, AsExpression)]
 #[sql_type = "sql_types::Binary"]
-pub struct SchnorrScalar(Scalar);
+pub struct SigScalar(Scalar);
 
 crate::impl_display_debug_serialize_tosql! {
-    fn to_bytes(scalar: &SchnorrScalar) -> &[u8;32] {
+    fn to_bytes(scalar: &SigScalar) -> &[u8;32] {
         scalar.0.as_bytes()
     }
 }
 
 crate::impl_fromstr_deserailize_fromsql! {
     name => "ed25519 scalar",
-    fn from_bytes(bytes: [u8;32]) ->  Option<SchnorrScalar> {
-        Scalar::from_canonical_bytes(bytes).map(SchnorrScalar)
+    fn from_bytes(bytes: [u8;32]) ->  Option<SigScalar> {
+        Scalar::from_canonical_bytes(bytes).map(Scalar)
     }
 }
 #[derive(PartialEq, Clone, FromSqlRow, AsExpression)]
 #[sql_type = "sql_types::Binary"]
-pub struct SchnorrSignature(ed25519_dalek::Signature);
+pub struct Signature(ed25519_dalek::Signature);
 
 crate::impl_display_debug_serialize_tosql! {
-    fn to_bytes(scalar: &SchnorrSignature) -> &[u8;64] {
+    fn to_bytes(scalar: &Signature) -> &[u8;64] {
         scalar.0.as_bytes()
     }
 }
 
 crate::impl_fromstr_deserailize_fromsql! {
     name => "ed25519 signature",
-    fn from_bytes(bytes: [u8;64]) ->  Option<SchnorrSignature> {
-        ed25519_dalek::Signature::from_bytes(&bytes[..]).map(SchnorrSignature).ok()
+    fn from_bytes(bytes: [u8;64]) ->  Option<Signature> {
+        ed25519_dalek::Signature::from_bytes(&bytes[..]).map(Signature).ok()
     }
 }
 
@@ -98,11 +98,11 @@ lazy_static::lazy_static! {
         .chain(&[0xFFu8;31]);
 }
 
-impl super::Curve for Ed25519 {
+impl super::Schnorr for Ed25519 {
     type KeyPair = KeyPair;
-    type SchnorrScalar = SchnorrScalar;
+    type SigScalar = SigScalar;
     type PublicKey = PublicKey;
-    type SchnorrSignature = SchnorrSignature;
+    type Signature = Signature;
     type PublicNonce = PublicKey;
     type NonceKeyPair = KeyPair;
 
@@ -120,7 +120,7 @@ impl super::Curve for Ed25519 {
         signing_keypair: &Self::KeyPair,
         nonce_keypair: Self::NonceKeyPair,
         message: &[u8],
-    ) -> Self::SchnorrScalar {
+    ) -> Self::SigScalar {
         let (a, A) = signing_keypair.as_tuple();
         let (r, R) = nonce_keypair.as_tuple();
         let c = {
@@ -133,17 +133,17 @@ impl super::Curve for Ed25519 {
 
         let s = r + &c * a;
 
-        SchnorrScalar(s)
+        SigScalar(s)
     }
 
     fn signature_from_scalar_and_nonce(
-        scalar: Self::SchnorrScalar,
+        scalar: Self::SigScalar,
         nonce: Self::PublicNonce,
-    ) -> Self::SchnorrSignature {
+    ) -> Self::Signature {
         let mut bytes = [0u8; 64];
         bytes[..32].copy_from_slice(nonce.0.compress().as_bytes());
         bytes[32..].copy_from_slice(scalar.0.as_bytes());
-        SchnorrSignature(
+        Signature(
             ed25519_dalek::Signature::from_bytes(&bytes[..]).expect("it's in the correct form"),
         )
     }
@@ -151,7 +151,7 @@ impl super::Curve for Ed25519 {
     fn verify_signature(
         public_key: &Self::PublicKey,
         message: &[u8],
-        sig: &Self::SchnorrSignature,
+        sig: &Self::Signature,
     ) -> bool {
         let pk = ed25519_dalek::PublicKey::from_bytes(public_key.0.compress().as_bytes())
             .expect("will always be correct since it comes directly from a point");
@@ -159,7 +159,7 @@ impl super::Curve for Ed25519 {
         pk.verify_strict(message, &sig.0).is_ok()
     }
 
-    fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::SchnorrSignature {
+    fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::Signature {
         let (a, A) = keypair.as_tuple();
         let mut Z = [0u8; 64];
         rand::thread_rng().fill_bytes(&mut Z[..]);
@@ -183,6 +183,6 @@ impl super::Curve for Ed25519 {
 
         let s = r + &c * a;
 
-        Self::signature_from_scalar_and_nonce(SchnorrScalar(s), PublicKey(R))
+        Self::signature_from_scalar_and_nonce(SigScalar(s), PublicKey(R))
     }
 }

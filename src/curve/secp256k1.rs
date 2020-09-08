@@ -48,35 +48,35 @@ crate::impl_fromstr_deserailize_fromsql! {
 
 #[derive(PartialEq, Clone, FromSqlRow, AsExpression)]
 #[sql_type = "sql_types::Binary"]
-pub struct SchnorrScalar(Scalar<Public, Zero>);
+pub struct SigScalar(Scalar<Public, Zero>);
 
 crate::impl_display_debug_serialize_tosql! {
-    fn to_bytes(scalar: &SchnorrScalar) -> [u8;32] {
+    fn to_bytes(scalar: &SigScalar) -> [u8;32] {
         scalar.0.to_bytes()
     }
 }
 
 crate::impl_fromstr_deserailize_fromsql! {
     name => "secp256k1 scalar",
-    fn from_bytes(bytes: [u8;32]) ->  Option<SchnorrScalar> {
-        Scalar::from_bytes(bytes).map(|s| SchnorrScalar(s.mark::<Public>()))
+    fn from_bytes(bytes: [u8;32]) ->  Option<SigScalar> {
+        Scalar::from_bytes(bytes).map(|s| SigScalar(s.mark::<Public>()))
     }
 }
 
 #[derive(PartialEq, Clone, FromSqlRow, AsExpression)]
 #[sql_type = "sql_types::Binary"]
-pub struct SchnorrSignature(schnorr_fun::Signature);
+pub struct Signature(schnorr_fun::Signature);
 
 crate::impl_display_debug_serialize_tosql! {
-    fn to_bytes(sig: &SchnorrSignature) -> [u8;64] {
+    fn to_bytes(sig: &Signature) -> [u8;64] {
         sig.0.to_bytes()
     }
 }
 
 crate::impl_fromstr_deserailize_fromsql! {
     name => "bip340 schnorr signature",
-    fn from_bytes(bytes: [u8;64]) ->  Option<SchnorrSignature> {
-        schnorr_fun::Signature::from_bytes(bytes).map(SchnorrSignature)
+    fn from_bytes(bytes: [u8;64]) ->  Option<Signature> {
+        schnorr_fun::Signature::from_bytes(bytes).map(Signature)
     }
 }
 
@@ -103,14 +103,13 @@ impl From<(Scalar, XOnly<SquareY>)> for PublicNonce {
     }
 }
 
-
-impl crate::core::Curve for Secp256k1 {
+impl crate::core::Schnorr for Secp256k1 {
     type KeyPair = KeyPair;
     type PublicKey = PublicKey;
     type PublicNonce = PublicNonce;
-    type SchnorrScalar = SchnorrScalar;
+    type SigScalar = SigScalar;
     type NonceKeyPair = (Scalar, XOnly<SquareY>);
-    type SchnorrSignature = SchnorrSignature;
+    type Signature = Signature;
 
     fn name() -> &'static str {
         "secp256k1"
@@ -120,19 +119,19 @@ impl crate::core::Curve for Secp256k1 {
         signing_keypair: &Self::KeyPair,
         nonce_keypair: Self::NonceKeyPair,
         message: &[u8],
-    ) -> Self::SchnorrScalar {
+    ) -> Self::SigScalar {
         let (x, X) = signing_keypair.as_tuple();
         let (r, R) = nonce_keypair;
         let c = SCHNORR.challenge(&R, X, message.mark::<Public>());
         let s = s!(r + c * x);
-        SchnorrScalar(s.mark::<Public>())
+        SigScalar(s.mark::<Public>())
     }
 
     fn signature_from_scalar_and_nonce(
-        scalar: Self::SchnorrScalar,
+        scalar: Self::SigScalar,
         nonce: Self::PublicNonce,
-    ) -> Self::SchnorrSignature {
-        SchnorrSignature(schnorr_fun::Signature {
+    ) -> Self::Signature {
+        Signature(schnorr_fun::Signature {
             R: nonce.0,
             s: scalar.0,
         })
@@ -141,7 +140,7 @@ impl crate::core::Curve for Secp256k1 {
     fn verify_signature(
         public_key: &Self::PublicKey,
         message: &[u8],
-        sig: &Self::SchnorrSignature,
+        sig: &Self::Signature,
     ) -> bool {
         let public_key = public_key.0.clone().mark::<EvenY>();
         let message = message.mark::<Public>();
@@ -149,8 +148,24 @@ impl crate::core::Curve for Secp256k1 {
         SCHNORR.verify(&verification_key, message, &sig.0)
     }
 
-    fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::SchnorrSignature {
-        SchnorrSignature(SCHNORR.sign(keypair, message.mark::<Public>()))
+    fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::Signature {
+        Signature(SCHNORR.sign(keypair, message.mark::<Public>()))
+    }
+
+    fn test_keypair() -> Self::KeyPair {
+        SCHNORR.new_keypair(
+            Scalar::from_bytes_mod_order([42u8; 32])
+                .mark::<NonZero>()
+                .unwrap(),
+        )
+    }
+
+    fn test_nonce_keypair() -> Self::NonceKeyPair {
+        let mut r = Scalar::from_bytes_mod_order([84u8; 32])
+            .mark::<NonZero>()
+            .unwrap();
+        let R = XOnly::<SquareY>::from_scalar_mul(G, &mut r);
+        (r, R)
     }
 }
 

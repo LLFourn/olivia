@@ -1,10 +1,10 @@
 #![no_std]
 mod attestation;
-mod curve;
+mod schnorr;
 mod event;
 mod outcome;
 pub use attestation::*;
-pub use curve::*;
+pub use schnorr::*;
 pub use event::*;
 pub use outcome::*;
 

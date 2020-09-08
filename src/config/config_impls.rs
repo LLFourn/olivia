@@ -1,5 +1,5 @@
 use super::*;
-use crate::{core, db, sources, curve::CurveImpl};
+use crate::{core, curve::SchnorrImpl, db, sources};
 use futures::{Stream, StreamExt};
 use std::{fs, sync::Arc};
 
@@ -68,7 +68,7 @@ impl LoggersConfig {
 }
 
 impl EventSourceConfig {
-    pub fn to_event_stream<C: core::Curve>(
+    pub fn to_event_stream<C: core::Schnorr>(
         &self,
         name: &str,
         logger: slog::Logger,
@@ -134,7 +134,7 @@ impl EventSourceConfig {
 }
 
 impl OutcomeSourceConfig {
-    pub fn to_outcome_stream<C: core::Curve>(
+    pub fn to_outcome_stream<C: core::Schnorr>(
         &self,
         name: &str,
         logger: slog::Logger,
@@ -183,9 +183,9 @@ impl OutcomeSourceConfig {
 }
 
 impl DbConfig {
-    pub fn connect_database<C: core::Curve>(
+    pub fn connect_database<C: core::Schnorr>(
         &self,
-    ) -> Result<Arc<dyn db::Db<CurveImpl>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Arc<dyn db::Db<SchnorrImpl>>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
             DbConfig::InMemory => Ok(Arc::new(db::in_memory::InMemory::default())),
             DbConfig::Postgres { url } => {

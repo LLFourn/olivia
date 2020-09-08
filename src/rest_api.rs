@@ -1,9 +1,9 @@
 use crate::{
-    core::{AnnouncedEvent, EventId, PathRef, Curve, Announcement, Attestation},
+    core::{AnnouncedEvent, Announcement, Attestation, EventId, PathRef, Schnorr},
     db::{self, Db},
 };
 use core::str::FromStr;
-use std::{convert::Infallible, sync::Arc, marker::PhantomData};
+use std::{convert::Infallible, marker::PhantomData, sync::Arc};
 use warp::{self, http, Filter};
 
 #[derive(Debug)]
@@ -17,7 +17,7 @@ struct NotAnEvent;
 impl warp::reject::Reject for NotAnEvent {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PathResponse<C: Curve> {
+pub struct PathResponse<C: Schnorr> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key: Option<C::PublicKey>,
     pub events: Vec<EventId>,
@@ -25,7 +25,7 @@ pub struct PathResponse<C: Curve> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventResponse<C: Curve> {
+pub struct EventResponse<C: Schnorr> {
     pub id: EventId,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_outcome_time: Option<chrono::NaiveDateTime>,
@@ -33,7 +33,7 @@ pub struct EventResponse<C: Curve> {
     pub attestation: Option<Attestation<C>>,
 }
 
-impl<C: Curve> From<AnnouncedEvent<C>> for EventResponse<C> {
+impl<C: Schnorr> From<AnnouncedEvent<C>> for EventResponse<C> {
     fn from(ann: AnnouncedEvent<C>) -> Self {
         EventResponse {
             id: ann.event.id,
@@ -52,11 +52,12 @@ pub struct ErrorMessage {
 
 #[derive(Debug, Default, Clone)]
 pub struct Filters<C> {
-    curve: PhantomData<C>
+    curve: PhantomData<C>,
 }
 
-impl<C: Curve> Filters<C> {
-     pub fn with_db(&self,
+impl<C: Schnorr> Filters<C> {
+    pub fn with_db(
+        &self,
         db: Arc<dyn Db<C>>,
     ) -> impl Filter<Extract = (Arc<dyn Db<C>>,), Error = std::convert::Infallible> + Clone {
         warp::any().map(move || db.clone())
@@ -108,9 +109,8 @@ impl<C: Curve> Filters<C> {
 
     pub fn get_public_key(
         &self,
-        db: Arc<dyn Db<C>>
-    ) -> impl Filter<Extract = (C::PublicKey,), Error = warp::reject::Rejection> + Clone
-    {
+        db: Arc<dyn Db<C>>,
+    ) -> impl Filter<Extract = (C::PublicKey,), Error = warp::reject::Rejection> + Clone {
         self.with_db(db).and_then(async move |db: Arc<dyn Db<C>>| {
             db.get_public_key()
                 .await
@@ -122,21 +122,23 @@ impl<C: Curve> Filters<C> {
     pub fn get_root(
         &self,
         db: Arc<dyn Db<C>>,
-    ) -> impl Filter<Extract = (Vec<String>, C::PublicKey), Error = warp::reject::Rejection>
-           + Clone {
-        let get_children = self.with_db(db.clone()).and_then(async move |db: Arc<dyn Db<C>>| {
-            let res = db.get_node(PathRef::root().as_str()).await;
-            match res {
-                Ok(Some(item)) => Ok(item.children),
-                _ => Err(warp::reject::custom(DbError)),
-            }
-        });
+    ) -> impl Filter<Extract = (Vec<String>, C::PublicKey), Error = warp::reject::Rejection> + Clone
+    {
+        let get_children = self
+            .with_db(db.clone())
+            .and_then(async move |db: Arc<dyn Db<C>>| {
+                let res = db.get_node(PathRef::root().as_str()).await;
+                match res {
+                    Ok(Some(item)) => Ok(item.children),
+                    _ => Err(warp::reject::custom(DbError)),
+                }
+            });
 
         get_children.and(self.get_public_key(db.clone()))
     }
 }
 
-pub fn routes<C: Curve>(
+pub fn routes<C: Schnorr>(
     db: Arc<dyn Db<C>>,
 ) -> impl Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
     let filters = Filters::<C>::default();
@@ -191,14 +193,13 @@ async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, Infa
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{core::EventId, db::Db};
+    use crate::{core::EventId, curve::SchnorrImpl, db::Db};
     use serde_json::from_slice as j;
     use std::sync::Arc;
-    use crate::curve::Secp256k1;
 
     macro_rules! setup {
         () => {{
-            let db: Arc<dyn Db<Secp256k1>> = Arc::new(crate::db::in_memory::InMemory::default());
+            let db: Arc<dyn Db<SchnorrImpl>> = Arc::new(crate::db::in_memory::InMemory::default());
             let oracle = crate::oracle::Oracle::new(crate::seed::Seed::new([42u8; 64]), db.clone())
                 .await
                 .unwrap();
@@ -232,7 +233,7 @@ mod test {
             let res = warp::test::request().path(path).reply(&routes).await;
 
             assert_eq!(res.status(), 200);
-            let body = j::<PathResponse>(&res.body()).unwrap();
+            let body = j::<PathResponse<SchnorrImpl>>(&res.body()).unwrap();
             assert_eq!(body.events, [event_id.clone()]);
         }
 
@@ -245,7 +246,7 @@ mod test {
             .path(&format!("{}", node.parent().unwrap()))
             .reply(&routes)
             .await;
-        let body = j::<PathResponse>(&res.body()).unwrap();
+        let body = j::<PathResponse<SchnorrImpl>>(&res.body()).unwrap();
         assert_eq!(body.children, ["/test/one/two/3", "/test/one/two/4"]);
     }
 
@@ -263,9 +264,9 @@ mod test {
 
         let res = warp::test::request().path("/").reply(&routes).await;
         assert_eq!(res.status(), 200);
-        let body = j::<PathResponse>(&res.body()).unwrap();
+        let body = j::<PathResponse<SchnorrImpl>>(&res.body()).unwrap();
         assert_eq!(body.children, ["/test"]);
-        assert_eq!(body.public_keys, Some(oracle.public_keys()));
+        assert_eq!(body.public_key, Some(oracle.public_key()));
     }
 
     #[tokio::test]
@@ -278,18 +279,22 @@ mod test {
             .await
             .unwrap();
 
+        let public_key = {
+            let root = warp::test::request().path("/").reply(&routes).await;
+            j::<PathResponse<SchnorrImpl>>(&root.body())
+                .unwrap()
+                .public_key
+                .unwrap()
+        };
+
         let res = warp::test::request()
             .path(event_id.as_str())
             .reply(&routes)
             .await;
 
-        let body = j::<EventResponse>(&res.body()).unwrap();
+        let body = j::<EventResponse<SchnorrImpl>>(&res.body()).unwrap();
         assert_eq!(body.id, event_id);
 
-        assert!(crate::core::verify_announcement(
-            &oracle.public_keys(),
-            &event_id,
-            &body.announcement
-        ))
+        assert!(body.announcement.verify(&event_id, &public_key))
     }
 }

@@ -1,4 +1,5 @@
-use crate::Curve;
+use crate::Schnorr;
+use crate::Attestation;
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -102,8 +103,28 @@ impl EventId {
         EventId(replaced)
     }
 
-    pub fn announcement_message<C: Curve>(&self, nonce: &C::PublicNonce) -> String {
+    pub fn announcement_message<C: Schnorr>(&self, nonce: &C::PublicNonce) -> String {
         format!("{}#nonce={}", self, nonce)
+    }
+
+    pub fn test_outcome(&self) -> crate::Outcome {
+        use crate::Outcome::*;
+        match self.event_kind() {
+            EventKind::VsMatch(kind) => {
+                let (left, right) = self.parties().unwrap();
+                use crate::VsOutcome::*;
+                match kind {
+                    VsMatchKind::WinOrDraw => Vs(Winner(left.to_string())),
+                    VsMatchKind::Win {
+                        right_posited_to_win,
+                    } => Win {
+                        winning_side: right.to_string(),
+                        posited_won: right_posited_to_win == true,
+                    },
+                }
+            }
+            EventKind::SingleOccurrence => Occurred,
+        }
     }
 }
 
@@ -252,23 +273,64 @@ pub struct Event {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Announcement<C: Curve> {
+pub struct Announcement<C: Schnorr> {
     pub nonce: C::PublicNonce,
-    pub signature: C::SchnorrSignature,
+    pub signature: C::Signature,
+}
+
+impl<C: Schnorr> Announcement<C> {
+    #[must_use]
+    pub fn verify(&self, event_id: &EventId, oracle_public_key: &C::PublicKey) -> bool {
+        let message = event_id.announcement_message::<C>(&self.nonce);
+        C::verify_signature(oracle_public_key, message.as_bytes(), &self.signature)
+    }
+
+
+    pub fn create(event_id: &EventId, keypair: &C::KeyPair, nonce: C::PublicNonce) -> Self {
+       let to_sign = event_id.announcement_message::<C>(&nonce);
+       let signature = C::sign(keypair, to_sign.as_bytes());
+
+        Self {
+            nonce,
+            signature
+        }
+    }
+
+    pub fn test_instance(event_id: &EventId) -> Self {
+       Self::create(event_id, &C::test_keypair(), C::test_nonce_keypair().into())
+    }
+
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct AnnouncedEvent<C: Curve> {
+pub struct AnnouncedEvent<C: Schnorr> {
     pub event: Event,
     pub announcement: Announcement<C>,
-    pub attestation: Option<crate::Attestation<C>>,
+    pub attestation: Option<Attestation<C>>,
 }
 
-impl<C: Curve> AnnouncedEvent<C> {
-    pub fn announcement_signature(&self) -> Option<C::SchnorrSignature> {
+impl<C: Schnorr> AnnouncedEvent<C> {
+    pub fn attestation_signature(&self) -> Option<C::Signature> {
         self.attestation.clone().map(|attestation| {
             C::signature_from_scalar_and_nonce(attestation.scalar, self.announcement.nonce.clone())
         })
+    }
+
+
+    pub fn test_instance(event_id: &EventId) -> Self {
+        Self {
+            event: Event::from(event_id.clone()),
+            announcement: Announcement::test_instance(event_id),
+            attestation: Some(Attestation::test_instance(event_id))
+        }
+    }
+
+    pub fn test_instance_from_event(event: Event) -> Self {
+        Self {
+            event: event.clone(),
+            announcement: Announcement::test_instance(&event.id),
+            attestation: None
+        }
     }
 }
 
@@ -287,23 +349,6 @@ impl From<NaiveDateTime> for EventId {
     }
 }
 
-// #[must_use]
-// pub fn verify_announcement(
-//     pubkeys: &crate::oracle::OraclePubkeys,
-//     event_id: &EventId,
-//     announcement: &Announcement,
-// ) -> bool {
-//     let messages = event_id.announcement_messages(&announcement.nonces());
-//     Ed25519::verify_signature(
-//         &pubkeys.ed25519,
-//         &messages.ed25519.as_bytes(),
-//         &announcement.ed25519.signature,
-//     ) && Secp256k1::verify_signature(
-//         &pubkeys.secp256k1,
-//         &messages.secp256k1.as_bytes(),
-//         &announcement.secp256k1.signature,
-//     )
-// }
 
 #[cfg(feature = "diesel")]
 mod sql_impls {
@@ -371,29 +416,6 @@ mod serde_impl {
 mod test {
     use super::*;
 
-    use crate::{Outcome, VsOutcome};
-    impl EventId {
-        pub fn default_outcome(&self) -> Outcome {
-            use Outcome::*;
-
-            match self.event_kind() {
-                EventKind::VsMatch(kind) => {
-                    let (left, right) = self.parties().unwrap();
-                    use VsOutcome::*;
-                    match kind {
-                        VsMatchKind::WinOrDraw => Vs(Winner(left.to_string())),
-                        VsMatchKind::Win {
-                            right_posited_to_win,
-                        } => Win {
-                            winning_side: right.to_string(),
-                            posited_won: right_posited_to_win == true,
-                        },
-                    }
-                }
-                EventKind::SingleOccurrence => Outcome::Occurred,
-            }
-        }
-    }
 
     #[test]
     fn event_id_from_str() {

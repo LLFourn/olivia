@@ -1,15 +1,15 @@
 use crate::{
-    core::{Announcement, EventId, EventOutcome, Curve},
+    core::{Announcement, EventId, EventOutcome, Schnorr},
     curve::DeriveKeyPair,
     seed::Seed,
 };
 
-pub struct KeyChain<C: Curve + DeriveKeyPair> {
+pub struct KeyChain<C: Schnorr + DeriveKeyPair> {
     keypair: C::KeyPair,
     event_seed: Seed,
 }
 
-impl<C: Curve + DeriveKeyPair> KeyChain<C> {
+impl<C: Schnorr + DeriveKeyPair> KeyChain<C> {
     pub fn new(seed: Seed) -> Self {
         let key_seed = seed.child(b"oracle-key");
         let keypair = C::derive_keypair(&key_seed);
@@ -28,7 +28,7 @@ impl<C: Curve + DeriveKeyPair> KeyChain<C> {
         C::derive_nonce_keypair(&event_idx)
     }
 
-    pub fn scalar_for_event_outcome(&self, outcome: &EventOutcome) -> C::SchnorrScalar {
+    pub fn scalar_for_event_outcome(&self, outcome: &EventOutcome) -> C::SigScalar {
         let outcome_long_id = outcome.attestation_string();
         let event_idx = self.event_seed.child(outcome.event_id.as_bytes());
 
@@ -41,12 +41,6 @@ impl<C: Curve + DeriveKeyPair> KeyChain<C> {
 
     pub fn create_announcement(&self, event_id: &EventId) -> Announcement<C> {
         let nonce = self.nonce_for_event(&event_id).into();
-        let to_sign = event_id.announcement_message::<C>(&nonce);
-        let signature = C::sign(&self.keypair, to_sign.as_bytes());
-
-        Announcement {
-            nonce,
-            signature
-        }
+        Announcement::create(event_id, &self.keypair, nonce)
     }
 }

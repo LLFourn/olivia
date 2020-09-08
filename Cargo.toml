@@ -6,8 +6,9 @@ edition = "2018"
 
 [dependencies]
 warp = "0.2"
-curve25519-dalek = { version = "3", features = ["serde"] }
-ed25519-dalek = {version = "1", default-features = false, features = ["rand"] }
+# disable curve25519 for now
+# curve25519-dalek = { version = "3", features = ["serde"] }
+# ed25519-dalek = {version = "1", default-features = false, features = ["rand"] }
 sha2 = "0.9"
 blake2 = "0.9"
 digest = { version = "0.9", features = ["std"] }

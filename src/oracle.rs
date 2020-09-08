@@ -1,12 +1,11 @@
 use crate::{
-    core::{AnnouncedEvent, Attestation, Event, EventOutcome, Curve},
+    core::{AnnouncedEvent, Attestation, Event, EventOutcome, Schnorr},
     curve::DeriveKeyPair,
     db,
     keychain::KeyChain,
     seed::Seed,
 };
 use std::sync::Arc;
-
 
 #[derive(thiserror::Error, Debug)]
 pub enum EventResult {
@@ -36,12 +35,12 @@ pub enum OutcomeResult {
     DbWriteErr(crate::db::Error),
 }
 
-pub struct Oracle<C: Curve + DeriveKeyPair> {
+pub struct Oracle<C: Schnorr + DeriveKeyPair> {
     db: Arc<dyn crate::db::Db<C>>,
     keychain: KeyChain<C>,
 }
 
-impl<C: Curve + DeriveKeyPair> Oracle<C> {
+impl<C: Schnorr + DeriveKeyPair> Oracle<C> {
     pub async fn new(seed: Seed, db: Arc<dyn crate::db::Db<C>>) -> Result<Self, db::Error> {
         let keychain = KeyChain::new(seed);
         let public_key = keychain.oracle_public_key();
@@ -121,27 +120,30 @@ pub mod test {
     use super::*;
     use crate::{
         core::{EventId, WireEventOutcome},
-        curve::{ed25519::Ed25519, secp256k1::Secp256k1, Curve},
+        curve::SchnorrImpl,
         db::Db,
     };
     use core::{convert::TryInto, str::FromStr};
 
-    pub async fn test_oracle_event_lifecycle(db: Arc<dyn Db>) {
+    pub async fn test_oracle_event_lifecycle(db: Arc<dyn Db<SchnorrImpl>>) {
         let oracle = Oracle::new(crate::seed::Seed::new([42u8; 64]), db.clone())
             .await
             .expect("should be able to create oracle");
-        let public_keys = db
-            .get_public_keys()
+        let public_key = db
+            .get_public_key()
             .await
             .unwrap()
             .expect("creating oracle should have set public keys");
         let event_id = EventId::from_str("/foo/bar/baz?occur").unwrap();
         assert!(oracle.add_event(event_id.clone().into()).await.is_ok());
 
-        db.get_event(&event_id)
+        let event = db
+            .get_event(&event_id)
             .await
             .unwrap()
             .expect("event should be there");
+
+        assert!(event.announcement.verify(&event_id, &public_key));
 
         let outcome: EventOutcome = WireEventOutcome {
             event_id: event_id.clone(),
@@ -153,23 +155,19 @@ pub mod test {
 
         assert!(oracle.complete_event(outcome.clone()).await.is_ok());
 
-        let obs_event = db
+        let attested_event = db
             .get_event(&event_id)
             .await
             .unwrap()
             .expect("event should still be there");
-        let signatures = obs_event.signatures().expect("should be attested to");
+        let signature = attested_event
+            .attestation_signature()
+            .expect("should be attested to");
 
-        assert!(Secp256k1::verify_signature(
-            &public_keys.secp256k1,
+        assert!(SchnorrImpl::verify_signature(
+            &public_key,
             outcome.attestation_string().as_bytes(),
-            &signatures.secp256k1
-        ));
-
-        assert!(Ed25519::verify_signature(
-            &public_keys.ed25519,
-            outcome.attestation_string().as_bytes(),
-            &signatures.ed25519
+            &signature
         ));
     }
 }

@@ -1,5 +1,4 @@
-use crate::{config::Config, core::EventId, keychain::KeyChain};
-use crate::curve::CurveImpl;
+use crate::{config::Config, core::EventId, curve::SchnorrImpl, keychain::KeyChain};
 
 pub fn derive(
     config: Config,
@@ -8,7 +7,7 @@ pub fn derive(
     let secret_seed = config
         .secret_seed
         .ok_or("config file needs secret_seed to run".to_string())?;
-    let keychain = KeyChain::<CurveImpl>::new(secret_seed);
+    let keychain = KeyChain::<SchnorrImpl>::new(secret_seed);
     let nonce = keychain.nonce_for_event(&event);
 
     println!("secp256k1: {:?}", nonce);

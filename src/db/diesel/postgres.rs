@@ -4,17 +4,15 @@ use super::{
 };
 use crate::{
     core::{self, EventId},
-    db,
     curve::*,
+    db,
 };
 use async_trait::async_trait;
 use diesel::{
     associations::HasTable, pg::PgConnection, result::Error as DieselError, Connection,
     ExpressionMethods, Insertable, JoinOnDsl, QueryDsl, RunQueryDsl,
 };
-use std::{
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 pub struct PgBackend {
     conn: Arc<Mutex<PgConnection>>,
@@ -39,11 +37,11 @@ impl PgBackend {
 }
 
 #[async_trait]
-impl crate::db::DbRead<CurveImpl> for PgBackend {
+impl crate::db::DbRead<SchnorrImpl> for PgBackend {
     async fn get_event(
         &self,
         event_id: &EventId,
-    ) -> Result<Option<core::AnnouncedEvent<CurveImpl>>, db::Error> {
+    ) -> Result<Option<core::AnnouncedEvent<SchnorrImpl>>, db::Error> {
         let db_mutex = self.conn.clone();
         let event_id = event_id.clone();
 
@@ -99,8 +97,11 @@ impl crate::db::DbRead<CurveImpl> for PgBackend {
 }
 
 #[async_trait]
-impl crate::db::DbWrite<CurveImpl> for PgBackend {
-    async fn insert_event(&self, obs_event: core::AnnouncedEvent<CurveImpl>) -> Result<(), db::Error> {
+impl crate::db::DbWrite<SchnorrImpl> for PgBackend {
+    async fn insert_event(
+        &self,
+        obs_event: core::AnnouncedEvent<SchnorrImpl>,
+    ) -> Result<(), db::Error> {
         let node = obs_event.event.id.as_path();
         let parents = std::iter::successors(Some(node), |parent| (*parent).parent());
 
@@ -149,7 +150,7 @@ impl crate::db::DbWrite<CurveImpl> for PgBackend {
     async fn complete_event(
         &self,
         id: &EventId,
-        attestation: core::Attestation<CurveImpl>,
+        attestation: core::Attestation<SchnorrImpl>,
     ) -> Result<(), db::Error> {
         let db_mutex = self.conn.clone();
         let id = id.clone();
@@ -214,20 +215,22 @@ impl crate::db::TimeTickerDb for PgBackend {
     }
 }
 
-impl crate::db::Db<CurveImpl> for PgBackend {}
+impl crate::db::Db<SchnorrImpl> for PgBackend {}
 
 #[async_trait]
-impl db::DbMeta<CurveImpl> for PgBackend {
+impl db::DbMeta<SchnorrImpl> for PgBackend {
     async fn get_public_key(&self) -> Result<Option<PublicKey>, db::Error> {
         use schema::meta::dsl::*;
         let db_mutex = self.conn.clone();
         tokio::task::spawn_blocking(move || -> Result<Option<PublicKey>, db::Error> {
             let db = &*db_mutex.lock().unwrap();
-            let meta_row =  meta.find("public_key").first::<MetaRow>(db);
+            let meta_row = meta.find("public_key").first::<MetaRow>(db);
             match meta_row {
                 Err(DieselError::NotFound) => Ok(None),
                 Err(e) => Err(e.into()),
-                Ok(meta_row) => Ok(Some(serde_json::from_value::<PublicKeyMeta>(meta_row.value)?.public_key))
+                Ok(meta_row) => Ok(Some(
+                    serde_json::from_value::<PublicKeyMeta>(meta_row.value)?.public_key,
+                )),
             }
         })
         .await?
@@ -236,8 +239,14 @@ impl db::DbMeta<CurveImpl> for PgBackend {
     async fn set_public_key(&self, public_key: PublicKey) -> Result<(), db::Error> {
         use schema::meta::dsl::*;
         let db_mutex = self.conn.clone();
-        let meta_value = serde_json::to_value(PublicKeyMeta { curve: CurveImpl::default(), public_key } )?;
-        let meta_row = MetaRow { key: "public_key".into(), value: meta_value};
+        let meta_value = serde_json::to_value(PublicKeyMeta {
+            curve: SchnorrImpl::default(),
+            public_key,
+        })?;
+        let meta_row = MetaRow {
+            key: "public_key".into(),
+            value: meta_value,
+        };
         tokio::task::spawn_blocking(move || {
             let db = &*db_mutex.lock().unwrap();
             meta_row.insert_into(meta::table()).execute(db)?;
@@ -282,7 +291,7 @@ mod test {
         container.stop();
         let db: Arc<dyn crate::db::Db> = Arc::new(db);
         let mut rt = tokio::runtime::Runtime::new().unwrap();
-        let event = core::AnnouncedEvent::test_new(
+        let event = core::AnnouncedEvent::test_instance(
             &EventId::from_str("/test/postgres/database_fail?occur").unwrap(),
         );
 
