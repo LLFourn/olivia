@@ -14,7 +14,7 @@ blake2 = "0.9"
 digest = { version = "0.9", features = ["std"] }
 diesel = { version = "1.4.5", features = ["postgres", "serde_json", "chrono" ] }
 chrono = { version = "0.4", features = ["serde"] }
-redis  = { version = "0.16", default-features = false }
+redis  = { version = "0.17", default-features = false }
 serde = "1"
 slog = "2"
 slog-term = "2"
