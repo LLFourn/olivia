@@ -3,6 +3,7 @@ mod attestation;
 mod schnorr;
 mod event;
 mod outcome;
+pub mod http;
 pub use attestation::*;
 pub use schnorr::*;
 pub use event::*;
