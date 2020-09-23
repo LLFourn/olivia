@@ -10,7 +10,7 @@ use std::{convert::Infallible, marker::PhantomData, sync::Arc};
 use warp::{self, http, Filter};
 
 #[derive(Debug)]
-struct DbError;
+struct DbError(crate::db::Error);
 
 impl warp::reject::Reject for DbError {}
 
@@ -59,7 +59,7 @@ impl<C: Schnorr> Filters<C> {
                 match res {
                     Ok(Some(event)) => Ok(event.into()),
                     Ok(None) => Err(warp::reject::not_found()),
-                    Err(_e) => Err(warp::reject::custom(DbError)),
+                    Err(e) => Err(warp::reject::custom(DbError(e))),
                 }
             })
     }
@@ -76,7 +76,7 @@ impl<C: Schnorr> Filters<C> {
                 match res {
                     Ok(Some(event)) => Ok(event),
                     Ok(None) => Err(warp::reject::not_found()),
-                    Err(_e) => Err(warp::reject::custom(DbError)),
+                    Err(e) => Err(warp::reject::custom(DbError(e))),
                 }
             },
         )
@@ -89,7 +89,7 @@ impl<C: Schnorr> Filters<C> {
         self.with_db(db).and_then(async move |db: Arc<dyn Db<C>>| {
             db.get_public_key()
                 .await
-                .map_err(|_e| warp::reject::custom(DbError))
+                .map_err(|e| warp::reject::custom(DbError(e)))
                 .and_then(|opt| opt.ok_or(warp::reject::not_found()))
         })
     }
@@ -105,7 +105,8 @@ impl<C: Schnorr> Filters<C> {
                 let res = db.get_node(PathRef::root().as_str()).await;
                 match res {
                     Ok(Some(item)) => Ok(item.children),
-                    _ => Err(warp::reject::custom(DbError)),
+                    Ok(None) => Err(warp::reject::not_found()),
+                    Err(e) => Err(warp::reject::custom(DbError(e))),
                 }
             });
 
@@ -115,6 +116,7 @@ impl<C: Schnorr> Filters<C> {
 
 pub fn routes<C: Schnorr>(
     db: Arc<dyn Db<C>>,
+    logger: slog::Logger,
 ) -> impl Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
     let filters = Filters::<C>::default();
     let event = warp::get()
@@ -140,14 +142,15 @@ pub fn routes<C: Schnorr>(
             })
         });
 
-    root.or(event).or(path).recover(handle_rejection)
+    root.or(event).or(path).recover(move |err| handle_rejection(err, logger.clone()))
 }
 
-async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, Infallible> {
+async fn handle_rejection(err: warp::Rejection, logger: slog::Logger) -> Result<impl warp::Reply, Infallible> {
     // This sucks see: https://github.com/seanmonstar/warp/issues/451
     let code;
     let message = None;
-    if let Some(DbError) = err.find() {
+    if let Some(DbError(e)) = err.find() {
+        error!(logger, "DB error"; "error" => format!("{}",e));
         code = http::StatusCode::INTERNAL_SERVER_ERROR;
     } else if err.is_not_found() {
         code = http::StatusCode::NOT_FOUND;
@@ -178,7 +181,8 @@ mod test {
             let oracle = crate::oracle::Oracle::new(crate::seed::Seed::new([42u8; 64]), db.clone())
                 .await
                 .unwrap();
-            (oracle, routes(db))
+            let logger = slog::Logger::root(slog::Discard,o!());
+            (oracle, routes(db, logger))
         }};
     }
 

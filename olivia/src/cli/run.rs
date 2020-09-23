@@ -31,7 +31,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error + Send + Sync
     let mut services = vec![];
 
     if let Some(rest_config) = config.rest_api {
-        let rest_api_server = warp::serve(crate::rest_api::routes(db.clone()))
+        let rest_api_server = warp::serve(crate::rest_api::routes(db.clone(), logger.new(o!("type" => "http"))))
             .run(rest_config.listen)
             .boxed();
 
