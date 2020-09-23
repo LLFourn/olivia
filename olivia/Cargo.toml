@@ -1,0 +1,40 @@
+[package]
+name = "olivia"
+version = "0.1.0"
+authors = ["LLFourn <lloyd.fourn@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+warp = "0.2"
+# disable curve25519 for now
+# curve25519-dalek = { version = "3", features = ["serde"] }
+# ed25519-dalek = {version = "1", default-features = false, features = ["rand"] }
+sha2 = "0.9"
+blake2 = "0.9"
+digest = { version = "0.9", features = ["std"] }
+diesel = { version = "1.4.5", features = ["postgres", "serde_json", "chrono" ] }
+chrono = { version = "0.4", features = ["serde"] }
+redis  = { version = "0.17", default-features = false }
+serde = "1"
+slog = "2"
+slog-term = "2"
+slog-async = "2"
+serde_derive = "1"
+serde_json = "1"
+regex = "1"
+tokio = { version = "0.2.13", features = ["full"] }
+futures = "0.3"
+async-trait = "0.1"
+diesel_migrations = "1.4"
+structopt = "0.3"
+thiserror = "1.0"
+serde_yaml = "0.8"
+rand = "0.7"
+olivia_core = { path = "../olivia_core", features = ["std", "diesel"] }
+olivia_secp256k1 = { path = "../olivia_secp256k1", features = ["diesel"] }
+
+[dev-dependencies]
+testcontainers = { git = "https://github.com/llfourn/testcontainers-rs", rev = "5e1b6bd" }
+
+[features]
+docker_tests = []

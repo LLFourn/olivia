@@ -7,16 +7,16 @@ macro_rules! impl_fromstr_deserailize {
     ) => {
 
         impl$(<$($tpl $(:$tcl)?),*>)? core::str::FromStr for $type  {
-            type Err = $crate::HexError;
+            type Err = $crate::hex::HexError;
 
             /// Parses the string as hex and interprets tries to convert the
             /// resulting byte array into the desired value.
-            fn from_str(hex: &str) -> Result<$type , $crate::HexError> {
-                use $crate::hex_val;
+            fn from_str(hex: &str) -> Result<$type , $crate::hex::HexError> {
+                use $crate::hex::*;
                 if hex.len() % 2 == 1 {
-                    Err($crate::HexError::InvalidHex)
+                    Err(HexError::InvalidHex)
                 } else if $len * 2 != hex.len() {
-                    Err($crate::HexError::InvalidLength)
+                    Err(HexError::InvalidLength)
                 } else {
                     let mut buf = [0u8; $len];
 
@@ -26,7 +26,7 @@ macro_rules! impl_fromstr_deserailize {
 
                     let $input = buf;
                     let result: Option<$type> = $block;
-                    result.ok_or($crate::HexError::InvalidEncoding)
+                    result.ok_or(HexError::InvalidEncoding)
                 }
             }
         }
@@ -50,7 +50,7 @@ macro_rules! impl_fromstr_deserailize {
                             }
 
                             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<$type , E> {
-                                use $crate::HexError::*;
+                                use $crate::hex::HexError::*;
                                 <$type  as core::str::FromStr>::from_str(v).map_err(|e| match e {
                                     InvalidLength => E::invalid_length(v.len(), &format!("{}", $len).as_str()),
                                     InvalidEncoding => E::invalid_value(serde::de::Unexpected::Str(v), &self),
@@ -108,6 +108,7 @@ macro_rules! impl_fromsql {
         name => $name:literal,
         fn from_bytes$(<$($tpl:ident  $(: $tcl:ident)?),*>)?($input:ident : [u8;$len:literal]) ->  Option<$type:path> $block:block
     ) => {
+        #[cfg(feature = "diesel")]
         impl<DB: diesel::backend::Backend>
             diesel::deserialize::FromSql<diesel::sql_types::Binary, DB> for $type
         where
@@ -132,7 +133,7 @@ macro_rules! impl_fromsql {
                 Ok(result.ok_or(format!(
                     "Invalid {} from database '{}'",
                     $name,
-                    $crate::util::to_hex(&$input[..])
+                    $crate::hex::to_hex(&$input[..])
                 ))?)
             }
         }
@@ -143,7 +144,8 @@ macro_rules! impl_fromsql {
 #[macro_export]
 macro_rules! impl_tosql {
     (fn to_bytes$(<$($tpl:ident  $(: $tcl:ident)?),*>)?($self:ident : &$type:path) -> $(&)?[u8;$len:literal] $block:block) => {
-        impl<DB: diesel::backend::Backend> diesel::serialize::ToSql<sql_types::Binary, DB>
+        #[cfg(feature = "diesel")]
+        impl<DB: diesel::backend::Backend> diesel::serialize::ToSql<diesel::sql_types::Binary, DB>
             for $type
         {
             fn to_sql<W: std::io::Write>(

@@ -1,5 +1,8 @@
 use crate::{
-    core::{EventId, PathRef, Schnorr, http::{PathResponse, EventResponse}},
+    core::{
+        http::{EventResponse, PathResponse},
+        EventId, PathRef, Schnorr,
+    },
     db::{self, Db},
 };
 use core::str::FromStr;

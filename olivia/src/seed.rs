@@ -4,7 +4,7 @@ use digest::generic_array::{typenum::U64, GenericArray};
 #[derive(Clone)]
 pub struct Seed([u8; 64]);
 
-crate::impl_fromstr_deserailize! {
+olivia_core::impl_fromstr_deserailize! {
     name => "oracle seed",
     fn from_bytes(bytes: [u8;64]) -> Option<Seed> {
         Some(Seed(bytes))

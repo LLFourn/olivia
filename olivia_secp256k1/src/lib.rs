@@ -1,79 +1,85 @@
-use crate::seed::Seed;
-use diesel::sql_types;
-use digest::{Digest, Update, VariableOutput};
-use rand::prelude::ThreadRng;
-pub use schnorr_fun::{
-    fun::{self, marker::*, nonce, s, Scalar, XOnly, G},
+#![allow(non_snake_case)]
+use schnorr_fun::{
+    fun::{
+        digest::{Digest},
+        marker::*,
+        nonce::Deterministic,
+        s, Scalar, XOnly, G,
+    },
     KeyPair, MessageKind, Schnorr,
 };
+pub use schnorr_fun;
 use sha2::Sha256;
-use std::borrow::Borrow;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Secp256k1;
 
-#[derive(PartialEq, Clone, FromSqlRow, AsExpression)]
-#[sql_type = "sql_types::Binary"]
-pub struct PublicKey(XOnly<EvenY>);
+#[derive(PartialEq, Clone)]
+#[cfg_attr(feature = "diesel", derive(diesel::FromSqlRow, diesel::AsExpression))]
+#[cfg_attr(feature = "diesel", sql_type = "diesel::sql_types::Binary")]
+pub struct PublicKey(XOnly);
 
-crate::impl_display_debug_serialize_tosql! {
+olivia_core::impl_display_debug_serialize_tosql! {
     fn to_bytes(pk: &PublicKey) -> &[u8;32] {
         pk.0.as_bytes()
     }
 }
 
-crate::impl_fromstr_deserailize_fromsql! {
+olivia_core::impl_fromstr_deserailize_fromsql! {
     name => "secp256k1 xonly public key",
     fn from_bytes(bytes: [u8;32]) ->  Option<PublicKey> {
-        XOnly::<EvenY>::from_bytes(bytes).map(PublicKey)
+        XOnly::from_bytes(bytes).map(PublicKey)
     }
 }
 
-#[derive(PartialEq, Clone, FromSqlRow, AsExpression)]
-#[sql_type = "sql_types::Binary"]
-pub struct PublicNonce(XOnly<SquareY>);
+#[derive(PartialEq, Clone)]
+#[cfg_attr(feature = "diesel", derive(diesel::FromSqlRow, diesel::AsExpression))]
+#[cfg_attr(feature = "diesel", sql_type = "diesel::sql_types::Binary")]
+pub struct PublicNonce(XOnly);
 
-crate::impl_display_debug_serialize_tosql! {
+olivia_core::impl_display_debug_serialize_tosql! {
     fn to_bytes(pn: &PublicNonce) -> &[u8;32] {
         pn.0.as_bytes()
     }
 }
 
-crate::impl_fromstr_deserailize_fromsql! {
+olivia_core::impl_fromstr_deserailize_fromsql! {
     name => "secp256k1 xonly public nonce",
     fn from_bytes(bytes: [u8;32]) ->  Option<PublicNonce> {
-        XOnly::<SquareY>::from_bytes(bytes).map(PublicNonce)
+        XOnly::from_bytes(bytes).map(PublicNonce)
     }
 }
 
-#[derive(PartialEq, Clone, FromSqlRow, AsExpression)]
-#[sql_type = "sql_types::Binary"]
+#[derive(PartialEq, Clone)]
+#[cfg_attr(feature = "diesel", derive(diesel::FromSqlRow, diesel::AsExpression))]
+#[cfg_attr(feature = "diesel", sql_type = "diesel::sql_types::Binary")]
 pub struct SigScalar(Scalar<Public, Zero>);
 
-crate::impl_display_debug_serialize_tosql! {
+olivia_core::impl_display_debug_serialize_tosql! {
     fn to_bytes(scalar: &SigScalar) -> [u8;32] {
         scalar.0.to_bytes()
     }
 }
 
-crate::impl_fromstr_deserailize_fromsql! {
+olivia_core::impl_fromstr_deserailize_fromsql! {
     name => "secp256k1 scalar",
     fn from_bytes(bytes: [u8;32]) ->  Option<SigScalar> {
         Scalar::from_bytes(bytes).map(|s| SigScalar(s.mark::<Public>()))
     }
 }
 
-#[derive(PartialEq, Clone, FromSqlRow, AsExpression)]
-#[sql_type = "sql_types::Binary"]
+#[derive(PartialEq, Clone)]
+#[cfg_attr(feature = "diesel", derive(diesel::FromSqlRow, diesel::AsExpression))]
+#[cfg_attr(feature = "diesel", sql_type = "diesel::sql_types::Binary")]
 pub struct Signature(schnorr_fun::Signature);
 
-crate::impl_display_debug_serialize_tosql! {
+olivia_core::impl_display_debug_serialize_tosql! {
     fn to_bytes(sig: &Signature) -> [u8;64] {
         sig.0.to_bytes()
     }
 }
 
-crate::impl_fromstr_deserailize_fromsql! {
+olivia_core::impl_fromstr_deserailize_fromsql! {
     name => "bip340 schnorr signature",
     fn from_bytes(bytes: [u8;64]) ->  Option<Signature> {
         schnorr_fun::Signature::from_bytes(bytes).map(Signature)
@@ -81,11 +87,11 @@ crate::impl_fromstr_deserailize_fromsql! {
 }
 
 lazy_static::lazy_static! {
-    static ref SCHNORR: Schnorr<Sha256, nonce::Synthetic<Sha256, nonce::GlobalRng<ThreadRng>>> = Schnorr::new(nonce::Synthetic::<Sha256, nonce::GlobalRng<ThreadRng>>::default(), MessageKind::Prehashed);
+    pub static ref SCHNORR: Schnorr<Sha256, Deterministic<Sha256>> = Schnorr::new(Deterministic::<Sha256>::default(), MessageKind::Prehashed);
 }
 
-impl From<XOnly<EvenY>> for PublicKey {
-    fn from(x: XOnly<EvenY>) -> Self {
+impl From<XOnly> for PublicKey {
+    fn from(x: XOnly) -> Self {
         Self(x)
     }
 }
@@ -97,18 +103,18 @@ impl From<KeyPair> for PublicKey {
     }
 }
 
-impl From<(Scalar, XOnly<SquareY>)> for PublicNonce {
-    fn from(kp: (Scalar, XOnly<SquareY>)) -> Self {
+impl From<(Scalar, XOnly)> for PublicNonce {
+    fn from(kp: (Scalar, XOnly)) -> Self {
         Self(kp.1)
     }
 }
 
-impl crate::core::Schnorr for Secp256k1 {
+impl olivia_core::Schnorr for Secp256k1 {
     type KeyPair = KeyPair;
     type PublicKey = PublicKey;
     type PublicNonce = PublicNonce;
     type SigScalar = SigScalar;
-    type NonceKeyPair = (Scalar, XOnly<SquareY>);
+    type NonceKeyPair = (Scalar, XOnly);
     type Signature = Signature;
 
     fn name() -> &'static str {
@@ -120,7 +126,7 @@ impl crate::core::Schnorr for Secp256k1 {
         nonce_keypair: Self::NonceKeyPair,
         message: &[u8],
     ) -> Self::SigScalar {
-       let (x, X) = signing_keypair.as_tuple();
+        let (x, X) = signing_keypair.as_tuple();
         let (r, R) = nonce_keypair;
         let message = Digest::chain(Sha256::default(), message).finalize();
         let c = SCHNORR.challenge(&R, X, (&message[..]).mark::<Public>());
@@ -143,7 +149,7 @@ impl crate::core::Schnorr for Secp256k1 {
         message: &[u8],
         sig: &Self::Signature,
     ) -> bool {
-        let public_key = public_key.0.clone().mark::<EvenY>();
+        let public_key = public_key.0.clone();
         let message = Digest::chain(Sha256::default(), message).finalize();
         let verification_key = public_key.to_point();
         SCHNORR.verify(&verification_key, (&message[..]).mark::<Public>(), &sig.0)
@@ -151,7 +157,7 @@ impl crate::core::Schnorr for Secp256k1 {
 
     fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::Signature {
         let message = Digest::chain(Sha256::default(), message).finalize();
-        Signature(SCHNORR.sign(keypair, ( &message[..] ).mark::<Public>()))
+        Signature(SCHNORR.sign(keypair, (&message[..]).mark::<Public>()))
     }
 
     fn test_keypair() -> Self::KeyPair {
@@ -166,32 +172,7 @@ impl crate::core::Schnorr for Secp256k1 {
         let mut r = Scalar::from_bytes_mod_order([84u8; 32])
             .mark::<NonZero>()
             .unwrap();
-        let R = XOnly::<SquareY>::from_scalar_mul(G, &mut r);
-        (r, R)
-    }
-}
-
-impl super::DeriveKeyPair for Secp256k1 {
-    fn derive_keypair(seed: &Seed) -> Self::KeyPair {
-        let mut hash = seed.to_blake2b_32();
-        hash.update(b"secp256k1");
-        let x = Scalar::from_slice_mod_order(&hash.finalize_boxed().borrow())
-            .expect("hash output is 32-bytes long")
-            .mark::<NonZero>()
-            .expect("will not be zero");
-        SCHNORR.new_keypair(x)
-    }
-
-    fn derive_nonce_keypair(seed: &Seed) -> Self::NonceKeyPair {
-        let mut hash = seed.to_blake2b_32();
-        hash.update(b"secp256k1");
-        let mut r = Scalar::from_slice_mod_order(&hash.finalize_boxed().borrow())
-            .expect("hash output is 32-bytes long")
-            .mark::<NonZero>()
-            .expect("will not be zero");
-
-        let R = XOnly::from_scalar_mul(&SCHNORR.G(), &mut r);
-
+        let R = XOnly::from_scalar_mul(G, &mut r);
         (r, R)
     }
 }
