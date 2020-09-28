@@ -1,6 +1,5 @@
-use alloc::vec::Vec;
-use alloc::string::String;
-use crate::{EventId, Schnorr, Announcement, Attestation, AnnouncedEvent};
+use crate::{AnnouncedEvent, Announcement, Attestation, EventId, Schnorr};
+use alloc::{string::String, vec::Vec};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PathResponse<C: Schnorr> {

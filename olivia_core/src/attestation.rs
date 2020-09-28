@@ -1,5 +1,5 @@
+use crate::{EventId, EventOutcome};
 use alloc::string::String;
-use crate::{EventOutcome, EventId};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Attestation<C: crate::Schnorr> {
@@ -21,11 +21,15 @@ impl<C: crate::Schnorr> Attestation<C> {
     }
 
     pub fn test_instance(event_id: &EventId) -> Self {
-     let event_outcome = EventOutcome::test_instance(event_id);
+        let event_outcome = EventOutcome::test_instance(event_id);
         Attestation::new(
             format!("{}", event_outcome.outcome),
             chrono::Utc::now().naive_utc(),
-            C::reveal_signature_s(&C::test_keypair(), C::test_nonce_keypair(), event_outcome.attestation_string().as_bytes())
+            C::reveal_signature_s(
+                &C::test_keypair(),
+                C::test_nonce_keypair(),
+                event_outcome.attestation_string().as_bytes(),
+            ),
         )
     }
 }

@@ -1,5 +1,5 @@
+use crate::{Event, EventId, EventIdError, EventOutcome, Outcome, OutcomeError};
 use core::str::FromStr;
-use crate::{EventOutcome, Event, OutcomeError, EventIdError, EventId, Outcome};
 
 pub enum Entity {
     Event(Event),

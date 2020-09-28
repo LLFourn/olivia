@@ -1,4 +1,6 @@
-pub trait Schnorr: Clone + Default + PartialEq + serde::Serialize + 'static + Send + Sync + core::fmt::Debug {
+pub trait Schnorr:
+    Clone + Default + PartialEq + serde::Serialize + 'static + Send + Sync + core::fmt::Debug
+{
     type SigScalar: PartialEq
         + Clone
         + core::fmt::Debug
@@ -89,7 +91,7 @@ macro_rules! impl_deserialize_curve {
         }
 
         impl serde::Serialize for $curve {
-            fn serialize<S: serde::Serializer>(&self,serializer: S) -> Result<S::Ok, S::Error> {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 use $crate::Schnorr;
                 serializer.serialize_str($curve::name())
             }

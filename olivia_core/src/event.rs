@@ -1,11 +1,10 @@
-use crate::Schnorr;
-use crate::Attestation;
+use crate::{Attestation, Outcome, Schnorr};
 use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
 use chrono::NaiveDateTime;
-use core::{fmt, str::FromStr};
+use core::{convert::TryFrom, fmt, str::FromStr};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventKind {
@@ -107,6 +106,30 @@ impl EventId {
         format!("{}#nonce={}", self, nonce)
     }
 
+    pub fn binary_outcomes(&self) -> Option<[Outcome; 2]> {
+        match self.event_kind() {
+            EventKind::VsMatch(kind) => match kind {
+                VsMatchKind::Win {
+                    right_posited_to_win,
+                } => {
+                    let (left, right) = self.parties().unwrap();
+                    Some([
+                        Outcome::Win {
+                            winning_side: left.to_string(),
+                            posited_won: !right_posited_to_win,
+                        },
+                        Outcome::Win {
+                            winning_side: right.to_string(),
+                            posited_won: right_posited_to_win,
+                        },
+                    ])
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     pub fn test_outcome(&self) -> crate::Outcome {
         use crate::Outcome::*;
         match self.event_kind() {
@@ -156,6 +179,15 @@ impl FromStr for EventId {
             // this event: prefix is just a ahck to make the Url library parse it.
             // It shouldn't leak.
             url::Url::parse(&format!("event:{}", string)).map_err(|_| EventIdError::BadFormat)?;
+
+        EventId::try_from(url)
+    }
+}
+
+impl TryFrom<url::Url> for EventId {
+    type Error = EventIdError;
+
+    fn try_from(url: url::Url) -> Result<Self, Self::Error> {
         let event_kind = url.query().ok_or(EventIdError::BadFormat)?;
         let path = url
             .path_segments()
@@ -285,21 +317,16 @@ impl<C: Schnorr> Announcement<C> {
         C::verify_signature(oracle_public_key, message.as_bytes(), &self.signature)
     }
 
-
     pub fn create(event_id: &EventId, keypair: &C::KeyPair, nonce: C::PublicNonce) -> Self {
-       let to_sign = event_id.announcement_message::<C>(&nonce);
-       let signature = C::sign(keypair, to_sign.as_bytes());
+        let to_sign = event_id.announcement_message::<C>(&nonce);
+        let signature = C::sign(keypair, to_sign.as_bytes());
 
-        Self {
-            nonce,
-            signature
-        }
+        Self { nonce, signature }
     }
 
     pub fn test_instance(event_id: &EventId) -> Self {
-       Self::create(event_id, &C::test_keypair(), C::test_nonce_keypair().into())
+        Self::create(event_id, &C::test_keypair(), C::test_nonce_keypair().into())
     }
-
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -316,12 +343,11 @@ impl<C: Schnorr> AnnouncedEvent<C> {
         })
     }
 
-
     pub fn test_instance(event_id: &EventId) -> Self {
         Self {
             event: Event::from(event_id.clone()),
             announcement: Announcement::test_instance(event_id),
-            attestation: Some(Attestation::test_instance(event_id))
+            attestation: Some(Attestation::test_instance(event_id)),
         }
     }
 
@@ -329,7 +355,7 @@ impl<C: Schnorr> AnnouncedEvent<C> {
         Self {
             event: event.clone(),
             announcement: Announcement::test_instance(&event.id),
-            attestation: None
+            attestation: None,
         }
     }
 }

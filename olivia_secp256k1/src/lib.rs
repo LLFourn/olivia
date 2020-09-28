@@ -1,14 +1,11 @@
 #![allow(non_snake_case)]
+use olivia_core::EventId;
+use olivia_core::Outcome;
+pub use schnorr_fun;
 use schnorr_fun::{
-    fun::{
-        digest::{Digest},
-        marker::*,
-        nonce::Deterministic,
-        s, Scalar, XOnly, G,
-    },
+    fun::{digest::Digest, marker::*, nonce::Deterministic, s, Point, Scalar, XOnly, G},
     KeyPair, MessageKind, Schnorr,
 };
-pub use schnorr_fun;
 use sha2::Sha256;
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -96,6 +93,18 @@ impl From<XOnly> for PublicKey {
     }
 }
 
+impl From<PublicKey> for XOnly {
+    fn from(x: PublicKey) -> Self {
+        x.0
+    }
+}
+
+impl From<PublicNonce> for XOnly {
+    fn from(x: PublicNonce) -> Self {
+        x.0
+    }
+}
+
 impl From<KeyPair> for PublicKey {
     fn from(kp: KeyPair) -> Self {
         let (_, pk) = kp.into();
@@ -174,6 +183,35 @@ impl olivia_core::Schnorr for Secp256k1 {
             .unwrap();
         let R = XOnly::from_scalar_mul(G, &mut r);
         (r, R)
+    }
+}
+
+pub fn anticipate_signature(
+    public_key: &Point<EvenY>,
+    nonce: &Point<EvenY>,
+    event_id: &EventId,
+    outcome: &Outcome,
+) -> Point<Jacobian, Public, Zero> {
+    let mut hash = WriteDigest(Sha256::default());
+    hash.0.update(event_id.as_str().as_bytes());
+    hash.0.update(b"=");
+    outcome.write_to(&mut hash).expect("cannot fail");
+    let hashed_message = hash.0.finalize();
+    SCHNORR
+        .anticipate_signature(
+            public_key,
+            nonce,
+            hashed_message.as_slice().mark::<Public>(),
+        )
+        .mark::<Zero>()
+}
+
+struct WriteDigest<D>(D);
+
+impl<D: Digest> core::fmt::Write for WriteDigest<D> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        self.0.update(s.as_bytes());
+        Ok(())
     }
 }
 

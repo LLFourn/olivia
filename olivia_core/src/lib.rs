@@ -1,18 +1,18 @@
 #![no_std]
 mod attestation;
-mod schnorr;
-mod event;
-mod outcome;
 mod entity;
-mod macros;
+mod event;
 #[doc(hidden)]
 pub mod hex;
 pub mod http;
+mod macros;
+mod outcome;
+mod schnorr;
 pub use attestation::*;
-pub use schnorr::*;
+pub use entity::*;
 pub use event::*;
 pub use outcome::*;
-pub use entity::*;
+pub use schnorr::*;
 
 #[cfg_attr(not(feature = "std"), macro_use)]
 extern crate alloc;

@@ -45,29 +45,31 @@ pub enum Outcome {
     },
 }
 
-impl fmt::Display for Outcome {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Outcome {
+    pub fn write_to(&self, t: &mut impl fmt::Write) -> fmt::Result {
         use Outcome::*;
         use VsOutcome::*;
-        write!(
-            f,
-            "{}",
-            match self {
-                Occurred => "true".to_string(),
-                Vs(Winner(winner)) => format!("{}_win", winner),
-                Vs(Draw) => "draw".to_string(),
-                Win {
-                    winning_side,
-                    posited_won,
-                } => {
-                    if *posited_won {
-                        format!("{}_win", winning_side)
-                    } else {
-                        format!("{}_win-or-draw", winning_side)
-                    }
+        match self {
+            Occurred => write!(t, "{}", "true"),
+            Vs(Winner(winner)) => write!(t, "{}_win", winner),
+            Vs(Draw) => write!(t, "draw"),
+            Win {
+                winning_side,
+                posited_won,
+            } => {
+                if *posited_won {
+                    write!(t, "{}_win", winning_side)
+                } else {
+                    write!(t, "{}_win-or-draw", winning_side)
                 }
             }
-        )
+        }
+    }
+}
+
+impl fmt::Display for Outcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.write_to(f)
     }
 }
 
