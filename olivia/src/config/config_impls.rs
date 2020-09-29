@@ -1,6 +1,6 @@
 use super::*;
 use crate::{core, curve::SchnorrImpl, db, sources};
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use std::{fs, sync::Arc};
 
 impl LoggerConfig {
@@ -67,16 +67,14 @@ impl LoggersConfig {
     }
 }
 
+
 impl EventSourceConfig {
     pub fn to_event_stream<C: core::Schnorr>(
         &self,
         name: &str,
         logger: slog::Logger,
         db: Arc<dyn db::Db<C>>,
-    ) -> Result<
-        std::pin::Pin<Box<dyn Stream<Item = sources::Update<core::Event>> + Send>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<sources::EventStream, Box<dyn std::error::Error + Send + Sync>> {
         let name = name.to_owned();
         match self.clone() {
             EventSourceConfig::Redis(RedisConfig {
@@ -122,12 +120,8 @@ impl EventSourceConfig {
             .boxed()),
             EventSourceConfig::ReEmitter { source, re_emitter } => {
                 let stream = source.to_event_stream(&name, logger, db);
-                match re_emitter {
-                    EventReEmitterConfig::Vs => {
-                        let emitter = crate::sources::re_emitter::Vs;
-                        stream.map(|stream| emitter.re_emit_events(stream).boxed())
-                    }
-                }
+                let re_emitter = re_emitter.to_remitter();
+                stream.map(|stream| re_emitter.re_emit_events(stream.boxed()).boxed())
             }
         }
     }
@@ -137,12 +131,10 @@ impl OutcomeSourceConfig {
     pub fn to_outcome_stream<C: core::Schnorr>(
         &self,
         name: &str,
+        seed: &Seed,
         logger: slog::Logger,
         db: Arc<dyn db::Db<C>>,
-    ) -> Result<
-        std::pin::Pin<Box<dyn Stream<Item = sources::Update<core::EventOutcome>> + Send>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<sources::OutcomeStream, Box<dyn std::error::Error + Send + Sync>> {
         use OutcomeSourceConfig::*;
         match self.clone() {
             Redis(RedisConfig {
@@ -170,17 +162,44 @@ impl OutcomeSourceConfig {
                 ).boxed())
             }
             ReEmitter { source, re_emitter } => {
-                let stream = source.to_outcome_stream(&name, logger, db);
-                match re_emitter {
-                    OutcomeReEmitterConfig::Vs => {
-                        let emitter = crate::sources::re_emitter::Vs;
-                        stream.map(|stream| emitter.re_emit_outcomes(stream).boxed())
-                    }
-                }
+                let stream = source.to_outcome_stream(name, seed, logger, db);
+                let re_emitter = re_emitter.to_remitter(name, seed);
+                stream.map(|stream| re_emitter.re_emit_outcomes(stream.boxed()).boxed())
             }
         }
     }
 }
+
+
+
+impl EventReEmitterConfig {
+    pub fn to_remitter(&self) -> Box<dyn sources::re_emitter::EventReEmitter> {
+        use EventReEmitterConfig::*;
+        match self {
+            Vs => Box::new(crate::sources::re_emitter::Vs),
+            HeadsOrTails => Box::new(crate::sources::re_emitter::HeadsOrTailsEvents),
+        }
+    }
+}
+
+impl OutcomeReEmitterConfig {
+    pub fn to_remitter(
+        &self,
+        name: &str,
+        seed: &Seed,
+    ) -> Box<dyn sources::re_emitter::OutcomeReEmitter> {
+        use OutcomeReEmitterConfig::*;
+        match self {
+            Vs => Box::new(crate::sources::re_emitter::Vs),
+            HeadsOrTails => Box::new(crate::sources::re_emitter::HeadsOrTailsOutcomes {
+                seed: seed
+                    .child(b"heads-or-tails-outcomes")
+                    .child(name.as_bytes()),
+            }),
+        }
+    }
+}
+
 
 impl DbConfig {
     pub fn connect_database<C: core::Schnorr>(

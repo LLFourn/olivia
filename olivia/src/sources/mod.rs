@@ -1,8 +1,9 @@
-use crate::core::{Event, EventId};
+use crate::core::{Event, EventId, EventOutcome};
 use futures::channel::oneshot::Sender;
 pub mod re_emitter;
 pub mod redis;
 pub mod time_ticker;
+use futures::Stream;
 
 pub struct Update<E> {
     pub update: E, // An Event or EventOutcome
@@ -23,3 +24,6 @@ impl From<EventId> for Update<Event> {
         Update::from(Event::from(id))
     }
 }
+
+pub type EventStream = std::pin::Pin<Box<dyn Stream<Item = Update<Event>> + Send>>;
+pub type OutcomeStream = std::pin::Pin<Box<dyn Stream<Item = Update<EventOutcome>> + Send>>;

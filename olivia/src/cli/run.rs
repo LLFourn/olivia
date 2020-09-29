@@ -16,31 +16,37 @@ pub fn run(config: Config) -> Result<(), Box<dyn std::error::Error + Send + Sync
     let logger = slog::Logger::root(config.loggers.to_slog_drain()?, o!());
     let db: Arc<dyn Db<SchnorrImpl>> = config.database.connect_database::<SchnorrImpl>()?;
 
-    let event_streams: Vec<_> = config
-        .events
-        .iter()
-        .map(|(name, source)| source.to_event_stream(name, logger.clone(), db.clone()))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let outcome_streams = config
-        .outcomes
-        .iter()
-        .map(|(name, source)| source.to_outcome_stream(name, logger.clone(), db.clone()))
-        .collect::<Result<Vec<_>, _>>()?;
-
     let mut services = vec![];
 
     if let Some(rest_config) = config.rest_api {
-        let rest_api_server = warp::serve(crate::rest_api::routes(db.clone(), logger.new(o!("type" => "http"))))
-            .run(rest_config.listen)
-            .boxed();
+        let rest_api_server = warp::serve(crate::rest_api::routes(
+            db.clone(),
+            logger.new(o!("type" => "http")),
+        ))
+        .run(rest_config.listen)
+        .boxed();
 
         services.push(rest_api_server);
     }
 
     // If we have the secret seed then we are running an attesting oracle
     if let Some(secret_seed) = config.secret_seed {
+        let event_streams: Vec<_> = config
+            .events
+            .iter()
+            .map(|(name, source)| source.to_event_stream(name, logger.clone(), db.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let outcome_streams = config
+            .outcomes
+            .iter()
+            .map(|(name, source)| {
+                source.to_outcome_stream(name, &secret_seed, logger.clone(), db.clone())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         let oracle = rt.block_on(Oracle::new(secret_seed, db.clone()))?;
+
         // Processing new events
         let event_loop = stream::select_all(event_streams)
             .for_each(

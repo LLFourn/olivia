@@ -77,6 +77,7 @@ pub enum EventSourceConfig {
 #[serde(deny_unknown_fields)]
 pub enum EventReEmitterConfig {
     Vs,
+    HeadsOrTails,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -84,6 +85,7 @@ pub enum EventReEmitterConfig {
 #[serde(deny_unknown_fields)]
 pub enum OutcomeReEmitterConfig {
     Vs,
+    HeadsOrTails,
 }
 
 #[derive(Deserialize, Debug, Clone)]

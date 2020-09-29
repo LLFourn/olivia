@@ -255,8 +255,8 @@ impl<'a> PathRef<'a> {
         })
     }
 
-    pub fn first(self) -> &'a str {
-        self.0.find('/').map(|at| &self.0[0..at]).unwrap_or(self.0)
+    pub fn segment(self, index: usize) -> Option<&'a str> {
+        self.0[1..].split('/').nth(index)
     }
 
     pub fn last(self) -> &'a str {

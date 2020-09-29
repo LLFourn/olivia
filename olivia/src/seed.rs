@@ -1,5 +1,4 @@
-use blake2::{crypto_mac::NewMac, Blake2b, VarBlake2b};
-use digest::generic_array::{typenum::U64, GenericArray};
+use blake2::{digest::Digest, Blake2b, VarBlake2b};
 
 #[derive(Clone)]
 pub struct Seed([u8; 64]);
@@ -19,7 +18,7 @@ impl std::fmt::Debug for Seed {
 
 impl Seed {
     pub fn to_blake2b(&self) -> Blake2b {
-        Blake2b::new(GenericArray::<u8, U64>::from_slice(&self.0[..]))
+        blake2::crypto_mac::NewMac::new((&self.0).into())
     }
 
     pub fn to_blake2b_32(&self) -> VarBlake2b {
@@ -27,15 +26,17 @@ impl Seed {
     }
 
     pub fn child(&self, tag: &[u8]) -> Self {
-        let mut hash = self.to_blake2b();
-        digest::Digest::update(&mut hash, tag);
-        let mut result = [0u8; 64];
-        result.copy_from_slice(&digest::Digest::finalize(hash));
-        Seed(result)
+        Seed(self.to_blake2b().chain(tag).finalize().into())
     }
 
     pub const fn new(bytes: [u8; 64]) -> Self {
         Self(bytes)
+    }
+}
+
+impl AsRef<[u8; 64]> for Seed {
+    fn as_ref(&self) -> &[u8; 64] {
+        &self.0
     }
 }
 

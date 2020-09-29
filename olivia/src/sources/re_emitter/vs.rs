@@ -1,18 +1,16 @@
+use super::{EventReEmitter, OutcomeReEmitter};
 use crate::{
     core::{Event, EventKind, EventOutcome, Outcome, VsMatchKind, VsOutcome},
-    sources::Update,
+    sources::{EventStream, OutcomeStream, Update},
 };
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 
 pub struct Vs;
 
-impl Vs {
-    pub fn re_emit_events(
-        &self,
-        events: impl Stream<Item = Update<Event>>,
-    ) -> impl Stream<Item = Update<Event>> {
+impl EventReEmitter for Vs {
+    fn re_emit_events(&self, events: EventStream) -> EventStream {
         events
-            .map(|update| {
+            .flat_map(|update| {
                 let event = &update.update;
                 let mut re_emit = vec![];
 
@@ -32,13 +30,12 @@ impl Vs {
                 re_emit.push(update);
                 futures::stream::iter(re_emit)
             })
-            .flatten()
+            .boxed()
     }
+}
 
-    pub fn re_emit_outcomes(
-        &self,
-        outcomes: impl Stream<Item = Update<EventOutcome>>,
-    ) -> impl Stream<Item = Update<EventOutcome>> {
+impl OutcomeReEmitter for Vs {
+    fn re_emit_outcomes(&self, outcomes: OutcomeStream) -> OutcomeStream {
         use Outcome::*;
         use VsOutcome::*;
         outcomes
@@ -78,6 +75,7 @@ impl Vs {
                 futures::stream::iter(re_emit)
             })
             .flatten()
+            .boxed()
     }
 }
 
@@ -100,7 +98,7 @@ mod test {
 
         let mut outcoming = rt.block_on(
             re_emitter
-                .re_emit_events(futures::stream::iter(incoming))
+                .re_emit_events(futures::stream::iter(incoming).boxed())
                 .map(|update| update.update.id.as_str().to_string())
                 .collect::<Vec<String>>(),
         );
@@ -153,7 +151,7 @@ mod test {
 
         let mut outcoming = rt.block_on(
             re_emitter
-                .re_emit_outcomes(futures::stream::iter(incoming))
+                .re_emit_outcomes(futures::stream::iter(incoming).boxed())
                 .map(|update| update.update.attestation_string())
                 .collect::<Vec<String>>(),
         );

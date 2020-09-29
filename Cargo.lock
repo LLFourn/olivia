@@ -165,6 +165,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e4cec68f03f32e44924783795810fa50a7035d8c8ebe78580ad7e6c703fba38"
 
 [[package]]
+name = "cc"
+version = "1.0.41"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8dae9c4b8fedcae85592ba623c4fd08cfdab3e3b72d6df780c6ead964a69bfff"
+
+[[package]]
 name = "cfg-if"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -921,6 +927,7 @@ dependencies = [
  "diesel_migrations",
  "digest 0.9.0",
  "futures",
+ "generic-array 0.14.4",
  "olivia_core",
  "olivia_secp256k1",
  "rand 0.7.3",
@@ -1334,9 +1341,9 @@ checksum = "ef703b7cb59335eae2eb93ceb664c0eb7ea6bf567079d843e09420219668e072"
 
 [[package]]
 name = "schnorr_fun"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bbf492a50d0a495c97332596251d222096c07086c87be7c9bdc67c581dd8907"
+checksum = "0a252f444e345f59f511ed2e5989392f177e8af0c48cc3075493507ea4137d1d"
 dependencies = [
  "secp256kfun",
  "serde",
@@ -1349,6 +1356,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea6a9290e3c9cf0f18145ef7ffa62d68ee0bf5fcd651017e586dc7fd5da448c2"
 
 [[package]]
+name = "secp256k1"
+version = "0.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2932dc07acd2066ff2e3921a4419606b220ba6cd03a9935123856cc534877056"
+dependencies = [
+ "secp256k1-sys",
+]
+
+[[package]]
+name = "secp256k1-sys"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ab2c26f0d3552a0f12e639ae8a64afc2e3db9c52fe32f5fc6c289d38519f220"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "secp256kfun"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1356,6 +1381,7 @@ checksum = "2155ede83c0b7647a462451eb91865977923745ec1092132bc5af3dcc0792efe"
 dependencies = [
  "digest 0.9.0",
  "rand_core 0.5.1",
+ "secp256k1",
  "secp256kfun_parity_backend",
  "serde",
  "subtle",

@@ -142,10 +142,15 @@ pub fn routes<C: Schnorr>(
             })
         });
 
-    root.or(event).or(path).recover(move |err| handle_rejection(err, logger.clone()))
+    root.or(event)
+        .or(path)
+        .recover(move |err| handle_rejection(err, logger.clone()))
 }
 
-async fn handle_rejection(err: warp::Rejection, logger: slog::Logger) -> Result<impl warp::Reply, Infallible> {
+async fn handle_rejection(
+    err: warp::Rejection,
+    logger: slog::Logger,
+) -> Result<impl warp::Reply, Infallible> {
     // This sucks see: https://github.com/seanmonstar/warp/issues/451
     let code;
     let message = None;
@@ -181,7 +186,7 @@ mod test {
             let oracle = crate::oracle::Oracle::new(crate::seed::Seed::new([42u8; 64]), db.clone())
                 .await
                 .unwrap();
-            let logger = slog::Logger::root(slog::Discard,o!());
+            let logger = slog::Logger::root(slog::Discard, o!());
             (oracle, routes(db, logger))
         }};
     }
