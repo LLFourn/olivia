@@ -28,3 +28,5 @@ CREATE TABLE attestations (
 );
 
 CREATE INDEX idx_expected_outcome_time ON events (expected_outcome_time DESC);
+CREATE INDEX lookup_by_node ON events USING HASH (node);
+CREATE INDEX lookup_by_parent ON tree USING HASH (parent);
