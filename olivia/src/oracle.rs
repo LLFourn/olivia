@@ -1,10 +1,10 @@
 use crate::{
-    core::{AnnouncedEvent, Attestation, Event, EventOutcome, Schnorr},
+    core::{AnnouncedEvent, Attestation, Event, Schnorr, StampedOutcome},
     curve::DeriveKeyPair,
-    db,
     keychain::KeyChain,
     seed::Seed,
 };
+use anyhow::anyhow;
 use std::sync::Arc;
 
 #[derive(thiserror::Error, Debug)]
@@ -41,12 +41,14 @@ pub struct Oracle<C: Schnorr + DeriveKeyPair> {
 }
 
 impl<C: Schnorr + DeriveKeyPair> Oracle<C> {
-    pub async fn new(seed: Seed, db: Arc<dyn crate::db::Db<C>>) -> Result<Self, db::Error> {
+    pub async fn new(seed: Seed, db: Arc<dyn crate::db::Db<C>>) -> anyhow::Result<Self> {
         let keychain = KeyChain::new(seed);
         let public_key = keychain.oracle_public_key();
         if let Some(db_pubkey) = db.get_public_key().await? {
             if public_key != db_pubkey {
-                return Err("public key derived from seed does not match database")?;
+                return Err(anyhow!(
+                    "public key derived from seed does not match database"
+                ));
             }
         } else {
             db.set_public_key(public_key).await?
@@ -70,7 +72,7 @@ impl<C: Schnorr + DeriveKeyPair> Oracle<C> {
                 Err(EventResult::AlreadyExists)
             }
             Ok(None) => {
-                let announcement = self.keychain.create_announcement(&new_event.id);
+                let announcement = self.keychain.create_announcement(new_event.clone());
                 self.db
                     .insert_event(AnnouncedEvent {
                         event: new_event,
@@ -84,27 +86,27 @@ impl<C: Schnorr + DeriveKeyPair> Oracle<C> {
         }
     }
 
-    pub async fn complete_event(&self, event_outcome: EventOutcome) -> Result<(), OutcomeResult> {
-        let existing = self.db.get_event(&event_outcome.event_id).await;
-        let outcome_str = format!("{}", event_outcome.outcome);
+    pub async fn complete_event(&self, stamped: StampedOutcome) -> Result<(), OutcomeResult> {
+        let existing = self.db.get_event(&stamped.outcome.id).await;
+        let outcome_val_str = format!("{}", stamped.outcome.value);
         match existing {
             Ok(None) => Err(OutcomeResult::EventNotExist),
             Ok(Some(AnnouncedEvent {
                 attestation: Some(attestation),
                 ..
             })) => {
-                if attestation.outcome == outcome_str {
+                if attestation.outcome == outcome_val_str {
                     Err(OutcomeResult::AlreadyCompleted)
                 } else {
                     Err(OutcomeResult::OutcomeChanged {
                         existing: attestation.outcome,
-                        new: outcome_str,
+                        new: outcome_val_str,
                     })
                 }
             }
             Ok(Some(AnnouncedEvent { event, .. })) => {
-                let scalars = self.keychain.scalar_for_event_outcome(&event_outcome);
-                let attest = Attestation::new(outcome_str, event_outcome.time, scalars);
+                let scalars = self.keychain.scalars_for_event_outcome(&stamped);
+                let attest = Attestation::new(outcome_val_str, stamped.time, scalars);
                 self.db
                     .complete_event(&event.id, attest)
                     .await
@@ -143,9 +145,12 @@ pub mod test {
             .unwrap()
             .expect("event should be there");
 
-        assert!(event.announcement.verify(&event_id, &public_key));
+        let oracle_event = event
+            .announcement
+            .verify_against_id(&event_id, &public_key)
+            .expect("announcement signature should be valid");
 
-        let outcome: EventOutcome = WireEventOutcome {
+        let outcome: StampedOutcome = WireEventOutcome {
             event_id: event_id.clone(),
             outcome: "true".into(),
             time: None,
@@ -160,14 +165,8 @@ pub mod test {
             .await
             .unwrap()
             .expect("event should still be there");
-        let signature = attested_event
-            .attestation_signature()
-            .expect("should be attested to");
 
-        assert!(SchnorrImpl::verify_signature(
-            &public_key,
-            outcome.attestation_string().as_bytes(),
-            &signature
-        ));
+        let attestation = attested_event.attestation.expect("should be attested to");
+        assert!(attestation.verify_attestation(&oracle_event, &public_key));
     }
 }

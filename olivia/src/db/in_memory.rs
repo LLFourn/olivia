@@ -2,6 +2,7 @@ use crate::{
     core::{AnnouncedEvent, Attestation, Event, EventId, Schnorr},
     db::*,
 };
+use anyhow::anyhow;
 use async_trait::async_trait;
 use std::{collections::HashMap, sync::RwLock};
 
@@ -96,13 +97,13 @@ impl<C: Schnorr> DbWrite<C> for InMemory<C> {
         let db = &mut *self.inner.write().unwrap();
         match db.get_mut(&event_id) {
             Some(ref mut event) => match event.attestation {
-                Some(_) => Err("This event has already been attested to".to_string())?,
+                Some(_) => Err(anyhow!("This event has already been attested to")),
                 ref mut slot => {
                     *slot = Some(attestation);
                     Ok(())
                 }
             },
-            None => Err("Cannot complete event that does not exist".to_string())?,
+            None => Err(anyhow!("Cannot complete event that does not exist")),
         }
     }
 }

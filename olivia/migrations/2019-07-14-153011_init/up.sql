@@ -16,7 +16,7 @@ CREATE TABLE events (
 
 CREATE TABLE announcements (
        event_id text NOT NULL PRIMARY KEY REFERENCES events (id),
-       nonce bytea NOT NULL,
+       oracle_event bytea NOT NULL,
        signature bytea NOT NULL
 );
 
@@ -24,7 +24,7 @@ CREATE TABLE attestations (
        event_id text NOT NULL PRIMARY KEY REFERENCES events (id),
        outcome text NOT NULL,
        time timestamp NOT NULL,
-       scalar bytea NOT NULL
+       scalars bytea[] NOT NULL
 );
 
 CREATE INDEX idx_expected_outcome_time ON events (expected_outcome_time DESC);

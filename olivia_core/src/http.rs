@@ -1,4 +1,4 @@
-use crate::{AnnouncedEvent, Announcement, Attestation, EventId, Schnorr};
+use crate::{AnnouncedEvent, Attestation, EventId, RawAnnouncement, Schnorr};
 use alloc::{string::String, vec::Vec};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -11,18 +11,13 @@ pub struct PathResponse<C: Schnorr> {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EventResponse<C: Schnorr> {
-    pub id: EventId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expected_outcome_time: Option<chrono::NaiveDateTime>,
-    pub announcement: Announcement<C>,
+    pub announcement: RawAnnouncement<C>,
     pub attestation: Option<Attestation<C>>,
 }
 
 impl<C: Schnorr> From<AnnouncedEvent<C>> for EventResponse<C> {
     fn from(ann: AnnouncedEvent<C>) -> Self {
         EventResponse {
-            id: ann.event.id,
-            expected_outcome_time: ann.event.expected_outcome_time,
             announcement: ann.announcement,
             attestation: ann.attestation,
         }

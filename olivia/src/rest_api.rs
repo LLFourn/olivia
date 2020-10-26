@@ -3,26 +3,58 @@ use crate::{
         http::{EventResponse, PathResponse},
         EventId, PathRef, Schnorr,
     },
-    db::{self, Db},
+    db::Db,
 };
 use core::str::FromStr;
 use std::{convert::Infallible, marker::PhantomData, sync::Arc};
 use warp::{self, http, Filter};
-
-#[derive(Debug)]
-struct DbError(crate::db::Error);
-
-impl warp::reject::Reject for DbError {}
+use serde::Serialize;
 
 #[derive(Debug)]
 struct NotAnEvent;
 
 impl warp::reject::Reject for NotAnEvent {}
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
+pub enum ApiReply<T> {
+    Ok(T),
+    Err(ErrorMessage)
+}
+
+impl<T: Send + Serialize> warp::Reply for ApiReply<T> {
+    fn into_response(self) -> warp::reply::Response {
+        match self {
+            ApiReply::Ok(value) => {
+                let reply = warp::reply::json(&value);
+                reply.into_response()
+            },
+            ApiReply::Err(err) => warp::reply::with_status(warp::reply::json(&err), http::StatusCode::from_u16(err.code).unwrap()).into_response(),
+        }
+    }
+}
+
+#[derive(Clone,Debug, Serialize, Deserialize)]
 pub struct ErrorMessage {
     code: u16,
     error: String,
+}
+
+
+impl ErrorMessage {
+    fn not_found() -> Self {
+        Self::from_status(http::StatusCode::NOT_FOUND)
+    }
+
+    fn internal_server_error() -> Self {
+        Self::from_status(http::StatusCode::INTERNAL_SERVER_ERROR)
+    }
+
+    pub fn from_status(status: http::StatusCode) -> Self {
+        Self {
+            code: status.as_u16(),
+            error: status.canonical_reason().unwrap().into(),
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -41,7 +73,7 @@ impl<C: Schnorr> Filters<C> {
     pub fn get_event(
         &self,
         db: Arc<dyn Db<C>>,
-    ) -> impl Filter<Extract = (EventResponse<C>,), Error = warp::reject::Rejection> + Clone {
+    ) -> impl Filter<Extract = (ApiReply<EventResponse<C>>,), Error = warp::reject::Rejection> + Clone {
         warp::path::tail()
             .and(warp::query::raw())
             .and_then(
@@ -54,63 +86,68 @@ impl<C: Schnorr> Filters<C> {
                 },
             )
             .and(self.with_db(db))
-            .and_then(async move |event_id: EventId, db: Arc<dyn Db<C>>| {
+            .and_then(async move |event_id: EventId, db: Arc<dyn Db<C>>| -> Result<ApiReply<EventResponse<C>>, warp::reject::Rejection> {
                 let res = db.get_event(&event_id).await;
-                match res {
-                    Ok(Some(event)) => Ok(event.into()),
-                    Ok(None) => Err(warp::reject::not_found()),
-                    Err(e) => Err(warp::reject::custom(DbError(e))),
-                }
+                let reply = match res {
+                    Ok(Some(event)) => ApiReply::Ok(event.into()),
+                    Ok(None) => ApiReply::Err(ErrorMessage::not_found()),
+                    Err(_e) =>  ApiReply::Err(ErrorMessage::internal_server_error())
+                };
+
+                Ok(reply)
             })
     }
 
     pub fn get_path(
         &self,
         db: Arc<dyn Db<C>>,
-    ) -> impl Filter<Extract = (db::Item,), Error = warp::reject::Rejection> + Clone {
+    ) -> impl Filter<Extract = (ApiReply<PathResponse<C>>,), Error = warp::reject::Rejection> + Clone {
         warp::path::tail().and(self.with_db(db)).and_then(
             async move |tail: warp::filters::path::Tail, db: Arc<dyn Db<C>>| {
                 let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
                 let path = &format!("/{}", tail);
-                let res = db.get_node(&path).await;
-                match res {
-                    Ok(Some(event)) => Ok(event),
+                let node = db.get_node(&path).await;
+                match node {
+                    Ok(Some(node)) => Ok(ApiReply::Ok(PathResponse {
+                        public_key: None,
+                        events: node.events,
+                        children: node.children,
+                    })),
                     Ok(None) => Err(warp::reject::not_found()),
-                    Err(e) => Err(warp::reject::custom(DbError(e))),
+                    Err(_e) => Ok(ApiReply::Err(ErrorMessage::internal_server_error())),
                 }
             },
         )
     }
 
-    pub fn get_public_key(
-        &self,
-        db: Arc<dyn Db<C>>,
-    ) -> impl Filter<Extract = (C::PublicKey,), Error = warp::reject::Rejection> + Clone {
-        self.with_db(db).and_then(async move |db: Arc<dyn Db<C>>| {
-            db.get_public_key()
-                .await
-                .map_err(|e| warp::reject::custom(DbError(e)))
-                .and_then(|opt| opt.ok_or(warp::reject::not_found()))
-        })
-    }
-
     pub fn get_root(
         &self,
         db: Arc<dyn Db<C>>,
-    ) -> impl Filter<Extract = (Vec<String>, C::PublicKey), Error = warp::reject::Rejection> + Clone
+    ) -> impl Filter<Extract = (ApiReply<PathResponse<C>>,), Error = Infallible> + Clone
     {
-        let get_children = self
+        self
             .with_db(db.clone())
-            .and_then(async move |db: Arc<dyn Db<C>>| {
+            .and_then(async move |db: Arc<dyn Db<C>>| -> Result<ApiReply<PathResponse<C>>,Infallible> {
+                let public_key = db.get_public_key().await;
                 let res = db.get_node(PathRef::root().as_str()).await;
-                match res {
-                    Ok(Some(item)) => Ok(item.children),
-                    Ok(None) => Err(warp::reject::not_found()),
-                    Err(e) => Err(warp::reject::custom(DbError(e))),
-                }
-            });
 
-        get_children.and(self.get_public_key(db.clone()))
+                if let Ok(Some(public_key)) = public_key {
+                    if let Ok(Some(node)) = res {
+                        Ok(ApiReply::Ok(PathResponse {
+                            public_key: Some(public_key),
+                            events: node.events,
+                            children: node.children,
+                        }))
+                    }
+                    else  {
+                        Ok(ApiReply::Err(ErrorMessage::internal_server_error()))
+                    }
+                }
+                else {
+                    Ok(ApiReply::Err(ErrorMessage::internal_server_error()))
+                }
+            })
+
     }
 }
 
@@ -120,27 +157,12 @@ pub fn routes<C: Schnorr>(
 ) -> impl Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
     let filters = Filters::<C>::default();
     let event = warp::get()
-        .and(filters.get_event(db.clone()))
-        .map(|event: EventResponse<C>| warp::reply::json(&event));
+        .and(filters.get_event(db.clone()));
     let root = warp::path::end()
-        .and(filters.get_root(db.clone()))
-        .map(|children, public_keys| {
-            warp::reply::json(&PathResponse::<C> {
-                public_key: Some(public_keys),
-                events: vec![],
-                children,
-            })
-        });
+        .and(filters.get_root(db.clone()));
 
     let path = warp::get()
-        .and(filters.get_path(db.clone()))
-        .map(|item: db::Item| {
-            warp::reply::json(&PathResponse::<C> {
-                public_key: None,
-                events: item.events.into_iter().map(Into::into).collect(),
-                children: item.children,
-            })
-        });
+        .and(filters.get_path(db.clone()));
 
     root.or(event)
         .or(path)
@@ -154,10 +176,8 @@ async fn handle_rejection(
     // This sucks see: https://github.com/seanmonstar/warp/issues/451
     let code;
     let message = None;
-    if let Some(DbError(e)) = err.find() {
-        error!(logger, "DB error"; "error" => format!("{}",e));
-        code = http::StatusCode::INTERNAL_SERVER_ERROR;
-    } else if err.is_not_found() {
+    debug!(logger, "request rejected"; "rejection" => format!("{:?}", err));
+    if err.is_not_found() {
         code = http::StatusCode::NOT_FOUND;
     } else if let Some(NotAnEvent) = err.find() {
         code = http::StatusCode::NOT_FOUND;
@@ -203,7 +223,7 @@ mod test {
                 .reply(&routes)
                 .await;
 
-            assert_eq!(res.status(), 404);
+            assert_eq!(res.status(), http::StatusCode::NOT_FOUND);
             let body = j::<ErrorMessage>(&res.body()).expect("returns an error body");
             assert_eq!(
                 body.error,
@@ -276,9 +296,12 @@ mod test {
             .reply(&routes)
             .await;
 
-        let body = j::<EventResponse<SchnorrImpl>>(&res.body()).unwrap();
-        assert_eq!(body.id, event_id);
 
-        assert!(body.announcement.verify(&event_id, &public_key))
+        let body = j::<EventResponse<SchnorrImpl>>(&res.body()).unwrap();
+
+        assert!(body
+            .announcement
+            .verify_against_id(&event_id, &public_key)
+            .is_some())
     }
 }

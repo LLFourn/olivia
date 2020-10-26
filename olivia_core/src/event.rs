@@ -1,4 +1,4 @@
-use crate::{Attestation, Outcome, Schnorr};
+use crate::{Descriptor, OutcomeValue, Schnorr};
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -10,6 +10,7 @@ use core::{convert::TryFrom, fmt, str::FromStr};
 pub enum EventKind {
     VsMatch(VsMatchKind),
     SingleOccurrence,
+    Digits(u8),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,24 +21,28 @@ pub enum VsMatchKind {
 
 impl fmt::Display for EventKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                EventKind::VsMatch(kind) => {
-                    match kind {
-                        VsMatchKind::Win {
-                            right_posited_to_win,
-                        } => match right_posited_to_win {
-                            true => "right-win",
-                            false => "left-win",
-                        },
-                        VsMatchKind::WinOrDraw => "vs",
-                    }
-                }
-                EventKind::SingleOccurrence => "occur",
-            }
-        )
+        match self {
+            EventKind::VsMatch(kind) => match kind {
+                VsMatchKind::Win {
+                    right_posited_to_win,
+                } => match right_posited_to_win {
+                    true => write!(f, "right-win"),
+                    false => write!(f, "left-win"),
+                },
+                VsMatchKind::WinOrDraw => write!(f, "vs"),
+            },
+            EventKind::SingleOccurrence => write!(f, "occur"),
+            EventKind::Digits(n) => write!(f, "digits_{}", n),
+        }
+    }
+}
+
+impl EventKind {
+    pub fn n_fragments(&self) -> usize {
+        match self {
+            EventKind::Digits(n) => *n as usize,
+            _ => 1,
+        }
     }
 }
 
@@ -69,29 +74,39 @@ impl EventId {
         }
     }
 
+    pub fn unit(&self) -> Option<String> {
+        None
+    }
+
     pub fn event_kind(&self) -> EventKind {
         let event_kind = self
             .0
             .query()
-            .expect("event ids always have a query string");
-        match event_kind {
-            "vs" | "left-win" | "right-win" => {
-                let vs_kind = match event_kind {
-                    "vs" => VsMatchKind::WinOrDraw,
-                    "left-win" => VsMatchKind::Win {
+            .expect("event ids always have a query string")
+            .split('_')
+            .collect::<Vec<_>>();
+
+        match &event_kind[..] {
+            ["vs"] | ["left-win"] | ["right-win"] => {
+                let vs_kind = match &event_kind[..] {
+                    ["vs"] => VsMatchKind::WinOrDraw,
+                    ["left-win"] => VsMatchKind::Win {
                         right_posited_to_win: false,
                     },
-                    "right-win" => VsMatchKind::Win {
+                    ["right-win"] => VsMatchKind::Win {
                         right_posited_to_win: true,
                     },
                     _ => unreachable!("we have narrowed this aready"),
                 };
                 EventKind::VsMatch(vs_kind)
             }
-            "occur" => EventKind::SingleOccurrence,
+            ["occur"] => EventKind::SingleOccurrence,
+            ["digits", n] => {
+                EventKind::Digits(u8::from_str(n).expect("we've checked this already"))
+            }
             this => unreachable!(
                 "valid event ids have already been checked to not be {}",
-                this
+                this.join("_")
             ),
         }
     }
@@ -102,11 +117,29 @@ impl EventId {
         EventId(replaced)
     }
 
-    pub fn announcement_message<C: Schnorr>(&self, nonce: &C::PublicNonce) -> String {
-        format!("{}#nonce={}", self, nonce)
+    pub fn descriptor<C: Schnorr>(&self) -> Descriptor {
+        match self.event_kind() {
+            EventKind::VsMatch(kind) => {
+                let (left, right) = self.parties().unwrap();
+                let mut outcomes = vec![format!("{}_win", left), format!("{}_win", right)];
+                if let VsMatchKind::WinOrDraw = kind {
+                    outcomes.push("draw".into());
+                }
+                Descriptor::Enum { outcomes }
+            }
+            EventKind::SingleOccurrence => Descriptor::Enum {
+                outcomes: vec!["true".into()],
+            },
+            EventKind::Digits(n) => Descriptor::DigitDecomposition {
+                base: 10,
+                is_signed: false,
+                n_digits: n,
+                unit: self.unit(),
+            },
+        }
     }
 
-    pub fn binary_outcomes(&self) -> Option<[Outcome; 2]> {
+    pub fn binary_outcomes(&self) -> Option<[OutcomeValue; 2]> {
         match self.event_kind() {
             EventKind::VsMatch(kind) => match kind {
                 VsMatchKind::Win {
@@ -114,11 +147,11 @@ impl EventId {
                 } => {
                     let (left, right) = self.parties().unwrap();
                     Some([
-                        Outcome::Win {
+                        OutcomeValue::Win {
                             winning_side: left.to_string(),
                             posited_won: !right_posited_to_win,
                         },
-                        Outcome::Win {
+                        OutcomeValue::Win {
                             winning_side: right.to_string(),
                             posited_won: right_posited_to_win,
                         },
@@ -130,8 +163,8 @@ impl EventId {
         }
     }
 
-    pub fn test_outcome(&self) -> crate::Outcome {
-        use crate::Outcome::*;
+    pub fn test_outcome(&self) -> crate::OutcomeValue {
+        use crate::OutcomeValue::*;
         match self.event_kind() {
             EventKind::VsMatch(kind) => {
                 let (left, right) = self.parties().unwrap();
@@ -146,6 +179,7 @@ impl EventId {
                     },
                 }
             }
+            EventKind::Digits(n) => Digits(10u64.pow((n - 1).into())),
             EventKind::SingleOccurrence => Occurred,
         }
     }
@@ -193,16 +227,20 @@ impl TryFrom<url::Url> for EventId {
             .path_segments()
             .ok_or(EventIdError::BadFormat)?
             .collect::<Vec<_>>();
+        let event_kind_segments = event_kind.split("_").collect::<Vec<_>>();
 
-        match event_kind {
-            "vs" | "left-win" | "right-win" => {
+        match &event_kind_segments[..] {
+            ["vs"] | ["left-win"] | ["right-win"] => {
                 let last = path.last().ok_or(EventIdError::BadFormat)?;
                 let teams: Vec<_> = last.split('_').collect();
                 if teams.len() != 2 || teams[0] == teams[1] {
                     return Err(EventIdError::BadFormat);
                 }
             }
-            "occur" => (),
+            ["digits", n] => {
+                u8::from_str(n).or(Err(EventIdError::BadFormat))?;
+            }
+            ["occur"] => (),
             _ => return Err(EventIdError::UnknownEventKind(event_kind.into())),
         };
 
@@ -303,63 +341,6 @@ pub struct Event {
     pub id: EventId,
     pub expected_outcome_time: Option<NaiveDateTime>,
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Announcement<C: Schnorr> {
-    pub nonce: C::PublicNonce,
-    pub signature: C::Signature,
-}
-
-impl<C: Schnorr> Announcement<C> {
-    #[must_use]
-    pub fn verify(&self, event_id: &EventId, oracle_public_key: &C::PublicKey) -> bool {
-        let message = event_id.announcement_message::<C>(&self.nonce);
-        C::verify_signature(oracle_public_key, message.as_bytes(), &self.signature)
-    }
-
-    pub fn create(event_id: &EventId, keypair: &C::KeyPair, nonce: C::PublicNonce) -> Self {
-        let to_sign = event_id.announcement_message::<C>(&nonce);
-        let signature = C::sign(keypair, to_sign.as_bytes());
-
-        Self { nonce, signature }
-    }
-
-    pub fn test_instance(event_id: &EventId) -> Self {
-        Self::create(event_id, &C::test_keypair(), C::test_nonce_keypair().into())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct AnnouncedEvent<C: Schnorr> {
-    pub event: Event,
-    pub announcement: Announcement<C>,
-    pub attestation: Option<Attestation<C>>,
-}
-
-impl<C: Schnorr> AnnouncedEvent<C> {
-    pub fn attestation_signature(&self) -> Option<C::Signature> {
-        self.attestation.clone().map(|attestation| {
-            C::signature_from_scalar_and_nonce(attestation.scalar, self.announcement.nonce.clone())
-        })
-    }
-
-    pub fn test_instance(event_id: &EventId) -> Self {
-        Self {
-            event: Event::from(event_id.clone()),
-            announcement: Announcement::test_instance(event_id),
-            attestation: Some(Attestation::test_instance(event_id)),
-        }
-    }
-
-    pub fn test_instance_from_event(event: Event) -> Self {
-        Self {
-            event: event.clone(),
-            announcement: Announcement::test_instance(&event.id),
-            attestation: None,
-        }
-    }
-}
-
 impl From<NaiveDateTime> for Event {
     fn from(dt: NaiveDateTime) -> Self {
         Event {
@@ -374,7 +355,6 @@ impl From<NaiveDateTime> for EventId {
         EventId::from_str(&format!("/time/{}?occur", dt.format("%FT%T"))).unwrap()
     }
 }
-
 
 #[cfg(feature = "diesel")]
 mod sql_impls {
@@ -441,7 +421,6 @@ mod serde_impl {
 #[cfg(test)]
 mod test {
     use super::*;
-
 
     #[test]
     fn event_id_from_str() {

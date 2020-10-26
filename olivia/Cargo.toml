@@ -33,6 +33,7 @@ rand = "0.7"
 olivia_core = { path = "../olivia_core", features = ["std", "diesel"] }
 olivia_secp256k1 = { path = "../olivia_secp256k1", features = ["diesel"] }
 generic-array = { version = "0.14", features = ["more_lengths"] }
+anyhow = "1"
 
 [dev-dependencies]
 testcontainers = { git = "https://github.com/llfourn/testcontainers-rs", rev = "5e1b6bd" }

@@ -1,0 +1,14 @@
+secret-seed: "42424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242"
+
+events:
+  timer:
+    type: "time-ticker"
+    interval: 60
+    look-ahead: 300
+
+outcomes:
+  timer:
+    type: "time-ticker"
+
+rest-api:
+  listen: "127.0.0.1:8000"

@@ -1,9 +1,9 @@
-use crate::{Event, EventId, EventIdError, EventOutcome, Outcome, OutcomeError};
+use crate::{Event, EventId, EventIdError, Outcome, OutcomeError};
 use core::str::FromStr;
 
 pub enum Entity {
     Event(Event),
-    Outcome(EventOutcome),
+    Outcome(Outcome),
 }
 
 impl FromStr for Entity {
@@ -14,12 +14,8 @@ impl FromStr for Entity {
             Some(at) => {
                 let event_id = EventId::from_str(&string[..at])?;
                 if at != string.len() - 1 {
-                    let outcome = Outcome::try_from_id_and_outcome(&event_id, &string[at + 1..])?;
-                    Ok(Entity::Outcome(EventOutcome {
-                        event_id,
-                        outcome,
-                        time: chrono::Utc::now().naive_utc(),
-                    }))
+                    let outcome = Outcome::try_from_id_and_outcome(event_id, &string[at + 1..])?;
+                    Ok(Entity::Outcome(outcome))
                 } else {
                     Err(ParseEntityError::Outcome(OutcomeError::BadFormat))
                 }
@@ -46,7 +42,6 @@ impl core::fmt::Display for ParseEntityError {
     }
 }
 
-
 #[cfg(feature = "std")]
 impl std::error::Error for ParseEntityError {}
 
@@ -62,11 +57,11 @@ impl From<EventIdError> for ParseEntityError {
     }
 }
 
-
-
 #[cfg(test)]
 mod test {
-    use super::*;
+        use crate::OutcomeValue;
+
+use super::*;
 
     #[test]
     fn test_parse_entity() {
@@ -78,12 +73,12 @@ mod test {
         }
 
         match Entity::from_str("/foo/bar?occur=true").unwrap() {
-            Entity::Outcome(event_outcome) => {
+            Entity::Outcome(outcome) => {
                 assert_eq!(
-                    event_outcome.event_id,
+                    outcome.id,
                     EventId::from_str("/foo/bar?occur").unwrap()
                 );
-                assert_eq!(event_outcome.outcome, Outcome::Occurred);
+                assert_eq!(outcome.value, OutcomeValue::Occurred);
             }
             _ => panic!(),
         }

@@ -1,7 +1,7 @@
 table! {
     announcements (event_id) {
         event_id -> Text,
-        nonce -> Bytea,
+        oracle_event -> Bytea,
         signature -> Bytea,
     }
 }
@@ -11,7 +11,7 @@ table! {
         event_id -> Text,
         outcome -> Text,
         time -> Timestamp,
-        scalar -> Bytea,
+        scalars -> Array<Bytea>,
     }
 }
 

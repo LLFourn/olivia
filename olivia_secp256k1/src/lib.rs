@@ -1,6 +1,5 @@
 #![allow(non_snake_case)]
-use olivia_core::EventId;
-use olivia_core::Outcome;
+use olivia_core::{EventId, Fragment};
 pub use schnorr_fun;
 use schnorr_fun::{
     fun::{digest::Digest, marker::*, nonce::Deterministic, s, Point, Scalar, XOnly, G},
@@ -190,7 +189,7 @@ pub fn anticipate_signature(
     public_key: &Point<EvenY>,
     nonce: &Point<EvenY>,
     event_id: &EventId,
-    outcome: &Outcome,
+    outcome: Fragment<'_>,
 ) -> Point<Jacobian, Public, Zero> {
     let mut hash = WriteDigest(Sha256::default());
     hash.0.update(event_id.as_str().as_bytes());

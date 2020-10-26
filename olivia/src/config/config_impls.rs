@@ -4,7 +4,7 @@ use futures::StreamExt;
 use std::{fs, sync::Arc};
 
 impl LoggerConfig {
-    pub fn to_slog_drain(&self) -> Result<RootDrain, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn to_slog_drain(&self) -> anyhow::Result<RootDrain> {
         use crate::slog::Drain;
         use LoggerConfig::*;
         match &self {
@@ -51,7 +51,7 @@ impl LoggerConfig {
 }
 
 impl LoggersConfig {
-    pub fn to_slog_drain(&self) -> Result<RootDrain, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn to_slog_drain(&self) -> anyhow::Result<RootDrain> {
         let drains = self
             .0
             .iter()
@@ -67,14 +67,13 @@ impl LoggersConfig {
     }
 }
 
-
 impl EventSourceConfig {
     pub fn to_event_stream<C: core::Schnorr>(
         &self,
         name: &str,
         logger: slog::Logger,
         db: Arc<dyn db::Db<C>>,
-    ) -> Result<sources::EventStream, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> anyhow::Result<sources::EventStream> {
         let name = name.to_owned();
         match self.clone() {
             EventSourceConfig::Redis(RedisConfig {
@@ -134,7 +133,7 @@ impl OutcomeSourceConfig {
         seed: &Seed,
         logger: slog::Logger,
         db: Arc<dyn db::Db<C>>,
-    ) -> Result<sources::OutcomeStream, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> anyhow::Result<sources::OutcomeStream> {
         use OutcomeSourceConfig::*;
         match self.clone() {
             Redis(RedisConfig {
@@ -170,8 +169,6 @@ impl OutcomeSourceConfig {
     }
 }
 
-
-
 impl EventReEmitterConfig {
     pub fn to_remitter(&self) -> Box<dyn sources::re_emitter::EventReEmitter> {
         use EventReEmitterConfig::*;
@@ -200,11 +197,10 @@ impl OutcomeReEmitterConfig {
     }
 }
 
-
 impl DbConfig {
     pub fn connect_database<C: core::Schnorr>(
         &self,
-    ) -> Result<Arc<dyn db::Db<SchnorrImpl>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> anyhow::Result<Arc<dyn db::Db<SchnorrImpl>>> {
         match self {
             DbConfig::InMemory => Ok(Arc::new(db::in_memory::InMemory::default())),
             DbConfig::Postgres { url } => {

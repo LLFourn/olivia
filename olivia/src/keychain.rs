@@ -1,5 +1,5 @@
 use crate::{
-    core::{Announcement, EventId, EventOutcome, Schnorr},
+    core::{Event, EventId, RawAnnouncement, Schnorr, StampedOutcome},
     curve::DeriveKeyPair,
     seed::Seed,
 };
@@ -23,24 +23,37 @@ impl<C: Schnorr + DeriveKeyPair> KeyChain<C> {
         self.keypair.clone().into()
     }
 
-    pub fn nonce_for_event(&self, event_id: &EventId) -> C::NonceKeyPair {
+    pub fn nonces_for_event(&self, event_id: &EventId) -> Vec<C::NonceKeyPair> {
         let event_idx = self.event_seed.child(event_id.as_bytes());
-        C::derive_nonce_keypair(&event_idx)
+        let n = event_id.event_kind().n_fragments();
+        (0..n)
+            .map(|i| C::derive_nonce_keypair(&event_idx, i as u32))
+            .collect()
     }
 
-    pub fn scalar_for_event_outcome(&self, outcome: &EventOutcome) -> C::SigScalar {
-        let outcome_long_id = outcome.attestation_string();
-        let event_idx = self.event_seed.child(outcome.event_id.as_bytes());
-
-        C::reveal_signature_s(
-            &self.keypair,
-            C::derive_nonce_keypair(&event_idx),
-            outcome_long_id.as_bytes(),
-        )
+    pub fn scalars_for_event_outcome(&self, stamped: &StampedOutcome) -> Vec<C::SigScalar> {
+        let event_id = &stamped.outcome.id;
+        let event_idx = self.event_seed.child(event_id.as_bytes());
+        stamped
+            .outcome
+            .fragments()
+            .into_iter()
+            .map(|fragment| {
+                C::reveal_signature_s(
+                    &self.keypair,
+                    C::derive_nonce_keypair(&event_idx, fragment.index as u32),
+                    fragment.attestation_string().as_bytes(),
+                )
+            })
+            .collect()
     }
 
-    pub fn create_announcement(&self, event_id: &EventId) -> Announcement<C> {
-        let nonce = self.nonce_for_event(&event_id).into();
-        Announcement::create(event_id, &self.keypair, nonce)
+    pub fn create_announcement(&self, event: Event) -> RawAnnouncement<C> {
+        let nonces = self
+            .nonces_for_event(&event.id)
+            .into_iter()
+            .map(|nonce_kp| nonce_kp.into())
+            .collect::<Vec<_>>();
+        RawAnnouncement::create(event, &self.keypair, nonces)
     }
 }

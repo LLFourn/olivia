@@ -17,7 +17,7 @@ pub type Signature = olivia_secp256k1::Signature;
 
 pub trait DeriveKeyPair: olivia_core::Schnorr {
     fn derive_keypair(seed: &Seed) -> Self::KeyPair;
-    fn derive_nonce_keypair(seed: &Seed) -> Self::NonceKeyPair;
+    fn derive_nonce_keypair(seed: &Seed, index: u32) -> Self::NonceKeyPair;
 }
 
 impl DeriveKeyPair for Secp256k1 {
@@ -31,9 +31,10 @@ impl DeriveKeyPair for Secp256k1 {
         SCHNORR.new_keypair(x)
     }
 
-    fn derive_nonce_keypair(seed: &Seed) -> Self::NonceKeyPair {
+    fn derive_nonce_keypair(seed: &Seed, index: u32) -> Self::NonceKeyPair {
         let mut hash = seed.to_blake2b_32();
-        hash.update(b"secp256k1");
+        hash.update(b"secp256k1-");
+        hash.update(&index.to_be_bytes());
         let mut r = Scalar::from_slice_mod_order(&hash.finalize_boxed().borrow())
             .expect("hash output is 32-bytes long")
             .mark::<NonZero>()

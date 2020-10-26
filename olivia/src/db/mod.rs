@@ -5,7 +5,7 @@ use async_trait::async_trait;
 #[cfg(test)]
 pub mod test;
 
-pub type Error = Box<dyn std::error::Error + Send + Sync>;
+pub type Error = anyhow::Error;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {

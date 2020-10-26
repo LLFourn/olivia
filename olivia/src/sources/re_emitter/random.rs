@@ -1,7 +1,7 @@
 use super::{EventReEmitter, OutcomeReEmitter};
 use crate::{seed::Seed, sources::Update};
 use futures::StreamExt;
-use olivia_core::{Event, EventId, EventKind, EventOutcome, Outcome};
+use olivia_core::{Event, EventId, EventKind, Outcome, OutcomeValue, StampedOutcome};
 use std::str::FromStr;
 
 pub struct HeadsOrTailsEvents;
@@ -49,26 +49,28 @@ impl OutcomeReEmitter for HeadsOrTailsOutcomes {
         let seed = self.seed.clone();
         outcomes
             .flat_map(move |update| {
-                let event_outcome = &update.update;
+                let stamped = &update.update;
                 let mut re_emit = vec![];
-                if event_outcome.outcome == Outcome::Occurred {
-                    if let Some(event_id) = time_event_to_random(&event_outcome.event_id) {
+                if stamped.outcome.value == OutcomeValue::Occurred {
+                    if let Some(event_id) = time_event_to_random(&stamped.outcome.id) {
                         let event_randomness = seed.child(event_id.as_bytes());
                         let outcome = match (event_randomness.as_ref()[0] & 0x01) == 1 {
-                            true => Outcome::Win {
+                            true => OutcomeValue::Win {
                                 winning_side: "heads".into(),
                                 posited_won: true,
                             },
-                            false => Outcome::Win {
+                            false => OutcomeValue::Win {
                                 winning_side: "tails".into(),
                                 posited_won: false,
                             },
                         };
 
-                        re_emit.push(Update::from(EventOutcome {
-                            event_id,
-                            time: event_outcome.time,
-                            outcome,
+                        re_emit.push(Update::from(StampedOutcome {
+                            outcome: Outcome {
+                                id: event_id,
+                                value: outcome,
+                            },
+                            time: stamped.time,
                         }))
                     }
                 }
@@ -120,15 +122,17 @@ mod test {
     #[tokio::test]
     async fn heads_tails_remit_outcomes() {
         let time = chrono::Utc::now().naive_utc();
-        let incoming: Vec<Update<EventOutcome>> = vec![
+        let incoming: Vec<Update<StampedOutcome>> = vec![
             EventId::from_str("/time/2020-09-30T08:00:00?occur").unwrap(),
             EventId::from_str("/time/2020-09-30T08:01:00?occur").unwrap(),
         ]
         .into_iter()
-        .map(|event_id| {
-            EventOutcome {
-                event_id,
-                outcome: Outcome::Occurred,
+        .map(|id| {
+            StampedOutcome {
+                outcome: Outcome {
+                    value: OutcomeValue::Occurred,
+                    id,
+                },
                 time,
             }
             .into()
@@ -141,14 +145,14 @@ mod test {
 
         let mut outcoming = re_emitter
             .re_emit_outcomes(futures::stream::iter(incoming).boxed())
-            .map(|update| update.update.attestation_string())
+            .map(|update| update.update.outcome.to_string())
             .collect::<Vec<String>>()
             .await;
 
         let mut expecting = vec![
             "/time/2020-09-30T08:00:00?occur=true",
             "/time/2020-09-30T08:01:00?occur=true",
-            "/random/2020-09-30T08:00:00/heads_tails?left-win=tails_win-or-draw",
+            "/random/2020-09-30T08:00:00/heads_tails?left-win=tails_win",
             "/random/2020-09-30T08:01:00/heads_tails?left-win=heads_win",
         ];
 

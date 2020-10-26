@@ -1,5 +1,5 @@
 use crate::{
-    core::{self, EventId},
+    core::{self, EventId, RawOracleEvent},
     curve::*,
 };
 use diesel::Insertable;
@@ -48,30 +48,39 @@ impl From<core::Event> for Event {
 #[primary_key(event_id)]
 struct Announcement {
     pub event_id: String,
-    pub nonce: PublicNonce,
+    pub oracle_event: Vec<u8>,
     pub signature: Signature,
 }
 
 impl Announcement {
     fn from_core_domain(
         event_id: EventId,
-        core::Announcement { signature, nonce }: core::Announcement<SchnorrImpl>,
+        core::RawAnnouncement {
+            signature,
+            oracle_event,
+            ..
+        }: core::RawAnnouncement<SchnorrImpl>,
     ) -> Self {
         Self {
             event_id: event_id.into(),
             signature,
-            nonce,
+            oracle_event: oracle_event.as_bytes().to_vec(),
         }
     }
 }
 
-impl From<Announcement> for core::Announcement<SchnorrImpl> {
+impl From<Announcement> for core::RawAnnouncement<SchnorrImpl> {
     fn from(
         Announcement {
-            signature, nonce, ..
+            signature,
+            oracle_event,
+            ..
         }: Announcement,
     ) -> Self {
-        Self { signature, nonce }
+        Self {
+            signature,
+            oracle_event: unsafe { RawOracleEvent::<SchnorrImpl>::from_json_bytes_unchecked(oracle_event) }
+        }
     }
 }
 
@@ -83,7 +92,7 @@ struct Attestation {
     pub event_id: String,
     pub outcome: String,
     pub time: chrono::NaiveDateTime,
-    pub scalar: SigScalar,
+    pub scalars: Vec<SigScalar>,
 }
 
 impl Attestation {
@@ -92,7 +101,7 @@ impl Attestation {
         core::Attestation {
             outcome,
             time,
-            scalar,
+            scalars,
             ..
         }: core::Attestation<SchnorrImpl>,
     ) -> Self {
@@ -100,7 +109,7 @@ impl Attestation {
             event_id: event_id.into(),
             outcome,
             time,
-            scalar,
+            scalars,
         }
     }
 }
@@ -110,11 +119,11 @@ impl From<Attestation> for core::Attestation<SchnorrImpl> {
         Attestation {
             outcome,
             time,
-            scalar,
+            scalars,
             ..
         }: Attestation,
     ) -> Self {
-        core::Attestation::new(outcome, time, scalar)
+        core::Attestation::new(outcome, time, scalars)
     }
 }
 

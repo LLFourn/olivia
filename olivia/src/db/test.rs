@@ -15,8 +15,7 @@ pub fn test_db(db: &dyn Db<impl Schnorr>) {
 
 fn test_insert_unattested(rt: &mut tokio::runtime::Runtime, db: &dyn Db<impl Schnorr>) {
     let unattested_id = EventId::from_str("/test/db/test-insert-unattested?occur").unwrap();
-    let mut obs_event = AnnouncedEvent::test_instance(&unattested_id);
-    obs_event.attestation = None;
+    let obs_event = AnnouncedEvent::test_unattested_instance(unattested_id.clone().into());
 
     rt.block_on(db.insert_event(obs_event.clone())).unwrap();
     let entry = rt.block_on(db.get_event(&unattested_id)).unwrap().unwrap();
@@ -57,7 +56,8 @@ fn test_insert_unattested(rt: &mut tokio::runtime::Runtime, db: &dyn Db<impl Sch
 
 fn test_insert_attested(rt: &mut tokio::runtime::Runtime, db: &dyn Db<impl Schnorr>) {
     let insert_attested_id = EventId::from_str("/test/db/test-insert-attested?occur").unwrap();
-    let obs_event = AnnouncedEvent::test_instance(&insert_attested_id);
+    let obs_event = AnnouncedEvent::test_attested_instance(insert_attested_id.clone().into());
+
     rt.block_on(db.insert_event(obs_event.clone())).unwrap();
     let entry = rt
         .block_on(db.get_event(&insert_attested_id))
@@ -100,7 +100,7 @@ fn test_insert_unattested_then_complete(
     let unattested_then_complete_id =
         EventId::from_str("/test/db/test-insert-unattested-then-complete?occur").unwrap();
 
-    let mut obs_event = AnnouncedEvent::test_instance(&unattested_then_complete_id);
+    let mut obs_event = AnnouncedEvent::test_attested_instance(unattested_then_complete_id.clone().into());
     let attestation = obs_event.attestation.take().unwrap();
 
     rt.block_on(db.insert_event(obs_event.clone())).unwrap();
@@ -121,7 +121,7 @@ fn test_insert_unattested_then_complete(
 
 fn test_insert_grandchild_event(rt: &mut tokio::runtime::Runtime, db: &dyn Db<impl Schnorr>) {
     let grandchild_id = EventId::from_str("/test/db/dbchild/grandchild?occur").unwrap();
-    rt.block_on(db.insert_event(AnnouncedEvent::test_instance(&grandchild_id)))
+    rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(grandchild_id.clone().into())))
         .unwrap();
 
     let mut db_children = rt
@@ -163,7 +163,7 @@ fn test_child_event_of_node_with_event(
     db: &dyn Db<impl Schnorr>,
 ) {
     let child = EventId::from_str("/test/db/test-insert-attested/test-sub-event?occur").unwrap();
-    rt.block_on(db.insert_event(AnnouncedEvent::test_instance(&child)))
+    rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(child.into())))
         .unwrap();
     let parent = rt
         .block_on(db.get_node("/test/db/test-insert-attested"))
@@ -203,9 +203,9 @@ fn test_multiple_events_on_one_node(rt: &mut tokio::runtime::Runtime, db: &dyn D
     let first = EventId::from_str("/test/db/RED_BLUE?vs").unwrap();
     let second = EventId::from_str("/test/db/RED_BLUE?left-win").unwrap();
 
-    rt.block_on(db.insert_event(AnnouncedEvent::test_instance(&first)))
+    rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(first.clone().into())))
         .unwrap();
-    rt.block_on(db.insert_event(AnnouncedEvent::test_instance(&second)))
+    rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(second.clone().into())))
         .unwrap();
 
     let mut red_blue = rt
