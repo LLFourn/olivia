@@ -6,19 +6,36 @@ use crate::{
     db::Db,
 };
 use core::str::FromStr;
+use futures::Future;
+use serde::Serialize;
 use std::{convert::Infallible, marker::PhantomData, sync::Arc};
 use warp::{self, http, Filter};
-use serde::Serialize;
 
-#[derive(Debug)]
-struct NotAnEvent;
-
-impl warp::reject::Reject for NotAnEvent {}
 
 #[derive(Clone, Debug)]
 pub enum ApiReply<T> {
     Ok(T),
-    Err(ErrorMessage)
+    Err(ErrorMessage),
+}
+
+
+impl<T> ApiReply<T> {
+    pub async fn map<U, F: FnOnce(T) -> Fut, Fut: Future<Output=U>>(self, op: F) -> ApiReply<U> {
+        use ApiReply::*;
+        match self {
+            Ok(t) => Ok(op(t).await),
+            Err(e) => Err(e),
+        }
+    }
+
+
+    pub async fn and_then<U, F: FnOnce(T) -> Fut, Fut: Future<Output=ApiReply<U>>>(self, op: F) -> ApiReply<U> {
+        use ApiReply::*;
+        match self {
+            Ok(t) => op(t).await,
+            Err(e) => Err(e),
+        }
+    }
 }
 
 impl<T: Send + Serialize> warp::Reply for ApiReply<T> {
@@ -27,18 +44,21 @@ impl<T: Send + Serialize> warp::Reply for ApiReply<T> {
             ApiReply::Ok(value) => {
                 let reply = warp::reply::json(&value);
                 reply.into_response()
-            },
-            ApiReply::Err(err) => warp::reply::with_status(warp::reply::json(&err), http::StatusCode::from_u16(err.code).unwrap()).into_response(),
+            }
+            ApiReply::Err(err) => warp::reply::with_status(
+                warp::reply::json(&err),
+                http::StatusCode::from_u16(err.code).unwrap(),
+            )
+            .into_response(),
         }
     }
 }
 
-#[derive(Clone,Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ErrorMessage {
     code: u16,
     error: String,
 }
-
 
 impl ErrorMessage {
     fn not_found() -> Self {
@@ -49,13 +69,27 @@ impl ErrorMessage {
         Self::from_status(http::StatusCode::INTERNAL_SERVER_ERROR)
     }
 
+    fn bad_request() -> Self {
+        Self::from_status(http::StatusCode::BAD_REQUEST)
+    }
+
     pub fn from_status(status: http::StatusCode) -> Self {
         Self {
             code: status.as_u16(),
             error: status.canonical_reason().unwrap().into(),
         }
     }
+
+    pub fn with_message<M: Into<String>>(self, message: M) -> Self {
+        Self {
+            code: self.code,
+            error: message.into(),
+        }
+    }
+
 }
+
+
 
 #[derive(Debug, Default, Clone)]
 pub struct Filters<C> {
@@ -73,49 +107,57 @@ impl<C: Schnorr> Filters<C> {
     pub fn get_event(
         &self,
         db: Arc<dyn Db<C>>,
-    ) -> impl Filter<Extract = (ApiReply<EventResponse<C>>,), Error = warp::reject::Rejection> + Clone {
+    ) -> impl Filter<Extract = (ApiReply<EventResponse<C>>,), Error = warp::reject::Rejection> + Clone
+    {
         warp::path::tail()
             .and(warp::query::raw())
             .and_then(
                 async move |tail: warp::filters::path::Tail, query: String| {
                     let id = format!("/{}?{}", tail.as_str(), query);
-                    match EventId::from_str(&id) {
-                        Ok(event_id) => Ok(event_id),
-                        Err(_) => Err(warp::reject::custom(NotAnEvent)),
-                    }
+                    let reply = match EventId::from_str(&id) {
+                        Ok(event_id) => ApiReply::Ok(event_id),
+                        Err(_) =>   ApiReply::Err(ErrorMessage::bad_request().with_message("unable to parse as event id")),
+                    };
+
+                    Ok::<_ ,Infallible>(reply)
                 },
             )
             .and(self.with_db(db))
-            .and_then(async move |event_id: EventId, db: Arc<dyn Db<C>>| -> Result<ApiReply<EventResponse<C>>, warp::reject::Rejection> {
-                let res = db.get_event(&event_id).await;
-                let reply = match res {
-                    Ok(Some(event)) => ApiReply::Ok(event.into()),
-                    Ok(None) => ApiReply::Err(ErrorMessage::not_found()),
-                    Err(_e) =>  ApiReply::Err(ErrorMessage::internal_server_error())
-                };
+            .and_then(async move |event_id: ApiReply<EventId>, db: Arc<dyn Db<C>>| {
+                let reply = event_id.and_then(async move |event_id| {
+                    let res = db.get_event(&event_id).await;
+                    match res {
+                        Ok(Some(event)) => ApiReply::Ok(event.into()),
+                        Ok(None) => ApiReply::Err(ErrorMessage::not_found()),
+                        Err(_e) =>  ApiReply::Err(ErrorMessage::internal_server_error())
+                    }
+                }).await;
 
-                Ok(reply)
+                Ok::<_, Infallible>(reply)
             })
     }
 
     pub fn get_path(
         &self,
         db: Arc<dyn Db<C>>,
-    ) -> impl Filter<Extract = (ApiReply<PathResponse<C>>,), Error = warp::reject::Rejection> + Clone {
+    ) -> impl Filter<Extract = (ApiReply<PathResponse<C>>,), Error = Infallible> + Clone
+    {
         warp::path::tail().and(self.with_db(db)).and_then(
             async move |tail: warp::filters::path::Tail, db: Arc<dyn Db<C>>| {
                 let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
                 let path = &format!("/{}", tail);
                 let node = db.get_node(&path).await;
-                match node {
-                    Ok(Some(node)) => Ok(ApiReply::Ok(PathResponse {
+                let reply = match node {
+                    Ok(Some(node)) => ApiReply::Ok(PathResponse {
                         public_key: None,
                         events: node.events,
                         children: node.children,
-                    })),
-                    Ok(None) => Err(warp::reject::not_found()),
-                    Err(_e) => Ok(ApiReply::Err(ErrorMessage::internal_server_error())),
-                }
+                    }),
+                    Ok(None) => ApiReply::Err(ErrorMessage::not_found()),
+                    Err(_e) => ApiReply::Err(ErrorMessage::internal_server_error()),
+                };
+
+                Ok::<_, Infallible>(reply)
             },
         )
     }
@@ -123,75 +165,68 @@ impl<C: Schnorr> Filters<C> {
     pub fn get_root(
         &self,
         db: Arc<dyn Db<C>>,
-    ) -> impl Filter<Extract = (ApiReply<PathResponse<C>>,), Error = Infallible> + Clone
-    {
-        self
-            .with_db(db.clone())
-            .and_then(async move |db: Arc<dyn Db<C>>| -> Result<ApiReply<PathResponse<C>>,Infallible> {
+    ) -> impl Filter<Extract = (ApiReply<PathResponse<C>>,), Error = Infallible> + Clone {
+        self.with_db(db.clone()).and_then(
+            async move |db: Arc<dyn Db<C>>| {
                 let public_key = db.get_public_key().await;
                 let res = db.get_node(PathRef::root().as_str()).await;
 
-                if let Ok(Some(public_key)) = public_key {
+                let reply = if let Ok(Some(public_key)) = public_key {
                     if let Ok(Some(node)) = res {
-                        Ok(ApiReply::Ok(PathResponse {
+                        ApiReply::Ok(PathResponse {
                             public_key: Some(public_key),
                             events: node.events,
                             children: node.children,
-                        }))
+                        })
+                    } else {
+                        ApiReply::Err(ErrorMessage::internal_server_error())
                     }
-                    else  {
-                        Ok(ApiReply::Err(ErrorMessage::internal_server_error()))
-                    }
-                }
-                else {
-                    Ok(ApiReply::Err(ErrorMessage::internal_server_error()))
-                }
-            })
+                } else {
+                    ApiReply::Err(ErrorMessage::internal_server_error())
+                };
 
+                Ok::<_, Infallible>(reply)
+            },
+        )
     }
 }
 
 pub fn routes<C: Schnorr>(
     db: Arc<dyn Db<C>>,
-    logger: slog::Logger,
-) -> impl Filter<Extract = impl warp::Reply, Error = Infallible> + Clone {
+    _logger: slog::Logger,
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::reject::Rejection> + Clone {
     let filters = Filters::<C>::default();
-    let event = warp::get()
-        .and(filters.get_event(db.clone()));
-    let root = warp::path::end()
-        .and(filters.get_root(db.clone()));
+    let event = warp::get().and(filters.get_event(db.clone()));
+    let root = warp::path::end().and(filters.get_root(db.clone()));
 
-    let path = warp::get()
-        .and(filters.get_path(db.clone()));
+    let path = warp::get().and(filters.get_path(db.clone()));
 
     root.or(event)
         .or(path)
-        .recover(move |err| handle_rejection(err, logger.clone()))
 }
 
-async fn handle_rejection(
-    err: warp::Rejection,
-    logger: slog::Logger,
-) -> Result<impl warp::Reply, Infallible> {
-    // This sucks see: https://github.com/seanmonstar/warp/issues/451
-    let code;
-    let message = None;
-    debug!(logger, "request rejected"; "rejection" => format!("{:?}", err));
-    if err.is_not_found() {
-        code = http::StatusCode::NOT_FOUND;
-    } else if let Some(NotAnEvent) = err.find() {
-        code = http::StatusCode::NOT_FOUND;
-    } else {
-        code = http::StatusCode::BAD_REQUEST;
-    }
+// async fn handle_rejection(
+//     err: warp::Rejection,
+//     logger: slog::Logger,
+// ) -> Result<impl warp::Reply, Infallible> {
+//     // This sucks see: https://github.com/seanmonstar/warp/issues/451
+//     let code;
+//     let message = None;
+//     dbg!(&err);
+//     debug!(logger, "request rejected"; "rejection" => format!("{:?}", err));
+//     if err.is_not_found() {
+//         code = http::StatusCode::NOT_FOUND;
+//     } else {
+//         code = http::StatusCode::BAD_REQUEST;
+//     }
 
-    let json = warp::reply::json(&ErrorMessage {
-        code: code.as_u16(),
-        error: message.unwrap_or(code.canonical_reason().unwrap()).into(),
-    });
+//     let json = warp::reply::json(&ErrorMessage {
+//         code: code.as_u16(),
+//         error: message.unwrap_or(code.canonical_reason().unwrap()).into(),
+//     });
 
-    Ok(warp::reply::with_status(json, code))
-}
+//     Ok(warp::reply::with_status(json, code))
+// }
 
 #[cfg(test)]
 mod test {
@@ -233,6 +268,16 @@ mod test {
 
         oracle.add_event(event_id.clone().into()).await.unwrap();
 
+        assert_eq!(
+            warp::test::request()
+                .path("/test/one/two/42")
+                .reply(&routes)
+                .await
+                .status(),
+            http::StatusCode::NOT_FOUND,
+            "similar but non-existing path should 404"
+        );
+
         for path in &[format!("{}", node), format!("{}/", node)] {
             let res = warp::test::request().path(path).reply(&routes).await;
 
@@ -250,6 +295,7 @@ mod test {
             .path(&format!("{}", node.parent().unwrap()))
             .reply(&routes)
             .await;
+
         let body = j::<PathResponse<SchnorrImpl>>(&res.body()).unwrap();
         assert_eq!(body.children, ["/test/one/two/3", "/test/one/two/4"]);
     }
@@ -283,6 +329,16 @@ mod test {
             .await
             .unwrap();
 
+        assert_eq!(
+            warp::test::request()
+                .path("/test/one/two/four?occur")
+                .reply(&routes)
+                .await
+                .status(),
+            http::StatusCode::NOT_FOUND,
+            "similar but non-existing event should 404"
+        );
+
         let public_key = {
             let root = warp::test::request().path("/").reply(&routes).await;
             j::<PathResponse<SchnorrImpl>>(&root.body())
@@ -295,7 +351,6 @@ mod test {
             .path(event_id.as_str())
             .reply(&routes)
             .await;
-
 
         let body = j::<EventResponse<SchnorrImpl>>(&res.body()).unwrap();
 

@@ -100,7 +100,8 @@ fn test_insert_unattested_then_complete(
     let unattested_then_complete_id =
         EventId::from_str("/test/db/test-insert-unattested-then-complete?occur").unwrap();
 
-    let mut obs_event = AnnouncedEvent::test_attested_instance(unattested_then_complete_id.clone().into());
+    let mut obs_event =
+        AnnouncedEvent::test_attested_instance(unattested_then_complete_id.clone().into());
     let attestation = obs_event.attestation.take().unwrap();
 
     rt.block_on(db.insert_event(obs_event.clone())).unwrap();
@@ -121,8 +122,10 @@ fn test_insert_unattested_then_complete(
 
 fn test_insert_grandchild_event(rt: &mut tokio::runtime::Runtime, db: &dyn Db<impl Schnorr>) {
     let grandchild_id = EventId::from_str("/test/db/dbchild/grandchild?occur").unwrap();
-    rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(grandchild_id.clone().into())))
-        .unwrap();
+    rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(
+        grandchild_id.clone().into(),
+    )))
+    .unwrap();
 
     let mut db_children = rt
         .block_on(db.get_node("/test/db"))
@@ -205,8 +208,10 @@ fn test_multiple_events_on_one_node(rt: &mut tokio::runtime::Runtime, db: &dyn D
 
     rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(first.clone().into())))
         .unwrap();
-    rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(second.clone().into())))
-        .unwrap();
+    rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(
+        second.clone().into(),
+    )))
+    .unwrap();
 
     let mut red_blue = rt
         .block_on(db.get_node("/test/db/RED_BLUE"))

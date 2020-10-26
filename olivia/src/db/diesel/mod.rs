@@ -79,7 +79,9 @@ impl From<Announcement> for core::RawAnnouncement<SchnorrImpl> {
     ) -> Self {
         Self {
             signature,
-            oracle_event: unsafe { RawOracleEvent::<SchnorrImpl>::from_json_bytes_unchecked(oracle_event) }
+            oracle_event: unsafe {
+                RawOracleEvent::<SchnorrImpl>::from_json_bytes_unchecked(oracle_event)
+            },
         }
     }
 }
