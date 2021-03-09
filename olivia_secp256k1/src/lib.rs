@@ -1,10 +1,13 @@
 #![allow(non_snake_case)]
-use olivia_core::{EventId, Fragment};
+use olivia_core::Fragment;
 pub use schnorr_fun;
 use schnorr_fun::{
     fun::{digest::Digest, marker::*, nonce::Deterministic, s, Point, Scalar, XOnly, G},
-    KeyPair, MessageKind, Schnorr,
+    Schnorr,
+    Message
 };
+pub use schnorr_fun::KeyPair;
+pub use schnorr_fun::fun;
 use sha2::Sha256;
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -49,7 +52,7 @@ olivia_core::impl_fromstr_deserailize_fromsql! {
 #[derive(PartialEq, Clone)]
 #[cfg_attr(feature = "diesel", derive(diesel::FromSqlRow, diesel::AsExpression))]
 #[cfg_attr(feature = "diesel", sql_type = "diesel::sql_types::Binary")]
-pub struct SigScalar(Scalar<Public, Zero>);
+pub struct SigScalar(Scalar<Public, NonZero>);
 
 olivia_core::impl_display_debug_serialize_tosql! {
     fn to_bytes(scalar: &SigScalar) -> [u8;32] {
@@ -60,7 +63,7 @@ olivia_core::impl_display_debug_serialize_tosql! {
 olivia_core::impl_fromstr_deserailize_fromsql! {
     name => "secp256k1 scalar",
     fn from_bytes(bytes: [u8;32]) ->  Option<SigScalar> {
-        Scalar::from_bytes(bytes).map(|s| SigScalar(s.mark::<Public>()))
+        Scalar::from_bytes(bytes).and_then(|scalar| scalar.mark::<NonZero>()).map(|s| SigScalar(s.mark::<Public>()))
     }
 }
 
@@ -83,7 +86,7 @@ olivia_core::impl_fromstr_deserailize_fromsql! {
 }
 
 lazy_static::lazy_static! {
-    pub static ref SCHNORR: Schnorr<Sha256, Deterministic<Sha256>> = Schnorr::new(Deterministic::<Sha256>::default(), MessageKind::Prehashed);
+    pub static ref SCHNORR: Schnorr<Sha256, Deterministic<Sha256>> = Schnorr::new(Deterministic::<Sha256>::default());
 }
 
 impl From<XOnly> for PublicKey {
@@ -98,9 +101,22 @@ impl From<PublicKey> for XOnly {
     }
 }
 
+impl From<XOnly> for PublicNonce {
+    fn from(x: XOnly) -> Self {
+        Self(x)
+    }
+}
+
 impl From<PublicNonce> for XOnly {
     fn from(x: PublicNonce) -> Self {
         x.0
+    }
+}
+
+
+impl From<SigScalar> for Scalar<Public, NonZero> {
+    fn from(sig_scalar: SigScalar) -> Self {
+        sig_scalar.0
     }
 }
 
@@ -124,6 +140,7 @@ impl olivia_core::Schnorr for Secp256k1 {
     type SigScalar = SigScalar;
     type NonceKeyPair = (Scalar, XOnly);
     type Signature = Signature;
+    type AnticipatedSignature = Point<Jacobian, Public, Zero>;
 
     fn name() -> &'static str {
         "secp256k1"
@@ -137,9 +154,9 @@ impl olivia_core::Schnorr for Secp256k1 {
         let (x, X) = signing_keypair.as_tuple();
         let (r, R) = nonce_keypair;
         let message = Digest::chain(Sha256::default(), message).finalize();
-        let c = SCHNORR.challenge(&R, X, (&message[..]).mark::<Public>());
+        let c = SCHNORR.challenge(&R, X, Message::<Public>::raw(&message[..]));
         let s = s!(r + c * x);
-        SigScalar(s.mark::<Public>())
+        SigScalar(s.mark::<(Public,NonZero)>().expect("computationally unreachable"))
     }
 
     fn signature_from_scalar_and_nonce(
@@ -148,7 +165,7 @@ impl olivia_core::Schnorr for Secp256k1 {
     ) -> Self::Signature {
         Signature(schnorr_fun::Signature {
             R: nonce.0,
-            s: scalar.0,
+            s: scalar.0.mark::<Zero>(),
         })
     }
 
@@ -160,12 +177,12 @@ impl olivia_core::Schnorr for Secp256k1 {
         let public_key = public_key.0.clone();
         let message = Digest::chain(Sha256::default(), message).finalize();
         let verification_key = public_key.to_point();
-        SCHNORR.verify(&verification_key, (&message[..]).mark::<Public>(), &sig.0)
+        SCHNORR.verify(&verification_key, Message::<Public>::raw(&message[..]), &sig.0)
     }
 
     fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::Signature {
         let message = Digest::chain(Sha256::default(), message).finalize();
-        Signature(SCHNORR.sign(keypair, (&message[..]).mark::<Public>()))
+        Signature(SCHNORR.sign(keypair, Message::<Public>::raw(&message[..])))
     }
 
     fn test_keypair() -> Self::KeyPair {
@@ -183,27 +200,25 @@ impl olivia_core::Schnorr for Secp256k1 {
         let R = XOnly::from_scalar_mul(G, &mut r);
         (r, R)
     }
+
+    fn anticipate_signature(
+        public_key: &Self::PublicKey,
+        nonce: &Self::PublicNonce,
+        outcome: &Fragment<'_>,
+    ) -> Self::AnticipatedSignature {
+        let mut hash = WriteDigest(Sha256::default());
+        outcome.write_to(&mut hash).expect("cannot fail");
+        let hashed_message = hash.0.finalize();
+        SCHNORR
+            .anticipate_signature(
+                &public_key.0.to_point(),
+                &nonce.0.to_point(),
+                Message::<Public>::raw(hashed_message.as_slice()),
+            )
+    }
 }
 
-pub fn anticipate_signature(
-    public_key: &Point<EvenY>,
-    nonce: &Point<EvenY>,
-    event_id: &EventId,
-    outcome: Fragment<'_>,
-) -> Point<Jacobian, Public, Zero> {
-    let mut hash = WriteDigest(Sha256::default());
-    hash.0.update(event_id.as_str().as_bytes());
-    hash.0.update(b"=");
-    outcome.write_to(&mut hash).expect("cannot fail");
-    let hashed_message = hash.0.finalize();
-    SCHNORR
-        .anticipate_signature(
-            public_key,
-            nonce,
-            hashed_message.as_slice().mark::<Public>(),
-        )
-        .mark::<Zero>()
-}
+
 
 struct WriteDigest<D>(D);
 

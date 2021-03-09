@@ -205,29 +205,6 @@ pub fn routes<C: Schnorr>(
         .or(path)
 }
 
-// async fn handle_rejection(
-//     err: warp::Rejection,
-//     logger: slog::Logger,
-// ) -> Result<impl warp::Reply, Infallible> {
-//     // This sucks see: https://github.com/seanmonstar/warp/issues/451
-//     let code;
-//     let message = None;
-//     dbg!(&err);
-//     debug!(logger, "request rejected"; "rejection" => format!("{:?}", err));
-//     if err.is_not_found() {
-//         code = http::StatusCode::NOT_FOUND;
-//     } else {
-//         code = http::StatusCode::BAD_REQUEST;
-//     }
-
-//     let json = warp::reply::json(&ErrorMessage {
-//         code: code.as_u16(),
-//         error: message.unwrap_or(code.canonical_reason().unwrap()).into(),
-//     });
-
-//     Ok(warp::reply::with_status(json, code))
-// }
-
 #[cfg(test)]
 mod test {
     use super::*;

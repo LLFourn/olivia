@@ -1,5 +1,7 @@
-use crate::{Descriptor, OutcomeValue, Schnorr};
+use crate::Fragment;
+use crate::{Descriptor, OutcomeValue, VsOutcome};
 use alloc::{
+    prelude::v1::Box,
     string::{String, ToString},
     vec::Vec,
 };
@@ -117,7 +119,7 @@ impl EventId {
         EventId(replaced)
     }
 
-    pub fn descriptor<C: Schnorr>(&self) -> Descriptor {
+    pub fn descriptor(&self) -> Descriptor {
         match self.event_kind() {
             EventKind::VsMatch(kind) => {
                 let (left, right) = self.parties().unwrap();
@@ -139,27 +141,62 @@ impl EventId {
         }
     }
 
-    pub fn binary_outcomes(&self) -> Option<[OutcomeValue; 2]> {
+    pub fn outcomes(&self) -> Box<dyn Iterator<Item = OutcomeValue>> {
         match self.event_kind() {
-            EventKind::VsMatch(kind) => match kind {
-                VsMatchKind::Win {
-                    right_posited_to_win,
-                } => {
-                    let (left, right) = self.parties().unwrap();
-                    Some([
-                        OutcomeValue::Win {
-                            winning_side: left.to_string(),
-                            posited_won: !right_posited_to_win,
-                        },
-                        OutcomeValue::Win {
-                            winning_side: right.to_string(),
-                            posited_won: right_posited_to_win,
-                        },
-                    ])
+            EventKind::VsMatch(kind) => {
+                let (left, right) = self.parties().unwrap();
+                match kind {
+                    VsMatchKind::Win {
+                        right_posited_to_win,
+                    } => Box::new(
+                        vec![
+                            OutcomeValue::Win {
+                                winning_side: left.to_string(),
+                                posited_won: !right_posited_to_win,
+                            },
+                            OutcomeValue::Win {
+                                winning_side: right.to_string(),
+                                posited_won: right_posited_to_win,
+                            },
+                        ]
+                        .into_iter(),
+                    ),
+                    VsMatchKind::WinOrDraw => Box::new(
+                        vec![
+                            OutcomeValue::Vs(VsOutcome::Winner(left.to_string())),
+                            OutcomeValue::Vs(VsOutcome::Winner(right.to_string())),
+                            OutcomeValue::Vs(VsOutcome::Draw),
+                        ]
+                        .into_iter(),
+                    ),
                 }
-                _ => None,
+            }
+            EventKind::SingleOccurrence => Box::new(vec![OutcomeValue::Occurred].into_iter()),
+            EventKind::Digits(n) => Box::new(
+                (0..(10u64.pow(n as u32) - 1))
+                    .into_iter()
+                    .map(|i| OutcomeValue::Digits(i)),
+            ),
+        }
+    }
+
+    pub fn fragments(&self, fragment_index: usize) -> impl Iterator<Item = Fragment<'_>> {
+        self.outcomes().map(move |outcome| Fragment {
+            index: fragment_index,
+            event_id: &self,
+            outcome
+        })
+    }
+
+    pub fn is_binary(&self) -> bool {
+        match self.event_kind() {
+            EventKind::VsMatch(kind) => {
+                match kind {
+                    VsMatchKind::Win { .. } => true,
+                    _ => false
+                }
             },
-            _ => None,
+            _ => false,
         }
     }
 
@@ -413,7 +450,8 @@ mod serde_impl {
             &self,
             serializer: Ser,
         ) -> Result<Ser::Ok, Ser::Error> {
-            serializer.collect_str(&self)
+            let tmp = serializer.collect_str(&self);
+            tmp
         }
     }
 }

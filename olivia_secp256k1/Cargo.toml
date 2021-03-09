@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 olivia_core = { path = "../olivia_core" }
-schnorr_fun = { version = "^0.3.2", features = ["serialize_hex"] }
+schnorr_fun = { path = "../../secp256kfun/schnorr_fun", features = ["serde"] }
 diesel = { version = "1.4", default-features = false, optional = true }
 serde  = { version = "1", default-features = false }
 lazy_static = "1"

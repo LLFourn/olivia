@@ -179,26 +179,38 @@ impl OutcomeValue {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Fragment<'a> {
     pub index: usize,
-    pub outcome: &'a Outcome,
+    pub event_id: &'a EventId,
+    pub outcome: OutcomeValue,
 }
 
 impl Fragment<'_> {
     pub fn from_event_outcome(outcome: &Outcome, index: usize) -> Fragment<'_> {
-        Fragment { index, outcome }
-    }
-
-    pub fn attestation_string(&self) -> String {
-        format!("{}.{}={}", self.outcome.id, self.index, self.outcome.value)
+        Fragment {
+            index,
+            outcome: outcome.value.clone(),
+            event_id: &outcome.id,
+        }
     }
 
     pub fn write_to(&self, f: &mut impl fmt::Write) -> fmt::Result {
         use OutcomeValue::*;
-        match self.outcome.value {
-            Occurred | Vs(_) | Win { .. } => self.outcome.value.write_to(f),
-            Digits(value) => write!(f, "{}", value.to_string().chars().nth(self.index).unwrap()),
+        write!(f, "{}.{}=", self.event_id, self.index)?;
+        match self.outcome {
+            Occurred | Vs(_) | Win { .. } => self.outcome.write_to(f),
+            Digits(value) => match self.event_id.event_kind() {
+                EventKind::Digits(n) => write!(
+                    f,
+                    "{}",
+                    format!("{:0width$}", value, width = n as usize)
+                        .chars()
+                        .nth(self.index)
+                        .unwrap()
+                ),
+                _ => panic!("event kind doesn't match outcome value"),
+            },
         }
     }
 }

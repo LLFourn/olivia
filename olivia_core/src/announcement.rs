@@ -1,7 +1,7 @@
-use core::marker::PhantomData;
 use crate::{Attestation, Descriptor, Event, EventId, Schnorr};
-use alloc::vec::Vec;
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
+use chrono::NaiveDateTime;
+use core::{convert::TryFrom, marker::PhantomData};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RawAnnouncement<C: Schnorr> {
@@ -19,8 +19,16 @@ pub struct RawOracleEvent<C> {
 
 impl<C: Schnorr> RawOracleEvent<C> {
     #[must_use]
-    pub fn verify(&self, oracle_public_key: &C::PublicKey, announcement_signature: &C::Signature) -> bool {
-        C::verify_signature(oracle_public_key, self.payload.as_bytes(), announcement_signature)
+    pub fn verify(
+        &self,
+        oracle_public_key: &C::PublicKey,
+        announcement_signature: &C::Signature,
+    ) -> bool {
+        C::verify_signature(
+            oracle_public_key,
+            self.payload.as_bytes(),
+            announcement_signature,
+        )
     }
 
     pub fn decode(&self) -> Option<OracleEvent<C>> {
@@ -30,7 +38,6 @@ impl<C: Schnorr> RawOracleEvent<C> {
     pub fn sign(&self, keypair: &C::KeyPair) -> C::Signature {
         C::sign(keypair, self.payload.as_bytes())
     }
-
 
     pub fn as_bytes(&self) -> &[u8] {
         self.payload.as_bytes()
@@ -44,11 +51,10 @@ impl<C: Schnorr> RawOracleEvent<C> {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "encoding", content = "data")]
 enum RawOracleEventEncoding {
-    Json(String)
+    Json(String),
 }
 
 impl RawOracleEventEncoding {
@@ -62,21 +68,62 @@ impl RawOracleEventEncoding {
     fn as_bytes(&self) -> &[u8] {
         use RawOracleEventEncoding::*;
         match self {
-            Json(string) => string.as_bytes()
+            Json(string) => string.as_bytes(),
         }
     }
 }
 
-
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct OracleEvent<C: Schnorr> {
-    #[serde(flatten)]
-    pub event: Event,
+pub struct OracleEventWithDescriptor<C: Schnorr> {
+    pub id: EventId,
+    pub expected_outcome_time: Option<NaiveDateTime>,
     pub descriptor: Descriptor,
     pub nonces: Vec<C::PublicNonce>,
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(
+    try_from = "OracleEventWithDescriptor<C>",
+    into = "OracleEventWithDescriptor<C>"
+)]
+pub struct OracleEvent<C: Schnorr> {
+    pub event: Event,
+    pub nonces: Vec<C::PublicNonce>,
+}
+
+impl<C: Schnorr> TryFrom<OracleEventWithDescriptor<C>> for OracleEvent<C> {
+    type Error = String;
+
+    fn try_from(oracle_event: OracleEventWithDescriptor<C>) -> Result<Self, Self::Error> {
+        if oracle_event.nonces.len() < oracle_event.descriptor.n_nonces() {
+            return Err("oracle event doesn't have enough nonces for descriptor".into());
+        }
+
+        if oracle_event.id.descriptor() == oracle_event.descriptor {
+            Ok(OracleEvent {
+                event: Event {
+                    id: oracle_event.id,
+                    expected_outcome_time: oracle_event.expected_outcome_time
+                },
+                nonces: oracle_event.nonces,
+            })
+        } else {
+            Err("descriptor doesn't match event id".into())
+        }
+    }
+}
+
+impl<C: Schnorr> From<OracleEvent<C>> for OracleEventWithDescriptor<C> {
+    fn from(oracle_event: OracleEvent<C>) -> Self {
+        let descriptor = oracle_event.event.id.descriptor();
+        OracleEventWithDescriptor {
+            id: oracle_event.event.id,
+            expected_outcome_time: oracle_event.event.expected_outcome_time,
+            descriptor,
+            nonces: oracle_event.nonces,
+        }
+    }
+}
 
 impl<C: Schnorr> OracleEvent<C> {
     fn encode_json(&self) -> RawOracleEvent<C> {
@@ -85,6 +132,20 @@ impl<C: Schnorr> OracleEvent<C> {
             curve: PhantomData,
         }
     }
+
+    pub fn anticipate_signatures(
+        &self,
+        public_key: &C::PublicKey,
+        fragment_index: usize,
+    ) -> Vec<C::AnticipatedSignature> {
+        self.event.id.fragments(fragment_index).map(|fragment|
+                C::anticipate_signature(public_key, &self.nonces[fragment.index], &fragment)
+            )
+            .collect()
+    }
+
+
+
 }
 
 impl<C: Schnorr> RawAnnouncement<C> {
@@ -94,14 +155,13 @@ impl<C: Schnorr> RawAnnouncement<C> {
         event_id: &EventId,
         oracle_public_key: &C::PublicKey,
     ) -> Option<OracleEvent<C>> {
-
         if !self.oracle_event.verify(oracle_public_key, &self.signature) {
             return None;
         }
 
         let oracle_event = self.oracle_event.decode()?;
 
-        if event_id.descriptor::<C>() != oracle_event.descriptor {
+        if oracle_event.event.id != *event_id {
             return None;
         }
 
@@ -109,13 +169,7 @@ impl<C: Schnorr> RawAnnouncement<C> {
     }
 
     pub fn create(event: Event, keypair: &C::KeyPair, nonces: Vec<C::PublicNonce>) -> Self {
-        let descriptor = event.id.descriptor::<C>();
-
-        let oracle_event = OracleEvent::<C> {
-            event,
-            descriptor,
-            nonces,
-        };
+        let oracle_event = OracleEvent::<C> { event, nonces };
 
         let encoded_oracle_event = oracle_event.encode_json();
         let signature = encoded_oracle_event.sign(keypair);
@@ -144,7 +198,6 @@ pub struct AnnouncedEvent<C: Schnorr> {
 }
 
 impl<C: Schnorr> AnnouncedEvent<C> {
-
     pub fn test_attested_instance(event: Event) -> Self {
         Self {
             event: event.clone(),

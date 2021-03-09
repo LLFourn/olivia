@@ -1,3 +1,5 @@
+use crate::Fragment;
+
 pub trait Schnorr:
     Clone + Default + PartialEq + serde::Serialize + 'static + Send + Sync + core::fmt::Debug
 {
@@ -41,6 +43,7 @@ pub trait Schnorr:
 
     type KeyPair: Into<Self::PublicKey> + Clone;
     type NonceKeyPair: Into<Self::PublicNonce> + Clone;
+    type AnticipatedSignature;
 
     fn name() -> &'static str;
 
@@ -60,6 +63,12 @@ pub trait Schnorr:
         message: &[u8],
         sig: &Self::Signature,
     ) -> bool;
+
+    fn anticipate_signature(
+        public_key: &Self::PublicKey,
+        public_nonce: &Self::PublicNonce,
+        outcome: &Fragment<'_>,
+    ) -> Self::AnticipatedSignature;
 
     fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::Signature;
 
