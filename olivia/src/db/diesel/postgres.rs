@@ -290,9 +290,9 @@ mod test {
         let (db, container) = new_backend!(docker);
         container.stop();
         let db: Arc<dyn crate::db::Db> = Arc::new(db);
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
-        let event = core::AnnouncedEvent::test_instance(
-            &EventId::from_str("/test/postgres/database_fail?occur").unwrap(),
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let event = core::AnnouncedEvent::test_unattested_instance(
+            EventId::from_str("/test/postgres/database_fail?occur").unwrap().into(),
         );
 
         let res = rt.block_on(db.insert_event(event.clone()));

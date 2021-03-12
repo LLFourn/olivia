@@ -1,5 +1,5 @@
 use crate::{
-    core::{Event, OutcomeValue, Schnorr, StampedOutcome},
+    core::{Event, Group, StampedOutcome},
     db::Db,
     sources::Update,
 };
@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tokio::time;
 
 pub fn time_events_stream(
-    db: Arc<dyn Db<impl Schnorr>>,
+    db: Arc<dyn Db<impl Group>>,
     look_ahead: Duration,
     interval: Duration,
     initial_time: NaiveDateTime,
@@ -61,7 +61,7 @@ pub fn time_events_stream(
     })
 }
 
-pub fn time_outcomes_stream<C: crate::core::Schnorr>(
+pub fn time_outcomes_stream<C: crate::core::Group>(
     db: Arc<dyn Db<C>>,
     logger: slog::Logger,
 ) -> impl stream::Stream<Item = Update<StampedOutcome>> {
@@ -94,7 +94,7 @@ pub fn time_outcomes_stream<C: crate::core::Schnorr>(
 
                 event.is_none()
             } {
-                time::delay_for(std::time::Duration::from_secs(1)).await
+                time::sleep(std::time::Duration::from_secs(1)).await
             }
             let event = event.unwrap();
             let event_complete_time = event
@@ -110,7 +110,7 @@ pub fn time_outcomes_stream<C: crate::core::Schnorr>(
                     update: StampedOutcome {
                         outcome: Outcome {
                             id: event.id.clone(),
-                            value: OutcomeValue::Occurred,
+                            value: 0,
                         },
                         time: now(), // tell the actual truth about when we actually figured it was done
                     },
@@ -139,7 +139,7 @@ fn time_to_event_update(
 async fn delay_until(until: NaiveDateTime) {
     let delta = until - now();
     if delta > Duration::zero() {
-        time::delay_for(delta.to_std().unwrap().into()).await;
+        time::sleep(delta.to_std().unwrap().into()).await;
     }
 }
 
@@ -151,7 +151,7 @@ fn now() -> NaiveDateTime {
 pub mod test {
     use super::*;
     use crate::{
-        core::{AnnouncedEvent, EventId, Schnorr},
+        core::{AnnouncedEvent, EventId, Group},
         db::in_memory::InMemory,
     };
     use futures::stream::StreamExt;
@@ -163,7 +163,7 @@ pub mod test {
 
     /// this is called from tests for particular DB to populate their
     /// db before called test_time_ticker_db
-    pub fn time_ticker_db_test_data<C: Schnorr>() -> Vec<AnnouncedEvent<C>> {
+    pub fn time_ticker_db_test_data<C: Group>() -> Vec<AnnouncedEvent<C>> {
         vec![
             {
                 let time = NaiveDateTime::from_str("2020-03-01T00:25:00").unwrap();
@@ -216,7 +216,7 @@ pub mod test {
         ]
     }
 
-    pub async fn test_time_ticker_db<C: Schnorr>(db: Arc<dyn Db<C>>) {
+    pub async fn test_time_ticker_db<C: Group>(db: Arc<dyn Db<C>>) {
         let latest_time_event = db
             .latest_time_event()
             .await
@@ -239,7 +239,7 @@ pub mod test {
 
     #[test]
     fn time_ticker_events_stream() {
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
         let db: Arc<dyn Db> = Arc::new(InMemory::default());
         let start = now();
         let look_ahead = Duration::seconds(2);
@@ -306,7 +306,7 @@ pub mod test {
     #[test]
     fn time_ticker_outcome_empty_db() {
         let db: Arc<dyn Db> = Arc::new(InMemory::default());
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
 
         let mut stream = time_outcomes_stream(db.clone(), logger()).boxed();
         let future = stream.next();
@@ -322,7 +322,7 @@ pub mod test {
     #[test]
     fn time_ticker_outcome_in_future() {
         let db: Arc<dyn Db> = Arc::new(InMemory::default());
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
         let start = now();
 
         rt.block_on(
@@ -346,7 +346,7 @@ pub mod test {
     #[test]
     fn time_ticker_outcome_with_event_in_past() {
         let db: Arc<dyn Db> = Arc::new(InMemory::default());
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
         let start = now();
 
         rt.block_on(db.insert_event(AnnouncedEvent::test_unattested_instance(Event::from(start))))
@@ -367,7 +367,7 @@ pub mod test {
         );
         assert_eq!(
             stamped.outcome.value,
-            OutcomeValue::Occurred,
+            olivia_core::Occur::Occurred as u64,
             "outcome string should be true"
         );
         assert!(
@@ -381,7 +381,7 @@ pub mod test {
     fn time_ticker_wait_for_event_outcomes() {
         use crate::core::Attestation;
         let db: Arc<dyn Db> = Arc::new(InMemory::default());
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
         let mut stream = time_outcomes_stream(db.clone(), logger()).boxed();
         let start = now();
 

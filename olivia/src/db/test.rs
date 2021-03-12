@@ -1,19 +1,19 @@
 use super::*;
-use crate::core::{PathRef, Schnorr};
+use crate::core::{PathRef, Group};
 use std::str::FromStr;
 
-pub fn test_db(db: &dyn Db<impl Schnorr>) {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
-    test_insert_unattested(&mut rt, db);
-    test_insert_attested(&mut rt, db);
-    test_insert_unattested_then_complete(&mut rt, db);
-    test_insert_grandchild_event(&mut rt, db);
-    test_child_event_of_node_with_event(&mut rt, db);
-    test_get_non_existent_events(&mut rt, db);
-    test_multiple_events_on_one_node(&mut rt, db);
+pub fn test_db(db: &dyn Db<impl Group>) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    test_insert_unattested(&rt, db);
+    test_insert_attested(&rt, db);
+    test_insert_unattested_then_complete(&rt, db);
+    test_insert_grandchild_event(&rt, db);
+    test_child_event_of_node_with_event(&rt, db);
+    test_get_non_existent_events(&rt, db);
+    test_multiple_events_on_one_node(&rt, db);
 }
 
-fn test_insert_unattested(rt: &mut tokio::runtime::Runtime, db: &dyn Db<impl Schnorr>) {
+fn test_insert_unattested(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
     let unattested_id = EventId::from_str("/test/db/test-insert-unattested?occur").unwrap();
     let obs_event = AnnouncedEvent::test_unattested_instance(unattested_id.clone().into());
 
@@ -54,7 +54,7 @@ fn test_insert_unattested(rt: &mut tokio::runtime::Runtime, db: &dyn Db<impl Sch
     }
 }
 
-fn test_insert_attested(rt: &mut tokio::runtime::Runtime, db: &dyn Db<impl Schnorr>) {
+fn test_insert_attested(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
     let insert_attested_id = EventId::from_str("/test/db/test-insert-attested?occur").unwrap();
     let obs_event = AnnouncedEvent::test_attested_instance(insert_attested_id.clone().into());
 
@@ -94,8 +94,8 @@ fn test_insert_attested(rt: &mut tokio::runtime::Runtime, db: &dyn Db<impl Schno
 }
 
 fn test_insert_unattested_then_complete(
-    rt: &mut tokio::runtime::Runtime,
-    db: &dyn Db<impl Schnorr>,
+    rt: &tokio::runtime::Runtime,
+    db: &dyn Db<impl Group>,
 ) {
     let unattested_then_complete_id =
         EventId::from_str("/test/db/test-insert-unattested-then-complete?occur").unwrap();
@@ -120,7 +120,7 @@ fn test_insert_unattested_then_complete(
     );
 }
 
-fn test_insert_grandchild_event(rt: &mut tokio::runtime::Runtime, db: &dyn Db<impl Schnorr>) {
+fn test_insert_grandchild_event(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
     let grandchild_id = EventId::from_str("/test/db/dbchild/grandchild?occur").unwrap();
     rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(
         grandchild_id.clone().into(),
@@ -162,8 +162,8 @@ fn test_insert_grandchild_event(rt: &mut tokio::runtime::Runtime, db: &dyn Db<im
 }
 
 fn test_child_event_of_node_with_event(
-    rt: &mut tokio::runtime::Runtime,
-    db: &dyn Db<impl Schnorr>,
+    rt: &tokio::runtime::Runtime,
+    db: &dyn Db<impl Group>,
 ) {
     let child = EventId::from_str("/test/db/test-insert-attested/test-sub-event?occur").unwrap();
     rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(child.into())))
@@ -193,7 +193,7 @@ fn test_child_event_of_node_with_event(
     );
 }
 
-fn test_get_non_existent_events(rt: &mut tokio::runtime::Runtime, db: &dyn Db<impl Schnorr>) {
+fn test_get_non_existent_events(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
     let non_existent = EventId::from_str("/test/db/dont-exist?occur").unwrap();
     assert!(rt.block_on(db.get_event(&non_existent)).unwrap().is_none());
     assert!(rt
@@ -202,7 +202,7 @@ fn test_get_non_existent_events(rt: &mut tokio::runtime::Runtime, db: &dyn Db<im
         .is_none());
 }
 
-fn test_multiple_events_on_one_node(rt: &mut tokio::runtime::Runtime, db: &dyn Db<impl Schnorr>) {
+fn test_multiple_events_on_one_node(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
     let first = EventId::from_str("/test/db/RED_BLUE?vs").unwrap();
     let second = EventId::from_str("/test/db/RED_BLUE?left-win").unwrap();
 

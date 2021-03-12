@@ -68,7 +68,7 @@ impl LoggersConfig {
 }
 
 impl EventSourceConfig {
-    pub fn to_event_stream<C: core::Schnorr>(
+    pub fn to_event_stream<C: core::Group>(
         &self,
         name: &str,
         logger: slog::Logger,
@@ -127,7 +127,7 @@ impl EventSourceConfig {
 }
 
 impl OutcomeSourceConfig {
-    pub fn to_outcome_stream<C: core::Schnorr>(
+    pub fn to_outcome_stream<C: core::Group>(
         &self,
         name: &str,
         seed: &Seed,
@@ -198,7 +198,7 @@ impl OutcomeReEmitterConfig {
 }
 
 impl DbConfig {
-    pub fn connect_database<C: core::Schnorr>(
+    pub fn connect_database<C: core::Group>(
         &self,
     ) -> anyhow::Result<Arc<dyn db::Db<SchnorrImpl>>> {
         match self {

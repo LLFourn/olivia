@@ -5,6 +5,7 @@ use alloc::{
 };
 use chrono::NaiveDateTime;
 use core::{convert::TryFrom, fmt, str::FromStr};
+use core::convert::TryInto;
 
 #[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -35,35 +36,22 @@ impl StampedOutcome {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Outcome {
     pub id: EventId,
-    pub value: OutcomeValue,
+    pub value: u64,
 }
 
 impl Outcome {
     pub fn test_instance(event_id: &EventId) -> Self {
         Outcome {
             id: event_id.clone(),
-            value: event_id.test_outcome(),
-        }
-    }
-
-    pub fn fragments(&self) -> Vec<Fragment<'_>> {
-        match self.id.event_kind() {
-            EventKind::SingleOccurrence | EventKind::VsMatch(_) => {
-                vec![Fragment::from_event_outcome(self, 0)]
-            }
-            EventKind::Digits(n) => (0..n)
-                .map(|i| Fragment::from_event_outcome(self, i as usize))
-                .collect(),
+            value: event_id.n_outcomes() - 1,
         }
     }
 
     pub fn try_from_id_and_outcome(id: EventId, outcome: &str) -> Result<Self, OutcomeError> {
-        use OutcomeValue::*;
-        use VsOutcome::*;
         let value = match id.event_kind() {
             EventKind::SingleOccurrence => {
                 if outcome == "true" {
-                    Ok(Occurred)
+                    Ok(0)
                 } else {
                     Err(OutcomeError::BadFormat)
                 }
@@ -72,13 +60,13 @@ impl Outcome {
                 let (left, right) = id.parties().expect("it's a vs kind");
                 match kind {
                     VsMatchKind::WinOrDraw => match outcome {
-                        "draw" => Ok(Vs(Draw)),
+                        "draw" => Ok(2),
                         winner => match winner.strip_suffix("_win") {
                             Some(winner) => {
                                 if winner == left {
-                                    Ok(Vs(Winner(left.to_string())))
+                                    Ok(0)
                                 } else if winner == right {
-                                    Ok(Vs(Winner(right.to_string())))
+                                    Ok(1)
                                 } else {
                                     Err(OutcomeError::InvalidEntity {
                                         entity: winner.to_string(),
@@ -99,10 +87,7 @@ impl Outcome {
 
                         if let Some(winner) = outcome.strip_suffix("_win") {
                             if winner == posited_to_win {
-                                Ok(Win {
-                                    winning_side: winner.to_string(),
-                                    posited_won: true,
-                                })
+                                Ok(1)
                             } else {
                                 Err(OutcomeError::InvalidEntity {
                                     entity: winner.to_string(),
@@ -110,10 +95,7 @@ impl Outcome {
                             }
                         } else if let Some(win_or_draw) = outcome.strip_suffix("_win") {
                             if win_or_draw == other {
-                                Ok(Win {
-                                    winning_side: win_or_draw.to_string(),
-                                    posited_won: false,
-                                })
+                                Ok(0)
                             } else {
                                 Err(OutcomeError::InvalidEntity {
                                     entity: win_or_draw.to_string(),
@@ -130,107 +112,49 @@ impl Outcome {
                 if value.to_string().len() != n as usize {
                     return Err(OutcomeError::BadFormat);
                 }
-
-                Ok(Digits(value))
+                Ok(value)
             }
         };
 
         Ok(Self { value: value?, id })
     }
+
+
+    pub fn outcome_str(&self) -> String {
+        let mut outcome_str = String::new();
+        self.write_outcome_str(&mut outcome_str).unwrap();
+        outcome_str
+    }
+
+    pub fn write_outcome_str(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        match (self.id.event_kind(), self.value) {
+            (EventKind::SingleOccurrence, o) if o == Occur::Occurred as u64 => write!(f, "{}", "true"),
+            (EventKind::VsMatch(VsMatchKind::WinOrDraw), o) if o == WinOrDraw::LeftWon as u64 => write!(f, "{}_win", self.id.parties().unwrap().0),
+            (EventKind::VsMatch(VsMatchKind::WinOrDraw), o) if o == WinOrDraw::RightWon as u64 => write!(f, "{}_win", self.id.parties().unwrap().1),
+            (EventKind::VsMatch(VsMatchKind::WinOrDraw), o) if o == WinOrDraw::Draw as u64 => write!(f, "draw"),
+            (EventKind::VsMatch(VsMatchKind::Win { right_posited_to_win }), winner) if winner < 2 => match right_posited_to_win == (winner != WinOrDraw::LeftWon as u64) {
+                false => write!(f, "{}_win", self.id.parties().unwrap().0),
+                true => write!(f, "{}_win", self.id.parties().unwrap().1)
+            } ,
+            (EventKind::Digits(..), value) => write!(f, "{}", value),
+            _ => unreachable!("enum pairs must match if Outcome is valid")
+        }
+    }
+
+
+    pub fn attestation_indexes(&self) -> Vec<u32> {
+        match self.id.event_kind() {
+            EventKind::Digits(_n) => unimplemented!(),
+            _ => vec![self.value.try_into().unwrap()],
+        }
+    }
 }
 
 impl fmt::Display for Outcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}={}", self.id, self.value)
+        write!(f, "{}=", self.id)?;
+        self.write_outcome_str(f)
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum OutcomeValue {
-    Occurred,
-    Vs(VsOutcome),
-    Win {
-        winning_side: String,
-        posited_won: bool,
-    },
-    Digits(u64),
-}
-
-impl OutcomeValue {
-    pub fn write_to(&self, t: &mut impl fmt::Write) -> fmt::Result {
-        use OutcomeValue::*;
-        use VsOutcome::*;
-        match self {
-            Occurred => write!(t, "{}", "true"),
-            Vs(Winner(winner)) => write!(t, "{}_win", winner),
-            Vs(Draw) => write!(t, "draw"),
-            Win {
-                winning_side,
-                posited_won,
-            } => {
-                if *posited_won {
-                    write!(t, "{}_win", winning_side)
-                } else {
-                    write!(t, "{}_win", winning_side)
-                }
-            }
-            Digits(value) => write!(t, "{}", value),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Fragment<'a> {
-    pub index: usize,
-    pub event_id: &'a EventId,
-    pub outcome: OutcomeValue,
-}
-
-impl Fragment<'_> {
-    pub fn from_event_outcome(outcome: &Outcome, index: usize) -> Fragment<'_> {
-        Fragment {
-            index,
-            outcome: outcome.value.clone(),
-            event_id: &outcome.id,
-        }
-    }
-
-    pub fn write_to(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        use OutcomeValue::*;
-        write!(f, "{}.{}=", self.event_id, self.index)?;
-        match self.outcome {
-            Occurred | Vs(_) | Win { .. } => self.outcome.write_to(f),
-            Digits(value) => match self.event_id.event_kind() {
-                EventKind::Digits(n) => write!(
-                    f,
-                    "{}",
-                    format!("{:0width$}", value, width = n as usize)
-                        .chars()
-                        .nth(self.index)
-                        .unwrap()
-                ),
-                _ => panic!("event kind doesn't match outcome value"),
-            },
-        }
-    }
-}
-
-impl fmt::Display for Fragment<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.write_to(f)
-    }
-}
-
-impl fmt::Display for OutcomeValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.write_to(f)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum VsOutcome {
-    Winner(String),
-    Draw,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -268,20 +192,34 @@ impl TryFrom<WireEventOutcome> for StampedOutcome {
     }
 }
 
-impl OutcomeValue {}
 
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_digits_integer() {
-        let event_id = EventId::from_str("/foo/bar?digits_6").unwrap();
-        let outcome = Outcome::try_from_id_and_outcome(event_id, "123456").unwrap();
-        if let OutcomeValue::Digits(value) = outcome.value {
-            assert_eq!(value, 123456);
-        } else {
-            panic!("wrong outcome kind");
-        }
-    }
+pub enum Win {
+    PositedDidNotWin = 0,
+    PositedWon = 1
 }
+
+pub enum WinOrDraw {
+    LeftWon = 0,
+    RightWon = 1,
+    Draw = 2,
+}
+
+pub enum Occur {
+    Occurred = 0
+}
+
+// #[cfg(test)]
+// mod test {
+//     use super::*;
+
+//     #[test]
+//     fn test_digits_integer() {
+//         let event_id = EventId::from_str("/foo/bar?digits_6").unwrap();
+//         let outcome = Outcome::try_from_id_and_outcome(event_id, "123456").unwrap();
+//         if let OutcomeValue::Digits(value) = outcome.value {
+//             assert_eq!(value, 123456);
+//         } else {
+//             panic!("wrong outcome kind");
+//         }
+//     }
+// }

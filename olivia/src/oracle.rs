@@ -1,5 +1,5 @@
 use crate::{
-    core::{AnnouncedEvent, Attestation, Event, Schnorr, StampedOutcome},
+    core::{AnnouncedEvent, Attestation, Event, Group, StampedOutcome},
     curve::DeriveKeyPair,
     keychain::KeyChain,
     seed::Seed,
@@ -35,12 +35,12 @@ pub enum OutcomeResult {
     DbWriteErr(crate::db::Error),
 }
 
-pub struct Oracle<C: Schnorr + DeriveKeyPair> {
+pub struct Oracle<C: Group + DeriveKeyPair> {
     db: Arc<dyn crate::db::Db<C>>,
     keychain: KeyChain<C>,
 }
 
-impl<C: Schnorr + DeriveKeyPair> Oracle<C> {
+impl<C: Group + DeriveKeyPair> Oracle<C> {
     pub async fn new(seed: Seed, db: Arc<dyn crate::db::Db<C>>) -> anyhow::Result<Self> {
         let keychain = KeyChain::new(seed);
         let public_key = keychain.oracle_public_key();
@@ -88,7 +88,7 @@ impl<C: Schnorr + DeriveKeyPair> Oracle<C> {
 
     pub async fn complete_event(&self, stamped: StampedOutcome) -> Result<(), OutcomeResult> {
         let existing = self.db.get_event(&stamped.outcome.id).await;
-        let outcome_val_str = format!("{}", stamped.outcome.value);
+        let outcome_val_str = stamped.outcome.outcome_str();
         match existing {
             Ok(None) => Err(OutcomeResult::EventNotExist),
             Ok(Some(AnnouncedEvent {

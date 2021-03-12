@@ -2,17 +2,17 @@ use crate::{alloc::string::ToString, EventId, OracleEvent, Outcome};
 use alloc::{string::String, vec::Vec};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Attestation<C: crate::Schnorr> {
+pub struct Attestation<C: crate::Group> {
     pub outcome: String,
-    pub scalars: Vec<C::SigScalar>,
+    pub scalars: Vec<C::AttestScalar>,
     pub time: chrono::NaiveDateTime,
 }
 
-impl<C: crate::Schnorr> Attestation<C> {
+impl<C: crate::Group> Attestation<C> {
     pub fn new(
         outcome: String,
         mut time: chrono::NaiveDateTime,
-        scalars: Vec<C::SigScalar>,
+        scalars: Vec<C::AttestScalar>,
     ) -> Self {
         use chrono::Timelike;
         time = time.with_nanosecond(0).expect("0 is valid");
@@ -38,45 +38,28 @@ impl<C: crate::Schnorr> Attestation<C> {
             return false;
         }
 
-        let signatures = self
-            .scalars
-            .iter()
-            .zip(oracle_event.nonces.iter())
-            .map(|(scalar, nonce)| {
-                C::signature_from_scalar_and_nonce(scalar.clone(), nonce.clone())
-            })
-            .collect::<Vec<_>>();
+        for (frag_index, index) in outcome.attestation_indexes().iter().enumerate() {
+            if !C::verify_attest_scalar(oracle_public_key, &oracle_event.nonces[frag_index], *index as u32, &self.scalars[frag_index]) {
+                return false;
+            }
+        }
 
-        signatures
-            .iter()
-            .zip(outcome.fragments())
-            .all(|(signature, fragment)| {
-                C::verify_signature(
-                    oracle_public_key,
-                    fragment.to_string().as_bytes(),
-                    signature,
-                )
-            })
+        true
     }
 
     pub fn test_instance(event_id: &EventId) -> Self {
         let outcome = Outcome::test_instance(event_id);
 
-        let fragments = outcome
-            .fragments()
-            .into_iter()
-            .map(|fragment| {
-                C::reveal_signature_s(
-                    &C::test_keypair(),
-                    C::test_nonce_keypair(),
-                    fragment.to_string().as_bytes(),
-                )
-            })
-            .collect();
+        let nonces = (0..event_id.n_nonces()).map(|_|C::reveal_attest_scalar(
+            &C::test_keypair(),
+            C::test_nonce_keypair(),
+            0,
+        )).collect();
+
         Attestation::new(
-            outcome.value.to_string(),
+            outcome.to_string(),
             chrono::Utc::now().naive_utc(),
-            fragments,
+            nonces,
         )
     }
 }

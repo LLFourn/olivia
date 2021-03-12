@@ -7,7 +7,7 @@ pub fn add(config: Config, entity: &str) -> anyhow::Result<()> {
     let secret_seed = config.secret_seed.ok_or(anyhow::anyhow!(
         "Cannot use the add command when oracle is in read-only mode"
     ))?;
-    let mut rt = tokio::runtime::Runtime::new()?;
+    let rt = tokio::runtime::Runtime::new()?;
     let db = config.database.connect_database::<SchnorrImpl>()?;
     let oracle = rt.block_on(Oracle::new(secret_seed, db.clone()))?;
 

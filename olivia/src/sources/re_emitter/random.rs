@@ -1,7 +1,7 @@
 use super::{EventReEmitter, OutcomeReEmitter};
 use crate::{seed::Seed, sources::Update};
 use futures::StreamExt;
-use olivia_core::{Event, EventId, EventKind, Outcome, OutcomeValue, StampedOutcome};
+use olivia_core::{Event, EventId, EventKind, Outcome, StampedOutcome};
 use std::str::FromStr;
 
 pub struct HeadsOrTailsEvents;
@@ -51,24 +51,14 @@ impl OutcomeReEmitter for HeadsOrTailsOutcomes {
             .flat_map(move |update| {
                 let stamped = &update.update;
                 let mut re_emit = vec![];
-                if stamped.outcome.value == OutcomeValue::Occurred {
+                if let EventKind::SingleOccurrence = stamped.outcome.id.event_kind() {
                     if let Some(event_id) = time_event_to_random(&stamped.outcome.id) {
                         let event_randomness = seed.child(event_id.as_bytes());
-                        let outcome = match (event_randomness.as_ref()[0] & 0x01) == 1 {
-                            true => OutcomeValue::Win {
-                                winning_side: "heads".into(),
-                                posited_won: true,
-                            },
-                            false => OutcomeValue::Win {
-                                winning_side: "tails".into(),
-                                posited_won: false,
-                            },
-                        };
-
+                        let value = (event_randomness.as_ref()[0] & 0x01) as u64;
                         re_emit.push(Update::from(StampedOutcome {
                             outcome: Outcome {
                                 id: event_id,
-                                value: outcome,
+                                value,
                             },
                             time: stamped.time,
                         }))
@@ -130,7 +120,7 @@ mod test {
         .map(|id| {
             StampedOutcome {
                 outcome: Outcome {
-                    value: OutcomeValue::Occurred,
+                    value: olivia_core::Occur::Occurred as u64,
                     id,
                 },
                 time,

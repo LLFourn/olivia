@@ -9,7 +9,7 @@ pub mod hex;
 pub mod http;
 mod macros;
 mod outcome;
-mod schnorr;
+mod group;
 mod oracle_info;
 
 pub use announcement::*;
@@ -18,7 +18,7 @@ pub use descriptor::*;
 pub use entity::*;
 pub use event::*;
 pub use outcome::*;
-pub use schnorr::*;
+pub use group::*;
 pub use oracle_info::*;
 
 #[cfg_attr(not(feature = "std"), macro_use)]

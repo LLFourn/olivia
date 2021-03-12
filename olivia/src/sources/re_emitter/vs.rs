@@ -1,6 +1,6 @@
 use super::{EventReEmitter, OutcomeReEmitter};
 use crate::{
-    core::{Event, EventKind, OutcomeValue, StampedOutcome, VsMatchKind, VsOutcome},
+    core::{Event, EventKind, StampedOutcome, VsMatchKind, WinOrDraw, Win},
     sources::{EventStream, OutcomeStream, Update},
 };
 use futures::StreamExt;
@@ -37,30 +37,25 @@ impl EventReEmitter for Vs {
 
 impl OutcomeReEmitter for Vs {
     fn re_emit_outcomes(&self, outcomes: OutcomeStream) -> OutcomeStream {
-        use OutcomeValue::*;
-        use VsOutcome::*;
         outcomes
             .map(|update| {
                 let stamped = &update.update;
                 let id = &stamped.outcome.id;
                 let mut re_emit = vec![];
 
-                if let Vs(ref vs_outcome) = stamped.outcome.value {
-                    let (left, right) = id.parties().unwrap();
+                if let EventKind::VsMatch(VsMatchKind::WinOrDraw) = id.event_kind() {
                     for &right_posited_to_win in &[true, false] {
-                        let new_outcome = match vs_outcome {
-                            Winner(winner) => OutcomeValue::Win {
-                                winning_side: winner.clone(),
-                                posited_won: right_posited_to_win == (right == winner),
-                            },
-                            Draw => OutcomeValue::Win {
-                                winning_side: if right_posited_to_win {
-                                    left.to_string()
-                                } else {
-                                    right.to_string()
-                                },
-                                posited_won: false,
-                            },
+                        let new_outcome = match stamped.outcome.value {
+                            x if x == WinOrDraw::LeftWon as u64  => match right_posited_to_win {
+                                true => Win::PositedDidNotWin as u64,
+                                false => Win::PositedWon as u64,
+                            }
+                            x if x == WinOrDraw::RightWon as u64 => match right_posited_to_win {
+                                true => Win::PositedWon as u64,
+                                false => Win::PositedDidNotWin as u64,
+                            }
+                            x if x == WinOrDraw::Draw as u64 => Win::PositedDidNotWin as u64,
+                            _ => continue,
                         };
                         re_emit.push(Update::from(StampedOutcome {
                             time: stamped.time,
@@ -73,7 +68,6 @@ impl OutcomeReEmitter for Vs {
                         }));
                     }
                 }
-
                 re_emit.push(update);
                 futures::stream::iter(re_emit)
             })
@@ -90,7 +84,7 @@ mod test {
 
     #[test]
     fn vs_re_emit_events() {
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
 
         let incoming: Vec<Update<Event>> = vec![
             EventId::from_str("/foo/bar/FOO_BAR?vs").unwrap().into(),
@@ -123,22 +117,20 @@ mod test {
 
     #[test]
     fn vs_re_emit_outcomes() {
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
         let time = chrono::Utc::now().naive_utc();
         let incoming: Vec<Update<StampedOutcome>> = {
-            use OutcomeValue::*;
-            use VsOutcome::*;
             vec![
                 StampedOutcome {
                     outcome: Outcome {
-                        value: Vs(Winner("FOO1".to_string())),
+                        value: WinOrDraw::LeftWon as u64,
                         id: EventId::from_str("/foo/bar/FOO1_BAR1?vs").unwrap(),
                     },
                     time,
                 },
                 StampedOutcome {
                     outcome: Outcome {
-                        value: Vs(Winner("BAR2".to_string())),
+                        value: WinOrDraw::RightWon as u64,
                         id: EventId::from_str("/foo/bar/FOO2_BAR2?vs").unwrap(),
                     },
                     time,
@@ -146,7 +138,7 @@ mod test {
                 StampedOutcome {
                     outcome: Outcome {
                         id: EventId::from_str("/foo/bar/FOO3_BAR3?vs").unwrap(),
-                        value: Vs(Draw),
+                        value: WinOrDraw::Draw as u64,
                     },
                     time,
                 },

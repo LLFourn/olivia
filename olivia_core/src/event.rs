@@ -1,7 +1,5 @@
-use crate::Fragment;
-use crate::{Descriptor, OutcomeValue, VsOutcome};
+use crate::{Descriptor};
 use alloc::{
-    prelude::v1::Box,
     string::{String, ToString},
     vec::Vec,
 };
@@ -40,9 +38,9 @@ impl fmt::Display for EventKind {
 }
 
 impl EventKind {
-    pub fn n_fragments(&self) -> usize {
+    pub fn n_nonces(&self) -> u8 {
         match self {
-            EventKind::Digits(n) => *n as usize,
+            EventKind::Digits(n) => *n,
             _ => 1,
         }
     }
@@ -113,6 +111,24 @@ impl EventId {
         }
     }
 
+    pub fn n_outcomes_for_nonce(&self, _nonce_index: usize) -> u32 {
+        match self.event_kind() {
+            EventKind::VsMatch(kind) => match kind {
+                VsMatchKind::WinOrDraw => 3,
+                _ => 2,
+            },
+            EventKind::SingleOccurrence => 1,
+            EventKind::Digits(_n) => unimplemented!()
+        }
+    }
+
+    pub fn n_outcomes(&self) -> u64 {
+        match self.event_kind() {
+            EventKind::Digits(_n) => unimplemented!(),
+            _ => self.n_outcomes_for_nonce(0) as u64,
+        }
+    }
+
     pub fn replace_kind(&self, kind: EventKind) -> EventId {
         let mut replaced = self.0.clone();
         replaced.set_query(Some(&kind.to_string()));
@@ -141,53 +157,6 @@ impl EventId {
         }
     }
 
-    pub fn outcomes(&self) -> Box<dyn Iterator<Item = OutcomeValue>> {
-        match self.event_kind() {
-            EventKind::VsMatch(kind) => {
-                let (left, right) = self.parties().unwrap();
-                match kind {
-                    VsMatchKind::Win {
-                        right_posited_to_win,
-                    } => Box::new(
-                        vec![
-                            OutcomeValue::Win {
-                                winning_side: left.to_string(),
-                                posited_won: !right_posited_to_win,
-                            },
-                            OutcomeValue::Win {
-                                winning_side: right.to_string(),
-                                posited_won: right_posited_to_win,
-                            },
-                        ]
-                        .into_iter(),
-                    ),
-                    VsMatchKind::WinOrDraw => Box::new(
-                        vec![
-                            OutcomeValue::Vs(VsOutcome::Winner(left.to_string())),
-                            OutcomeValue::Vs(VsOutcome::Winner(right.to_string())),
-                            OutcomeValue::Vs(VsOutcome::Draw),
-                        ]
-                        .into_iter(),
-                    ),
-                }
-            }
-            EventKind::SingleOccurrence => Box::new(vec![OutcomeValue::Occurred].into_iter()),
-            EventKind::Digits(n) => Box::new(
-                (0..(10u64.pow(n as u32) - 1))
-                    .into_iter()
-                    .map(|i| OutcomeValue::Digits(i)),
-            ),
-        }
-    }
-
-    pub fn fragments(&self, fragment_index: usize) -> impl Iterator<Item = Fragment<'_>> {
-        self.outcomes().map(move |outcome| Fragment {
-            index: fragment_index,
-            event_id: &self,
-            outcome
-        })
-    }
-
     pub fn is_binary(&self) -> bool {
         match self.event_kind() {
             EventKind::VsMatch(kind) => {
@@ -200,25 +169,8 @@ impl EventId {
         }
     }
 
-    pub fn test_outcome(&self) -> crate::OutcomeValue {
-        use crate::OutcomeValue::*;
-        match self.event_kind() {
-            EventKind::VsMatch(kind) => {
-                let (left, right) = self.parties().unwrap();
-                use crate::VsOutcome::*;
-                match kind {
-                    VsMatchKind::WinOrDraw => Vs(Winner(left.to_string())),
-                    VsMatchKind::Win {
-                        right_posited_to_win,
-                    } => Win {
-                        winning_side: right.to_string(),
-                        posited_won: right_posited_to_win == true,
-                    },
-                }
-            }
-            EventKind::Digits(n) => Digits(10u64.pow((n - 1).into())),
-            EventKind::SingleOccurrence => Occurred,
-        }
+    pub fn n_nonces(&self) -> u8 {
+        self.event_kind().n_nonces()
     }
 }
 

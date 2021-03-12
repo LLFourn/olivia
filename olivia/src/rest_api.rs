@@ -1,7 +1,7 @@
 use crate::{
     core::{
-        http::{EventResponse, PathResponse},
-        EventId, PathRef, Schnorr,
+        http::{EventResponse, PathResponse, RootResponse},
+        EventId, PathRef, Group,
     },
     db::Db,
 };
@@ -96,7 +96,7 @@ pub struct Filters<C> {
     curve: PhantomData<C>,
 }
 
-impl<C: Schnorr> Filters<C> {
+impl<C: Group> Filters<C> {
     pub fn with_db(
         &self,
         db: Arc<dyn Db<C>>,
@@ -140,7 +140,7 @@ impl<C: Schnorr> Filters<C> {
     pub fn get_path(
         &self,
         db: Arc<dyn Db<C>>,
-    ) -> impl Filter<Extract = (ApiReply<PathResponse<C>>,), Error = Infallible> + Clone
+    ) -> impl Filter<Extract = (ApiReply<PathResponse>,), Error = Infallible> + Clone
     {
         warp::path::tail().and(self.with_db(db)).and_then(
             async move |tail: warp::filters::path::Tail, db: Arc<dyn Db<C>>| {
@@ -149,7 +149,6 @@ impl<C: Schnorr> Filters<C> {
                 let node = db.get_node(&path).await;
                 let reply = match node {
                     Ok(Some(node)) => ApiReply::Ok(PathResponse {
-                        public_key: None,
                         events: node.events,
                         children: node.children,
                     }),
@@ -165,7 +164,7 @@ impl<C: Schnorr> Filters<C> {
     pub fn get_root(
         &self,
         db: Arc<dyn Db<C>>,
-    ) -> impl Filter<Extract = (ApiReply<PathResponse<C>>,), Error = Infallible> + Clone {
+    ) -> impl Filter<Extract = (ApiReply<RootResponse<C>>,), Error = Infallible> + Clone {
         self.with_db(db.clone()).and_then(
             async move |db: Arc<dyn Db<C>>| {
                 let public_key = db.get_public_key().await;
@@ -173,10 +172,12 @@ impl<C: Schnorr> Filters<C> {
 
                 let reply = if let Ok(Some(public_key)) = public_key {
                     if let Ok(Some(node)) = res {
-                        ApiReply::Ok(PathResponse {
-                            public_key: Some(public_key),
-                            events: node.events,
-                            children: node.children,
+                        ApiReply::Ok(RootResponse {
+                            public_key: public_key,
+                            path_response: PathResponse {
+                                events: node.events,
+                                children: node.children,
+                            }
                         })
                     } else {
                         ApiReply::Err(ErrorMessage::internal_server_error())
@@ -191,7 +192,7 @@ impl<C: Schnorr> Filters<C> {
     }
 }
 
-pub fn routes<C: Schnorr>(
+pub fn routes<C: Group>(
     db: Arc<dyn Db<C>>,
     _logger: slog::Logger,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::reject::Rejection> + Clone {
@@ -259,7 +260,7 @@ mod test {
             let res = warp::test::request().path(path).reply(&routes).await;
 
             assert_eq!(res.status(), 200);
-            let body = j::<PathResponse<SchnorrImpl>>(&res.body()).unwrap();
+            let body = j::<PathResponse>(&res.body()).unwrap();
             assert_eq!(body.events, [event_id.clone()]);
         }
 
@@ -273,7 +274,7 @@ mod test {
             .reply(&routes)
             .await;
 
-        let body = j::<PathResponse<SchnorrImpl>>(&res.body()).unwrap();
+        let body = j::<PathResponse>(&res.body()).unwrap();
         assert_eq!(body.children, ["/test/one/two/3", "/test/one/two/4"]);
     }
 
@@ -291,9 +292,9 @@ mod test {
 
         let res = warp::test::request().path("/").reply(&routes).await;
         assert_eq!(res.status(), 200);
-        let body = j::<PathResponse<SchnorrImpl>>(&res.body()).unwrap();
-        assert_eq!(body.children, ["/test"]);
-        assert_eq!(body.public_key, Some(oracle.public_key()));
+        let body = j::<RootResponse<SchnorrImpl>>(&res.body()).unwrap();
+        assert_eq!(body.path_response.children, ["/test"]);
+        assert_eq!(body.public_key, oracle.public_key());
     }
 
     #[tokio::test]
@@ -318,10 +319,9 @@ mod test {
 
         let public_key = {
             let root = warp::test::request().path("/").reply(&routes).await;
-            j::<PathResponse<SchnorrImpl>>(&root.body())
+            j::<RootResponse<SchnorrImpl>>(&root.body())
                 .unwrap()
                 .public_key
-                .unwrap()
         };
 
         let res = warp::test::request()

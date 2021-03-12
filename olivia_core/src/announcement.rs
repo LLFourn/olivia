@@ -1,10 +1,10 @@
-use crate::{Attestation, Descriptor, Event, EventId, Schnorr};
+use crate::{Attestation, Descriptor, Event, EventId, Group};
 use alloc::{string::String, vec::Vec};
 use chrono::NaiveDateTime;
 use core::{convert::TryFrom, marker::PhantomData};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RawAnnouncement<C: Schnorr> {
+pub struct RawAnnouncement<C: Group> {
     pub oracle_event: RawOracleEvent<C>,
     pub signature: C::Signature,
 }
@@ -17,14 +17,14 @@ pub struct RawOracleEvent<C> {
     curve: PhantomData<C>,
 }
 
-impl<C: Schnorr> RawOracleEvent<C> {
+impl<C: Group> RawOracleEvent<C> {
     #[must_use]
     pub fn verify(
         &self,
         oracle_public_key: &C::PublicKey,
         announcement_signature: &C::Signature,
     ) -> bool {
-        C::verify_signature(
+        C::verify_announcement_signature(
             oracle_public_key,
             self.payload.as_bytes(),
             announcement_signature,
@@ -36,7 +36,7 @@ impl<C: Schnorr> RawOracleEvent<C> {
     }
 
     pub fn sign(&self, keypair: &C::KeyPair) -> C::Signature {
-        C::sign(keypair, self.payload.as_bytes())
+        C::sign_announcement(keypair, self.payload.as_bytes())
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -58,7 +58,7 @@ enum RawOracleEventEncoding {
 }
 
 impl RawOracleEventEncoding {
-    fn decode<C: Schnorr>(&self) -> Option<OracleEvent<C>> {
+    fn decode<C: Group>(&self) -> Option<OracleEvent<C>> {
         use RawOracleEventEncoding::*;
         match self {
             Json(string) => serde_json::from_str(string).ok(),
@@ -74,7 +74,7 @@ impl RawOracleEventEncoding {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct OracleEventWithDescriptor<C: Schnorr> {
+pub struct OracleEventWithDescriptor<C: Group> {
     pub id: EventId,
     pub expected_outcome_time: Option<NaiveDateTime>,
     pub descriptor: Descriptor,
@@ -86,12 +86,12 @@ pub struct OracleEventWithDescriptor<C: Schnorr> {
     try_from = "OracleEventWithDescriptor<C>",
     into = "OracleEventWithDescriptor<C>"
 )]
-pub struct OracleEvent<C: Schnorr> {
+pub struct OracleEvent<C: Group> {
     pub event: Event,
     pub nonces: Vec<C::PublicNonce>,
 }
 
-impl<C: Schnorr> TryFrom<OracleEventWithDescriptor<C>> for OracleEvent<C> {
+impl<C: Group> TryFrom<OracleEventWithDescriptor<C>> for OracleEvent<C> {
     type Error = String;
 
     fn try_from(oracle_event: OracleEventWithDescriptor<C>) -> Result<Self, Self::Error> {
@@ -113,7 +113,7 @@ impl<C: Schnorr> TryFrom<OracleEventWithDescriptor<C>> for OracleEvent<C> {
     }
 }
 
-impl<C: Schnorr> From<OracleEvent<C>> for OracleEventWithDescriptor<C> {
+impl<C: Group> From<OracleEvent<C>> for OracleEventWithDescriptor<C> {
     fn from(oracle_event: OracleEvent<C>) -> Self {
         let descriptor = oracle_event.event.id.descriptor();
         OracleEventWithDescriptor {
@@ -125,7 +125,7 @@ impl<C: Schnorr> From<OracleEvent<C>> for OracleEventWithDescriptor<C> {
     }
 }
 
-impl<C: Schnorr> OracleEvent<C> {
+impl<C: Group> OracleEvent<C> {
     fn encode_json(&self) -> RawOracleEvent<C> {
         RawOracleEvent {
             payload: RawOracleEventEncoding::Json(serde_json::to_string(self).unwrap()),
@@ -133,22 +133,16 @@ impl<C: Schnorr> OracleEvent<C> {
         }
     }
 
-    pub fn anticipate_signatures(
+    pub fn anticipate_attestations(
         &self,
         public_key: &C::PublicKey,
-        fragment_index: usize,
-    ) -> Vec<C::AnticipatedSignature> {
-        self.event.id.fragments(fragment_index).map(|fragment|
-                C::anticipate_signature(public_key, &self.nonces[fragment.index], &fragment)
-            )
-            .collect()
+        nonce_index: usize,
+    ) -> Vec<C::AnticipatedAttestation> {
+        C::anticipate_attestations(public_key, &self.nonces[nonce_index], self.event.id.n_outcomes_for_nonce(nonce_index))
     }
-
-
-
 }
 
-impl<C: Schnorr> RawAnnouncement<C> {
+impl<C: Group> RawAnnouncement<C> {
     #[must_use]
     pub fn verify_against_id(
         &self,
@@ -183,7 +177,7 @@ impl<C: Schnorr> RawAnnouncement<C> {
         Self::create(
             event.clone(),
             &C::test_keypair(),
-            (0..event.id.event_kind().n_fragments())
+            (0..event.id.event_kind().n_nonces())
                 .map(|_| C::test_nonce_keypair().into())
                 .collect(),
         )
@@ -191,13 +185,13 @@ impl<C: Schnorr> RawAnnouncement<C> {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct AnnouncedEvent<C: Schnorr> {
+pub struct AnnouncedEvent<C: Group> {
     pub event: Event,
     pub announcement: RawAnnouncement<C>,
     pub attestation: Option<Attestation<C>>,
 }
 
-impl<C: Schnorr> AnnouncedEvent<C> {
+impl<C: Group> AnnouncedEvent<C> {
     pub fn test_attested_instance(event: Event) -> Self {
         Self {
             event: event.clone(),

@@ -1,9 +1,10 @@
-use crate::schnorr::Schnorr;
+use crate::Group;
 
 pub type OracleId = alloc::string::String;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
-pub struct OracleInfo<C: Schnorr> {
+pub struct OracleInfo<C: Group> {
     pub id: OracleId,
-    pub public_key: C::PublicKey
+    pub announcement_key: C::PublicKey,
+    pub attestation_key: C::PublicKey,
 }

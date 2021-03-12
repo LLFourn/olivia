@@ -1,13 +1,9 @@
 #![allow(non_snake_case)]
-use olivia_core::Fragment;
-pub use schnorr_fun;
+pub use schnorr_fun::{self, fun, KeyPair};
 use schnorr_fun::{
-    fun::{digest::Digest, marker::*, nonce::Deterministic, s, Point, Scalar, XOnly, G},
-    Schnorr,
-    Message
+    fun::{marker::*, nonce::Deterministic, s, g, Point, Scalar, XOnly, G},
+    Message, Schnorr,
 };
-pub use schnorr_fun::KeyPair;
-pub use schnorr_fun::fun;
 use sha2::Sha256;
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -52,18 +48,18 @@ olivia_core::impl_fromstr_deserailize_fromsql! {
 #[derive(PartialEq, Clone)]
 #[cfg_attr(feature = "diesel", derive(diesel::FromSqlRow, diesel::AsExpression))]
 #[cfg_attr(feature = "diesel", sql_type = "diesel::sql_types::Binary")]
-pub struct SigScalar(Scalar<Public, NonZero>);
+pub struct AttestScalar(Scalar<Public, NonZero>);
 
 olivia_core::impl_display_debug_serialize_tosql! {
-    fn to_bytes(scalar: &SigScalar) -> [u8;32] {
+    fn to_bytes(scalar: &AttestScalar) -> [u8;32] {
         scalar.0.to_bytes()
     }
 }
 
 olivia_core::impl_fromstr_deserailize_fromsql! {
     name => "secp256k1 scalar",
-    fn from_bytes(bytes: [u8;32]) ->  Option<SigScalar> {
-        Scalar::from_bytes(bytes).and_then(|scalar| scalar.mark::<NonZero>()).map(|s| SigScalar(s.mark::<Public>()))
+    fn from_bytes(bytes: [u8;32]) ->  Option<AttestScalar> {
+        Scalar::from_bytes(bytes).and_then(|scalar| scalar.mark::<NonZero>()).map(|s| AttestScalar(s.mark::<Public>()))
     }
 }
 
@@ -113,10 +109,9 @@ impl From<PublicNonce> for XOnly {
     }
 }
 
-
-impl From<SigScalar> for Scalar<Public, NonZero> {
-    fn from(sig_scalar: SigScalar) -> Self {
-        sig_scalar.0
+impl From<AttestScalar> for Scalar<Public, NonZero> {
+    fn from(att_scalar: AttestScalar) -> Self {
+        att_scalar.0
     }
 }
 
@@ -133,56 +128,31 @@ impl From<(Scalar, XOnly)> for PublicNonce {
     }
 }
 
-impl olivia_core::Schnorr for Secp256k1 {
+impl olivia_core::Group for Secp256k1 {
     type KeyPair = KeyPair;
     type PublicKey = PublicKey;
     type PublicNonce = PublicNonce;
-    type SigScalar = SigScalar;
     type NonceKeyPair = (Scalar, XOnly);
     type Signature = Signature;
-    type AnticipatedSignature = Point<Jacobian, Public, Zero>;
+    type AttestScalar = AttestScalar;
+    type AnticipatedAttestation = Point<Jacobian, Public, NonZero>;
 
     fn name() -> &'static str {
         "secp256k1"
     }
 
-    fn reveal_signature_s(
-        signing_keypair: &Self::KeyPair,
-        nonce_keypair: Self::NonceKeyPair,
-        message: &[u8],
-    ) -> Self::SigScalar {
-        let (x, X) = signing_keypair.as_tuple();
-        let (r, R) = nonce_keypair;
-        let message = Digest::chain(Sha256::default(), message).finalize();
-        let c = SCHNORR.challenge(&R, X, Message::<Public>::raw(&message[..]));
-        let s = s!(r + c * x);
-        SigScalar(s.mark::<(Public,NonZero)>().expect("computationally unreachable"))
-    }
-
-    fn signature_from_scalar_and_nonce(
-        scalar: Self::SigScalar,
-        nonce: Self::PublicNonce,
-    ) -> Self::Signature {
-        Signature(schnorr_fun::Signature {
-            R: nonce.0,
-            s: scalar.0.mark::<Zero>(),
-        })
-    }
-
-    fn verify_signature(
+    fn verify_announcement_signature(
         public_key: &Self::PublicKey,
         message: &[u8],
         sig: &Self::Signature,
     ) -> bool {
         let public_key = public_key.0.clone();
-        let message = Digest::chain(Sha256::default(), message).finalize();
         let verification_key = public_key.to_point();
-        SCHNORR.verify(&verification_key, Message::<Public>::raw(&message[..]), &sig.0)
-    }
-
-    fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::Signature {
-        let message = Digest::chain(Sha256::default(), message).finalize();
-        Signature(SCHNORR.sign(keypair, Message::<Public>::raw(&message[..])))
+        SCHNORR.verify(
+            &verification_key,
+            Message::<Public>::plain("DLC/announcement", &message[..]),
+            &sig.0,
+        )
     }
 
     fn test_keypair() -> Self::KeyPair {
@@ -201,31 +171,47 @@ impl olivia_core::Schnorr for Secp256k1 {
         (r, R)
     }
 
-    fn anticipate_signature(
-        public_key: &Self::PublicKey,
-        nonce: &Self::PublicNonce,
-        outcome: &Fragment<'_>,
-    ) -> Self::AnticipatedSignature {
-        let mut hash = WriteDigest(Sha256::default());
-        outcome.write_to(&mut hash).expect("cannot fail");
-        let hashed_message = hash.0.finalize();
-        SCHNORR
-            .anticipate_signature(
-                &public_key.0.to_point(),
-                &nonce.0.to_point(),
-                Message::<Public>::raw(hashed_message.as_slice()),
-            )
+    fn reveal_attest_scalar(
+        signing_key: &Self::KeyPair,
+        nonce_key: Self::NonceKeyPair,
+        index: u32,
+    ) -> Self::AttestScalar {
+        let r = nonce_key.0;
+        let c = Scalar::from(index);
+        AttestScalar(s!(r + c * { signing_key.secret_key() } ).mark::<(Public, NonZero)>().expect("will not be zero since public_key and public_nonce are independent"))
     }
-}
 
+    fn anticipate_attestations(
+        public_key: &Self::PublicKey,
+        public_nonce: &Self::PublicNonce,
+        n_outcomes: u32,
+    ) -> Vec<Self::AnticipatedAttestation> {
+        let X = public_key.0.to_point();
+        let R = public_nonce.0.to_point().mark::<Jacobian>();
+        (0..n_outcomes).scan( R, |C: &mut Point<Jacobian>, _| {
+            *C = g!({ *C } + X).mark::<NonZero>().expect("will not be zero since public_key and public_nonce are independent");
+            Some(*C)
+        }).collect()
+    }
 
+    fn sign_announcement(keypair: &Self::KeyPair, announcement: &[u8]) -> Self::Signature {
+        Signature(SCHNORR.sign(
+            keypair,
+            Message::<Public>::plain("DLC/announcement", announcement),
+        ))
+    }
 
-struct WriteDigest<D>(D);
-
-impl<D: Digest> core::fmt::Write for WriteDigest<D> {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        self.0.update(s.as_bytes());
-        Ok(())
+    fn verify_attest_scalar(
+        public_key: &Self::PublicKey,
+        public_nonce: &Self::PublicNonce,
+        index: u32,
+        attest_scalar: &Self::AttestScalar,
+    ) -> bool {
+        let s = &attest_scalar.0;
+        let R = public_nonce.0.to_point();
+        let X = public_key.0.to_point();
+        let c = Scalar::from(index);
+        g!(s * G) == g!(R + c * X)
     }
 }
 

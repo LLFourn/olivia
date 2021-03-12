@@ -12,10 +12,10 @@ use olivia_secp256k1::{
 pub type SchnorrImpl = Secp256k1;
 pub type PublicKey = olivia_secp256k1::PublicKey;
 pub type PublicNonce = olivia_secp256k1::PublicNonce;
-pub type SigScalar = olivia_secp256k1::SigScalar;
+pub type AttestScalar = olivia_secp256k1::AttestScalar;
 pub type Signature = olivia_secp256k1::Signature;
 
-pub trait DeriveKeyPair: olivia_core::Schnorr {
+pub trait DeriveKeyPair: olivia_core::Group {
     fn derive_keypair(seed: &Seed) -> Self::KeyPair;
     fn derive_nonce_keypair(seed: &Seed, index: u32) -> Self::NonceKeyPair;
 }

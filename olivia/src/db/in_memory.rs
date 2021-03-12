@@ -1,17 +1,17 @@
 use crate::{
-    core::{AnnouncedEvent, Attestation, Event, EventId, Schnorr},
+    core::{AnnouncedEvent, Attestation, Event, EventId, Group},
     db::*,
 };
 use anyhow::anyhow;
 use async_trait::async_trait;
 use std::{collections::HashMap, sync::RwLock};
 
-pub struct InMemory<C: Schnorr> {
+pub struct InMemory<C: Group> {
     public_key: RwLock<Option<C::PublicKey>>,
     inner: RwLock<HashMap<EventId, AnnouncedEvent<C>>>,
 }
 
-impl<C: Schnorr> Default for InMemory<C> {
+impl<C: Group> Default for InMemory<C> {
     fn default() -> Self {
         Self {
             public_key: RwLock::new(None),
@@ -21,7 +21,7 @@ impl<C: Schnorr> Default for InMemory<C> {
 }
 
 #[async_trait]
-impl<C: Schnorr> DbRead<C> for InMemory<C> {
+impl<C: Group> DbRead<C> for InMemory<C> {
     async fn get_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent<C>>, crate::db::Error> {
         let db = &*self.inner.read().unwrap();
         Ok(db.get(&id).map(Clone::clone))
@@ -80,7 +80,7 @@ impl<C: Schnorr> DbRead<C> for InMemory<C> {
 }
 
 #[async_trait]
-impl<C: Schnorr> DbWrite<C> for InMemory<C> {
+impl<C: Group> DbWrite<C> for InMemory<C> {
     async fn insert_event(
         &self,
         observed_event: AnnouncedEvent<C>,
@@ -109,7 +109,7 @@ impl<C: Schnorr> DbWrite<C> for InMemory<C> {
 }
 
 #[async_trait]
-impl<C: Schnorr> TimeTickerDb for InMemory<C> {
+impl<C: Group> TimeTickerDb for InMemory<C> {
     async fn latest_time_event(&self) -> Result<Option<Event>, crate::db::Error> {
         let db = self.inner.read().unwrap();
         let mut obs_events: Vec<&AnnouncedEvent<C>> = db
@@ -133,7 +133,7 @@ impl<C: Schnorr> TimeTickerDb for InMemory<C> {
 }
 
 #[async_trait]
-impl<C: Schnorr> DbMeta<C> for InMemory<C> {
+impl<C: Group> DbMeta<C> for InMemory<C> {
     async fn get_public_key(&self) -> Result<Option<C::PublicKey>, Error> {
         Ok(self.public_key.read().unwrap().as_ref().map(Clone::clone))
     }
@@ -144,7 +144,7 @@ impl<C: Schnorr> DbMeta<C> for InMemory<C> {
     }
 }
 
-impl<C: Schnorr> Db<C> for InMemory<C> {}
+impl<C: Group> Db<C> for InMemory<C> {}
 
 #[cfg(test)]
 mod test {

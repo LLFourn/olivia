@@ -94,7 +94,7 @@ struct Attestation {
     pub event_id: String,
     pub outcome: String,
     pub time: chrono::NaiveDateTime,
-    pub scalars: Vec<SigScalar>,
+    pub scalars: Vec<AttestScalar>,
 }
 
 impl Attestation {

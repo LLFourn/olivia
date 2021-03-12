@@ -1,9 +1,9 @@
-use crate::Fragment;
+use alloc::vec::Vec;
 
-pub trait Schnorr:
+pub trait Group:
     Clone + Default + PartialEq + serde::Serialize + 'static + Send + Sync + core::fmt::Debug
 {
-    type SigScalar: PartialEq
+    type AttestScalar: PartialEq
         + Clone
         + core::fmt::Debug
         + serde::Serialize
@@ -43,34 +43,31 @@ pub trait Schnorr:
 
     type KeyPair: Into<Self::PublicKey> + Clone;
     type NonceKeyPair: Into<Self::PublicNonce> + Clone;
-    type AnticipatedSignature;
+    type AnticipatedAttestation;
 
     fn name() -> &'static str;
 
-    fn reveal_signature_s(
+    fn reveal_attest_scalar(
         signing_key: &Self::KeyPair,
         nonce_key: Self::NonceKeyPair,
-        message: &[u8],
-    ) -> Self::SigScalar;
+        index: u32,
+    ) -> Self::AttestScalar;
 
-    fn signature_from_scalar_and_nonce(
-        scalar: Self::SigScalar,
-        nonce: Self::PublicNonce,
-    ) -> Self::Signature;
+    fn verify_attest_scalar(attest_key: &Self::PublicKey ,nonce_key: &Self::PublicNonce, index: u32, attest_scalar: &Self::AttestScalar) -> bool;
 
-    fn verify_signature(
+    fn verify_announcement_signature(
         public_key: &Self::PublicKey,
         message: &[u8],
         sig: &Self::Signature,
     ) -> bool;
 
-    fn anticipate_signature(
+    fn anticipate_attestations(
         public_key: &Self::PublicKey,
         public_nonce: &Self::PublicNonce,
-        outcome: &Fragment<'_>,
-    ) -> Self::AnticipatedSignature;
+        n_outcomes: u32,
+    ) -> Vec<Self::AnticipatedAttestation>;
 
-    fn sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::Signature;
+    fn sign_announcement(keypair: &Self::KeyPair, announcement: &[u8]) -> Self::Signature;
 
     fn test_keypair() -> Self::KeyPair;
 
@@ -84,7 +81,7 @@ macro_rules! impl_deserialize_curve {
             fn deserialize<D: serde::de::Deserializer<'de>>(
                 deserializer: D,
             ) -> Result<$curve, D::Error> {
-                use $crate::Schnorr;
+                use $crate::Group;
                 let curve = String::deserialize(deserializer)?;
                 if curve == $curve::name() {
                     Ok($curve::default())
@@ -101,7 +98,7 @@ macro_rules! impl_deserialize_curve {
 
         impl serde::Serialize for $curve {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-                use $crate::Schnorr;
+                use $crate::Group;
                 serializer.serialize_str($curve::name())
             }
         }

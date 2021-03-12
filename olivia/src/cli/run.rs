@@ -11,7 +11,7 @@ use futures::{future::FutureExt, stream, stream::StreamExt};
 use std::sync::Arc;
 
 pub fn run(config: Config) -> anyhow::Result<()> {
-    let mut rt = tokio::runtime::Runtime::new()?;
+    let rt = tokio::runtime::Runtime::new()?;
 
     let logger = slog::Logger::root(config.loggers.to_slog_drain()?, o!());
     let db: Arc<dyn Db<SchnorrImpl>> = config.database.connect_database::<SchnorrImpl>()?;

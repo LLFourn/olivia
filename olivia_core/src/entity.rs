@@ -59,7 +59,6 @@ impl From<EventIdError> for ParseEntityError {
 
 #[cfg(test)]
 mod test {
-    use crate::OutcomeValue;
 
     use super::*;
 
@@ -75,7 +74,7 @@ mod test {
         match Entity::from_str("/foo/bar?occur=true").unwrap() {
             Entity::Outcome(outcome) => {
                 assert_eq!(outcome.id, EventId::from_str("/foo/bar?occur").unwrap());
-                assert_eq!(outcome.value, OutcomeValue::Occurred);
+                assert_eq!(outcome.value, crate::Occur::Occurred as u64);
             }
             _ => panic!(),
         }
