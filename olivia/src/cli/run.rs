@@ -25,6 +25,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             logger.new(o!("type" => "http")),
         ))
         .run(rest_config.listen)
+        .inspect(|_| info!(logger, "HTTP API server has shut down"))
         .boxed();
 
         services.push(rest_api_server);
@@ -72,6 +73,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                             .boxed()
                     },
                 )
+                .inspect(|_| info!(logger, "Event processing has stopped"))
                 .boxed();
 
             // Processing outcomes
@@ -92,6 +94,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                         })
                     },
                 )
+                .inspect(|_| info!(logger, "Outcome processing has stopped"))
                 .boxed();
 
             // This solves a lifetime issue
