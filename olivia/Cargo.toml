@@ -29,7 +29,7 @@ diesel_migrations = "1.4"
 structopt = "0.3"
 thiserror = "1.0"
 serde_yaml = "0.8"
-rand = "0.7"
+rand = "0.8"
 olivia_core = { path = "../olivia_core", features = ["std", "diesel"] }
 olivia_secp256k1 = { path = "../olivia_secp256k1", features = ["diesel"] }
 generic-array = { version = "0.14", features = ["more_lengths"] }
