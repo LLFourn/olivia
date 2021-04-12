@@ -1,5 +1,5 @@
 use crate::{
-    core::{self, EventId, RawOracleEvent},
+    core::{self, EventId, RawOracleEvent, OracleKeys},
     curve::*,
 };
 use diesel::Insertable;
@@ -182,5 +182,6 @@ struct MetaRow {
 #[derive(serde::Serialize, serde::Deserialize)]
 struct PublicKeyMeta {
     curve: SchnorrImpl,
-    public_key: PublicKey,
+    #[serde(flatten)]
+    public_keys: OracleKeys<SchnorrImpl>,
 }

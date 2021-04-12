@@ -2,11 +2,7 @@ use super::{
     schema::{self, announcements, attestations, events, tree},
     AnnouncedEvent, Attestation, Event, MetaRow, Node, PublicKeyMeta,
 };
-use crate::{
-    core::{self, EventId},
-    curve::*,
-    db,
-};
+use crate::{core::{self, EventId, OracleKeys}, curve::*, db};
 use async_trait::async_trait;
 use diesel::{
     associations::HasTable, pg::PgConnection, result::Error as DieselError, Connection,
@@ -219,32 +215,32 @@ impl crate::db::Db<SchnorrImpl> for PgBackend {}
 
 #[async_trait]
 impl db::DbMeta<SchnorrImpl> for PgBackend {
-    async fn get_public_key(&self) -> Result<Option<PublicKey>, db::Error> {
+    async fn get_public_keys(&self) -> Result<Option<OracleKeys<SchnorrImpl>>, db::Error> {
         use schema::meta::dsl::*;
         let db_mutex = self.conn.clone();
-        tokio::task::spawn_blocking(move || -> Result<Option<PublicKey>, db::Error> {
+        tokio::task::spawn_blocking(move || -> Result<Option<OracleKeys<SchnorrImpl>>, db::Error> {
             let db = &*db_mutex.lock().unwrap();
-            let meta_row = meta.find("public_key").first::<MetaRow>(db);
+            let meta_row = meta.find("public_keys").first::<MetaRow>(db);
             match meta_row {
                 Err(DieselError::NotFound) => Ok(None),
                 Err(e) => Err(e.into()),
                 Ok(meta_row) => Ok(Some(
-                    serde_json::from_value::<PublicKeyMeta>(meta_row.value)?.public_key,
+                    serde_json::from_value::<PublicKeyMeta>(meta_row.value)?.public_keys,
                 )),
             }
         })
         .await?
     }
 
-    async fn set_public_key(&self, public_key: PublicKey) -> Result<(), db::Error> {
+    async fn set_public_keys(&self, public_keys: OracleKeys<SchnorrImpl>) -> Result<(), db::Error> {
         use schema::meta::dsl::*;
         let db_mutex = self.conn.clone();
         let meta_value = serde_json::to_value(PublicKeyMeta {
             curve: SchnorrImpl::default(),
-            public_key,
+            public_keys,
         })?;
         let meta_row = MetaRow {
-            key: "public_key".into(),
+            key: "public_keys".into(),
             value: meta_value,
         };
         tokio::task::spawn_blocking(move || {

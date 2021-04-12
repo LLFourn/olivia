@@ -178,7 +178,7 @@ impl olivia_core::Group for Secp256k1 {
     ) -> Self::AttestScalar {
         let r = nonce_key.0;
         let c = Scalar::from(index);
-        AttestScalar(s!(r + c * { signing_key.secret_key() } ).mark::<(Public, NonZero)>().expect("will not be zero since public_key and public_nonce are independent"))
+        AttestScalar(s!((c+1)*r + { signing_key.secret_key() } ).mark::<(Public, NonZero)>().expect("will not be zero since public_key and public_nonce are independent"))
     }
 
     fn anticipate_attestations(
@@ -186,10 +186,10 @@ impl olivia_core::Group for Secp256k1 {
         public_nonce: &Self::PublicNonce,
         n_outcomes: u32,
     ) -> Vec<Self::AnticipatedAttestation> {
-        let X = public_key.0.to_point();
+        let X = public_key.0.to_point().mark::<Jacobian>();
         let R = public_nonce.0.to_point().mark::<Jacobian>();
-        (0..n_outcomes).scan( R, |C: &mut Point<Jacobian>, _| {
-            *C = g!({ *C } + X).mark::<NonZero>().expect("will not be zero since public_key and public_nonce are independent");
+        (0..n_outcomes).scan( X, |C: &mut Point<Jacobian>, _| {
+            *C = g!({ *C } + R).mark::<NonZero>().expect("will not be zero since public_key and public_nonce are independent");
             Some(*C)
         }).collect()
     }
@@ -211,8 +211,24 @@ impl olivia_core::Group for Secp256k1 {
         let R = public_nonce.0.to_point();
         let X = public_key.0.to_point();
         let c = Scalar::from(index);
-        g!(s * G) == g!(R + c * X)
+        g!(s * G) == g!((c + 1) * R + X)
     }
 }
 
 olivia_core::impl_deserialize_curve!(Secp256k1);
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use olivia_core::Group;
+    #[test]
+    fn anticipate_vs_attest() {
+        let oracle_key = Secp256k1::test_keypair();
+        let nonce_key = Secp256k1::test_nonce_keypair();
+        let attestation_points = Secp256k1::anticipate_attestations(&oracle_key.clone().into(), &nonce_key.clone().into(), 5);
+        let expected = (0..5).map(|i| g!( { Secp256k1::reveal_attest_scalar(&oracle_key, nonce_key.clone(), i as u32).0 } * G)).collect::<Vec<_>>();
+        dbg!(&oracle_key, &attestation_points, &expected);
+        assert_eq!(attestation_points, expected);
+    }
+}

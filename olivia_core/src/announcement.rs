@@ -147,9 +147,9 @@ impl<C: Group> RawAnnouncement<C> {
     pub fn verify_against_id(
         &self,
         event_id: &EventId,
-        oracle_public_key: &C::PublicKey,
+        oracle_announcement_key: &C::PublicKey,
     ) -> Option<OracleEvent<C>> {
-        if !self.oracle_event.verify(oracle_public_key, &self.signature) {
+        if !self.oracle_event.verify(oracle_announcement_key, &self.signature) {
             return None;
         }
 

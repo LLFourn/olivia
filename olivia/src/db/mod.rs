@@ -1,4 +1,4 @@
-use crate::core::{AnnouncedEvent, Attestation, Event, EventId, Group};
+use crate::core::{AnnouncedEvent, Attestation, Event, EventId, Group, OracleKeys};
 pub mod diesel;
 pub mod in_memory;
 use async_trait::async_trait;
@@ -31,8 +31,8 @@ pub trait DbWrite<C: Group>: Send + Sync {
 
 #[async_trait]
 pub trait DbMeta<C: Group>: Send + Sync {
-    async fn get_public_key(&self) -> Result<Option<C::PublicKey>, Error>;
-    async fn set_public_key(&self, public_key: C::PublicKey) -> Result<(), Error>;
+    async fn get_public_keys(&self) -> Result<Option<OracleKeys<C>>, Error>;
+    async fn set_public_keys(&self, public_key: OracleKeys<C>) -> Result<(), Error>;
 }
 
 #[async_trait]

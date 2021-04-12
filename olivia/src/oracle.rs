@@ -1,5 +1,5 @@
 use crate::{
-    core::{AnnouncedEvent, Attestation, Event, Group, StampedOutcome},
+    core::{AnnouncedEvent, Attestation, Event, Group, StampedOutcome, OracleKeys},
     curve::DeriveKeyPair,
     keychain::KeyChain,
     seed::Seed,
@@ -43,22 +43,22 @@ pub struct Oracle<C: Group + DeriveKeyPair> {
 impl<C: Group + DeriveKeyPair> Oracle<C> {
     pub async fn new(seed: Seed, db: Arc<dyn crate::db::Db<C>>) -> anyhow::Result<Self> {
         let keychain = KeyChain::new(seed);
-        let public_key = keychain.oracle_public_key();
-        if let Some(db_pubkey) = db.get_public_key().await? {
-            if public_key != db_pubkey {
+        let public_keys = keychain.oracle_public_keys();
+        if let Some(db_pubkeys) = db.get_public_keys().await? {
+            if public_keys != db_pubkeys {
                 return Err(anyhow!(
                     "public key derived from seed does not match database"
                 ));
             }
         } else {
-            db.set_public_key(public_key).await?
+            db.set_public_keys(public_keys).await?
         }
 
         Ok(Self { db, keychain })
     }
 
-    pub fn public_key(&self) -> C::PublicKey {
-        self.keychain.oracle_public_key()
+    pub fn public_keys(&self) -> OracleKeys<C> {
+        self.keychain.oracle_public_keys()
     }
 
     pub async fn add_event(&self, new_event: Event) -> Result<(), EventResult> {
@@ -131,8 +131,8 @@ pub mod test {
         let oracle = Oracle::new(crate::seed::Seed::new([42u8; 64]), db.clone())
             .await
             .expect("should be able to create oracle");
-        let public_key = db
-            .get_public_key()
+        let public_keys = db
+            .get_public_keys()
             .await
             .unwrap()
             .expect("creating oracle should have set public keys");
@@ -147,7 +147,7 @@ pub mod test {
 
         let oracle_event = event
             .announcement
-            .verify_against_id(&event_id, &public_key)
+            .verify_against_id(&event_id, &public_keys.announcement_key)
             .expect("announcement signature should be valid");
 
         let outcome: StampedOutcome = WireEventOutcome {
@@ -167,6 +167,6 @@ pub mod test {
             .expect("event should still be there");
 
         let attestation = attested_event.attestation.expect("should be attested to");
-        assert!(attestation.verify_attestation(&oracle_event, &public_key));
+        assert!(attestation.verify_attestation(&oracle_event, &public_keys.attestation_key));
     }
 }

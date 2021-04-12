@@ -1,5 +1,5 @@
 use crate::{
-    core::{AnnouncedEvent, Attestation, Event, EventId, Group},
+    core::{AnnouncedEvent, Attestation, Event, EventId, Group, OracleKeys},
     db::*,
 };
 use anyhow::anyhow;
@@ -7,14 +7,14 @@ use async_trait::async_trait;
 use std::{collections::HashMap, sync::RwLock};
 
 pub struct InMemory<C: Group> {
-    public_key: RwLock<Option<C::PublicKey>>,
+    public_keys: RwLock<Option<OracleKeys<C>>>,
     inner: RwLock<HashMap<EventId, AnnouncedEvent<C>>>,
 }
 
 impl<C: Group> Default for InMemory<C> {
     fn default() -> Self {
         Self {
-            public_key: RwLock::new(None),
+            public_keys: RwLock::new(None),
             inner: RwLock::new(HashMap::default()),
         }
     }
@@ -134,12 +134,12 @@ impl<C: Group> TimeTickerDb for InMemory<C> {
 
 #[async_trait]
 impl<C: Group> DbMeta<C> for InMemory<C> {
-    async fn get_public_key(&self) -> Result<Option<C::PublicKey>, Error> {
-        Ok(self.public_key.read().unwrap().as_ref().map(Clone::clone))
+    async fn get_public_keys(&self) -> Result<Option<OracleKeys<C>>, Error> {
+        Ok(self.public_keys.read().unwrap().as_ref().map(Clone::clone))
     }
 
-    async fn set_public_key(&self, public_key: C::PublicKey) -> Result<(), Error> {
-        *self.public_key.write().unwrap() = Some(public_key);
+    async fn set_public_keys(&self, public_keys: OracleKeys<C>) -> Result<(), Error> {
+        *self.public_keys.write().unwrap() = Some(public_keys);
         Ok(())
     }
 }

@@ -167,13 +167,13 @@ impl<C: Group> Filters<C> {
     ) -> impl Filter<Extract = (ApiReply<RootResponse<C>>,), Error = Infallible> + Clone {
         self.with_db(db.clone()).and_then(
             async move |db: Arc<dyn Db<C>>| {
-                let public_key = db.get_public_key().await;
+                let public_keys = db.get_public_keys().await;
                 let res = db.get_node(PathRef::root().as_str()).await;
 
-                let reply = if let Ok(Some(public_key)) = public_key {
+                let reply = if let Ok(Some(public_keys)) = public_keys {
                     if let Ok(Some(node)) = res {
                         ApiReply::Ok(RootResponse {
-                            public_key: public_key,
+                            public_keys,
                             path_response: PathResponse {
                                 events: node.events,
                                 children: node.children,
@@ -294,7 +294,7 @@ mod test {
         assert_eq!(res.status(), 200);
         let body = j::<RootResponse<SchnorrImpl>>(&res.body()).unwrap();
         assert_eq!(body.path_response.children, ["/test"]);
-        assert_eq!(body.public_key, oracle.public_key());
+        assert_eq!(body.public_keys, oracle.public_keys());
     }
 
     #[tokio::test]
@@ -317,11 +317,11 @@ mod test {
             "similar but non-existing event should 404"
         );
 
-        let public_key = {
+        let public_keys = {
             let root = warp::test::request().path("/").reply(&routes).await;
             j::<RootResponse<SchnorrImpl>>(&root.body())
                 .unwrap()
-                .public_key
+                .public_keys
         };
 
         let res = warp::test::request()
@@ -333,7 +333,7 @@ mod test {
 
         assert!(body
             .announcement
-            .verify_against_id(&event_id, &public_key)
+            .verify_against_id(&event_id, &public_keys.announcement_key)
             .is_some())
     }
 }

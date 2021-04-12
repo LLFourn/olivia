@@ -1,4 +1,4 @@
-use crate::{AnnouncedEvent, Attestation, EventId, RawAnnouncement, Group};
+use crate::{AnnouncedEvent, Attestation, EventId, Group, OracleKeys, RawAnnouncement};
 use alloc::{string::String, vec::Vec};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -15,7 +15,8 @@ pub struct EventResponse<C: Group> {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RootResponse<C: Group> {
-    pub public_key: C::PublicKey,
+    #[serde(flatten)]
+    pub public_keys: OracleKeys<C>,
     #[serde(flatten)]
     pub path_response: PathResponse,
 }
