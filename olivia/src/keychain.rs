@@ -43,11 +43,14 @@ impl<C: Group + DeriveKeyPair> KeyChain<C> {
             .iter()
             .enumerate()
             .map(|(i, index)| {
-                C::reveal_attest_scalar(
+                let nonce_keypair = C::derive_nonce_keypair(&event_idx, i as u32);
+                let scalar = C::reveal_attest_scalar(
                     &self.attestation_keypair,
-                    C::derive_nonce_keypair(&event_idx, i as u32),
+                    nonce_keypair.clone(),
                     *index
-                )
+                );
+                assert!(C::verify_attest_scalar(&self.attestation_keypair.clone().into(), &nonce_keypair.clone().into(), *index, &scalar));
+                scalar
             })
             .collect()
     }

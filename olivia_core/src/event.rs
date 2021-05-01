@@ -46,7 +46,7 @@ impl EventKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "diesel", derive(diesel::AsExpression, diesel::FromSqlRow))]
 #[cfg_attr(feature = "diesel", sql_type = "diesel::sql_types::Text")]
 pub struct EventId(url::Url);
@@ -318,13 +318,20 @@ impl fmt::Display for EventId {
     }
 }
 
+
+impl fmt::Debug for EventId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
 impl fmt::Display for PathRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Event {
     pub id: EventId,
@@ -344,6 +351,7 @@ impl From<NaiveDateTime> for EventId {
         EventId::from_str(&format!("/time/{}?occur", dt.format("%FT%T"))).unwrap()
     }
 }
+
 
 #[cfg(feature = "diesel")]
 mod sql_impls {
@@ -393,7 +401,7 @@ mod serde_impl {
                 }
             }
 
-            deserializer.deserialize_any(Visitor)
+            deserializer.deserialize_str(Visitor)
         }
     }
 

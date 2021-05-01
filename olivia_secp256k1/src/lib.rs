@@ -48,7 +48,7 @@ olivia_core::impl_fromstr_deserailize_fromsql! {
 #[derive(PartialEq, Clone)]
 #[cfg_attr(feature = "diesel", derive(diesel::FromSqlRow, diesel::AsExpression))]
 #[cfg_attr(feature = "diesel", sql_type = "diesel::sql_types::Binary")]
-pub struct AttestScalar(Scalar<Public, NonZero>);
+pub struct AttestScalar(Scalar<Public, Zero>);
 
 olivia_core::impl_display_debug_serialize_tosql! {
     fn to_bytes(scalar: &AttestScalar) -> [u8;32] {
@@ -59,7 +59,7 @@ olivia_core::impl_display_debug_serialize_tosql! {
 olivia_core::impl_fromstr_deserailize_fromsql! {
     name => "secp256k1 scalar",
     fn from_bytes(bytes: [u8;32]) ->  Option<AttestScalar> {
-        Scalar::from_bytes(bytes).and_then(|scalar| scalar.mark::<NonZero>()).map(|s| AttestScalar(s.mark::<Public>()))
+        Scalar::from_bytes(bytes).map(|s| AttestScalar(s.mark::<Public>()))
     }
 }
 
@@ -109,7 +109,7 @@ impl From<PublicNonce> for XOnly {
     }
 }
 
-impl From<AttestScalar> for Scalar<Public, NonZero> {
+impl From<AttestScalar> for Scalar<Public, Zero> {
     fn from(att_scalar: AttestScalar) -> Self {
         att_scalar.0
     }
@@ -135,7 +135,7 @@ impl olivia_core::Group for Secp256k1 {
     type NonceKeyPair = (Scalar, XOnly);
     type Signature = Signature;
     type AttestScalar = AttestScalar;
-    type AnticipatedAttestation = Point<Jacobian, Public, NonZero>;
+    type AnticipatedAttestation = Point<Jacobian, Public, Zero>;
 
     fn name() -> &'static str {
         "secp256k1"
@@ -178,7 +178,7 @@ impl olivia_core::Group for Secp256k1 {
     ) -> Self::AttestScalar {
         let r = nonce_key.0;
         let c = Scalar::from(index);
-        AttestScalar(s!((c+1)*r + { signing_key.secret_key() } ).mark::<(Public, NonZero)>().expect("will not be zero since public_key and public_nonce are independent"))
+        AttestScalar(s!((c+1)*r + { signing_key.secret_key() } ).mark::<Public>())
     }
 
     fn anticipate_attestations(
@@ -186,10 +186,10 @@ impl olivia_core::Group for Secp256k1 {
         public_nonce: &Self::PublicNonce,
         n_outcomes: u32,
     ) -> Vec<Self::AnticipatedAttestation> {
-        let X = public_key.0.to_point().mark::<Jacobian>();
+        let X = public_key.0.to_point().mark::<(Jacobian, Zero)>();
         let R = public_nonce.0.to_point().mark::<Jacobian>();
-        (0..n_outcomes).scan( X, |C: &mut Point<Jacobian>, _| {
-            *C = g!({ *C } + R).mark::<NonZero>().expect("will not be zero since public_key and public_nonce are independent");
+        (0..n_outcomes).scan( X, |C: &mut Point<Jacobian, Public, Zero>, _| {
+            *C = g!({ *C } + R);
             Some(*C)
         }).collect()
     }

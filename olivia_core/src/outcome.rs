@@ -87,21 +87,18 @@ impl Outcome {
 
                         if let Some(winner) = outcome.strip_suffix("_win") {
                             if winner == posited_to_win {
+                                Ok(0)
+                            }
+                            else if winner == other {
                                 Ok(1)
-                            } else {
+                            }
+                            else {
                                 Err(OutcomeError::InvalidEntity {
                                     entity: winner.to_string(),
                                 })
                             }
-                        } else if let Some(win_or_draw) = outcome.strip_suffix("_win") {
-                            if win_or_draw == other {
-                                Ok(0)
-                            } else {
-                                Err(OutcomeError::InvalidEntity {
-                                    entity: win_or_draw.to_string(),
-                                })
-                            }
-                        } else {
+                        }
+                        else {
                             Err(OutcomeError::BadFormat)
                         }
                     }
@@ -191,6 +188,9 @@ impl TryFrom<WireEventOutcome> for StampedOutcome {
         })
     }
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for OutcomeError {  }
 
 
 pub enum Win {
