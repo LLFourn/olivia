@@ -1,5 +1,5 @@
 use super::*;
-use crate::core::{PathRef, Group};
+use crate::core::{Group, PathRef};
 use std::str::FromStr;
 
 pub fn test_db(db: &dyn Db<impl Group>) {
@@ -93,10 +93,7 @@ fn test_insert_attested(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
     }
 }
 
-fn test_insert_unattested_then_complete(
-    rt: &tokio::runtime::Runtime,
-    db: &dyn Db<impl Group>,
-) {
+fn test_insert_unattested_then_complete(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
     let unattested_then_complete_id =
         EventId::from_str("/test/db/test-insert-unattested-then-complete?occur").unwrap();
 
@@ -161,10 +158,7 @@ fn test_insert_grandchild_event(rt: &tokio::runtime::Runtime, db: &dyn Db<impl G
     assert_eq!(grandchild.events[..], [grandchild_id])
 }
 
-fn test_child_event_of_node_with_event(
-    rt: &tokio::runtime::Runtime,
-    db: &dyn Db<impl Group>,
-) {
+fn test_child_event_of_node_with_event(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
     let child = EventId::from_str("/test/db/test-insert-attested/test-sub-event?occur").unwrap();
     rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(child.into())))
         .unwrap();
@@ -204,7 +198,7 @@ fn test_get_non_existent_events(rt: &tokio::runtime::Runtime, db: &dyn Db<impl G
 
 fn test_multiple_events_on_one_node(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
     let first = EventId::from_str("/test/db/RED_BLUE?vs").unwrap();
-    let second = EventId::from_str("/test/db/RED_BLUE?left-win").unwrap();
+    let second = EventId::from_str("/test/db/RED_BLUE?win").unwrap();
 
     rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(first.clone().into())))
         .unwrap();
@@ -220,5 +214,5 @@ fn test_multiple_events_on_one_node(rt: &tokio::runtime::Runtime, db: &dyn Db<im
 
     red_blue.events.sort();
 
-    assert_eq!(red_blue.events, [second, first]);
+    assert_eq!(red_blue.events, [first, second]);
 }

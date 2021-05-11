@@ -1,4 +1,4 @@
-use crate::{Descriptor};
+use crate::Descriptor;
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -16,19 +16,14 @@ pub enum EventKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum VsMatchKind {
     WinOrDraw,
-    Win { right_posited_to_win: bool },
+    Win,
 }
 
 impl fmt::Display for EventKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EventKind::VsMatch(kind) => match kind {
-                VsMatchKind::Win {
-                    right_posited_to_win,
-                } => match right_posited_to_win {
-                    true => write!(f, "right-win"),
-                    false => write!(f, "left-win"),
-                },
+                VsMatchKind::Win => write!(f, "win"),
                 VsMatchKind::WinOrDraw => write!(f, "vs"),
             },
             EventKind::SingleOccurrence => write!(f, "occur"),
@@ -87,15 +82,10 @@ impl EventId {
             .collect::<Vec<_>>();
 
         match &event_kind[..] {
-            ["vs"] | ["left-win"] | ["right-win"] => {
+            ["vs"] | ["win"] => {
                 let vs_kind = match &event_kind[..] {
                     ["vs"] => VsMatchKind::WinOrDraw,
-                    ["left-win"] => VsMatchKind::Win {
-                        right_posited_to_win: false,
-                    },
-                    ["right-win"] => VsMatchKind::Win {
-                        right_posited_to_win: true,
-                    },
+                    ["win"] => VsMatchKind::Win,
                     _ => unreachable!("we have narrowed this aready"),
                 };
                 EventKind::VsMatch(vs_kind)
@@ -118,7 +108,7 @@ impl EventId {
                 _ => 2,
             },
             EventKind::SingleOccurrence => 1,
-            EventKind::Digits(_n) => unimplemented!()
+            EventKind::Digits(_n) => unimplemented!(),
         }
     }
 
@@ -159,11 +149,9 @@ impl EventId {
 
     pub fn is_binary(&self) -> bool {
         match self.event_kind() {
-            EventKind::VsMatch(kind) => {
-                match kind {
-                    VsMatchKind::Win { .. } => true,
-                    _ => false
-                }
+            EventKind::VsMatch(kind) => match kind {
+                VsMatchKind::Win { .. } => true,
+                _ => false,
             },
             _ => false,
         }
@@ -219,7 +207,7 @@ impl TryFrom<url::Url> for EventId {
         let event_kind_segments = event_kind.split("_").collect::<Vec<_>>();
 
         match &event_kind_segments[..] {
-            ["vs"] | ["left-win"] | ["right-win"] => {
+            ["vs"] | ["win"] => {
                 let last = path.last().ok_or(EventIdError::BadFormat)?;
                 let teams: Vec<_> = last.split('_').collect();
                 if teams.len() != 2 || teams[0] == teams[1] {
@@ -318,7 +306,6 @@ impl fmt::Display for EventId {
     }
 }
 
-
 impl fmt::Debug for EventId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self, f)
@@ -351,7 +338,6 @@ impl From<NaiveDateTime> for EventId {
         EventId::from_str(&format!("/time/{}?occur", dt.format("%FT%T"))).unwrap()
     }
 }
-
 
 #[cfg(feature = "diesel")]
 mod sql_impls {

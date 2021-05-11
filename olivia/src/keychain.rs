@@ -1,5 +1,5 @@
 use crate::{
-    core::{Event, EventId, RawAnnouncement, Group, StampedOutcome, OracleKeys},
+    core::{Event, EventId, Group, OracleKeys, RawAnnouncement, StampedOutcome},
     curve::DeriveKeyPair,
     seed::Seed,
 };
@@ -15,14 +15,14 @@ impl<C: Group + DeriveKeyPair> KeyChain<C> {
         Self {
             event_seed: seed.child(b"oracle-events"),
             announcement_keypair: C::derive_keypair(&seed.child(b"oracle-key/announcement")),
-            attestation_keypair: C::derive_keypair(&seed.child(b"oracle-key/attestation"))
+            attestation_keypair: C::derive_keypair(&seed.child(b"oracle-key/attestation")),
         }
     }
 
     pub fn oracle_public_keys(&self) -> OracleKeys<C> {
         OracleKeys {
             attestation_key: self.attestation_keypair.clone().into(),
-            announcement_key: self.announcement_keypair.clone().into()
+            announcement_key: self.announcement_keypair.clone().into(),
         }
     }
 
@@ -47,9 +47,14 @@ impl<C: Group + DeriveKeyPair> KeyChain<C> {
                 let scalar = C::reveal_attest_scalar(
                     &self.attestation_keypair,
                     nonce_keypair.clone(),
-                    *index
+                    *index,
                 );
-                assert!(C::verify_attest_scalar(&self.attestation_keypair.clone().into(), &nonce_keypair.clone().into(), *index, &scalar));
+                assert!(C::verify_attest_scalar(
+                    &self.attestation_keypair.clone().into(),
+                    &nonce_keypair.clone().into(),
+                    *index,
+                    &scalar
+                ));
                 scalar
             })
             .collect()

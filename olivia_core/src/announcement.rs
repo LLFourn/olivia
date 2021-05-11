@@ -103,7 +103,7 @@ impl<C: Group> TryFrom<OracleEventWithDescriptor<C>> for OracleEvent<C> {
             Ok(OracleEvent {
                 event: Event {
                     id: oracle_event.id,
-                    expected_outcome_time: oracle_event.expected_outcome_time
+                    expected_outcome_time: oracle_event.expected_outcome_time,
                 },
                 nonces: oracle_event.nonces,
             })
@@ -138,7 +138,11 @@ impl<C: Group> OracleEvent<C> {
         public_key: &C::PublicKey,
         nonce_index: usize,
     ) -> Vec<C::AnticipatedAttestation> {
-        C::anticipate_attestations(public_key, &self.nonces[nonce_index], self.event.id.n_outcomes_for_nonce(nonce_index))
+        C::anticipate_attestations(
+            public_key,
+            &self.nonces[nonce_index],
+            self.event.id.n_outcomes_for_nonce(nonce_index),
+        )
     }
 }
 
@@ -149,7 +153,10 @@ impl<C: Group> RawAnnouncement<C> {
         event_id: &EventId,
         oracle_announcement_key: &C::PublicKey,
     ) -> Option<OracleEvent<C>> {
-        if !self.oracle_event.verify(oracle_announcement_key, &self.signature) {
+        if !self
+            .oracle_event
+            .verify(oracle_announcement_key, &self.signature)
+        {
             return None;
         }
 

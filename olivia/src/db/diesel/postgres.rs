@@ -2,7 +2,11 @@ use super::{
     schema::{self, announcements, attestations, events, tree},
     AnnouncedEvent, Attestation, Event, MetaRow, Node, PublicKeyMeta,
 };
-use crate::{core::{self, EventId, OracleKeys}, curve::*, db};
+use crate::{
+    core::{self, EventId, OracleKeys},
+    curve::*,
+    db,
+};
 use async_trait::async_trait;
 use diesel::{
     associations::HasTable, pg::PgConnection, result::Error as DieselError, Connection,
@@ -218,17 +222,19 @@ impl db::DbMeta<SchnorrImpl> for PgBackend {
     async fn get_public_keys(&self) -> Result<Option<OracleKeys<SchnorrImpl>>, db::Error> {
         use schema::meta::dsl::*;
         let db_mutex = self.conn.clone();
-        tokio::task::spawn_blocking(move || -> Result<Option<OracleKeys<SchnorrImpl>>, db::Error> {
-            let db = &*db_mutex.lock().unwrap();
-            let meta_row = meta.find("public_keys").first::<MetaRow>(db);
-            match meta_row {
-                Err(DieselError::NotFound) => Ok(None),
-                Err(e) => Err(e.into()),
-                Ok(meta_row) => Ok(Some(
-                    serde_json::from_value::<PublicKeyMeta>(meta_row.value)?.public_keys,
-                )),
-            }
-        })
+        tokio::task::spawn_blocking(
+            move || -> Result<Option<OracleKeys<SchnorrImpl>>, db::Error> {
+                let db = &*db_mutex.lock().unwrap();
+                let meta_row = meta.find("public_keys").first::<MetaRow>(db);
+                match meta_row {
+                    Err(DieselError::NotFound) => Ok(None),
+                    Err(e) => Err(e.into()),
+                    Ok(meta_row) => Ok(Some(
+                        serde_json::from_value::<PublicKeyMeta>(meta_row.value)?.public_keys,
+                    )),
+                }
+            },
+        )
         .await?
     }
 
@@ -288,7 +294,9 @@ mod test {
         let db: Arc<dyn crate::db::Db> = Arc::new(db);
         let rt = tokio::runtime::Runtime::new().unwrap();
         let event = core::AnnouncedEvent::test_unattested_instance(
-            EventId::from_str("/test/postgres/database_fail?occur").unwrap().into(),
+            EventId::from_str("/test/postgres/database_fail?occur")
+                .unwrap()
+                .into(),
         );
 
         let res = rt.block_on(db.insert_event(event.clone()));

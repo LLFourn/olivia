@@ -53,7 +53,12 @@ pub trait Group:
         index: u32,
     ) -> Self::AttestScalar;
 
-    fn verify_attest_scalar(attest_key: &Self::PublicKey ,nonce_key: &Self::PublicNonce, index: u32, attest_scalar: &Self::AttestScalar) -> bool;
+    fn verify_attest_scalar(
+        attest_key: &Self::PublicKey,
+        nonce_key: &Self::PublicNonce,
+        index: u32,
+        attest_scalar: &Self::AttestScalar,
+    ) -> bool;
 
     fn verify_announcement_signature(
         public_key: &Self::PublicKey,

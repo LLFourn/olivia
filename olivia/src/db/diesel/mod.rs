@@ -1,5 +1,5 @@
 use crate::{
-    core::{self, EventId, RawOracleEvent, OracleKeys},
+    core::{self, EventId, OracleKeys, RawOracleEvent},
     curve::*,
 };
 use diesel::Insertable;

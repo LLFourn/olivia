@@ -1,5 +1,5 @@
 use crate::{
-    core::{AnnouncedEvent, Attestation, Event, Group, StampedOutcome, OracleKeys},
+    core::{AnnouncedEvent, Attestation, Event, Group, OracleKeys, StampedOutcome},
     curve::DeriveKeyPair,
     keychain::KeyChain,
     seed::Seed,

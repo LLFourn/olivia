@@ -39,7 +39,12 @@ impl<C: crate::Group> Attestation<C> {
         }
 
         for (frag_index, index) in outcome.attestation_indexes().iter().enumerate() {
-            if !C::verify_attest_scalar(oracle_public_key, &oracle_event.nonces[frag_index], *index as u32, &self.scalars[frag_index]) {
+            if !C::verify_attest_scalar(
+                oracle_public_key,
+                &oracle_event.nonces[frag_index],
+                *index as u32,
+                &self.scalars[frag_index],
+            ) {
                 return false;
             }
         }
@@ -50,16 +55,10 @@ impl<C: crate::Group> Attestation<C> {
     pub fn test_instance(event_id: &EventId) -> Self {
         let outcome = Outcome::test_instance(event_id);
 
-        let nonces = (0..event_id.n_nonces()).map(|_|C::reveal_attest_scalar(
-            &C::test_keypair(),
-            C::test_nonce_keypair(),
-            0,
-        )).collect();
+        let nonces = (0..event_id.n_nonces())
+            .map(|_| C::reveal_attest_scalar(&C::test_keypair(), C::test_nonce_keypair(), 0))
+            .collect();
 
-        Attestation::new(
-            outcome.to_string(),
-            chrono::Utc::now().naive_utc(),
-            nonces,
-        )
+        Attestation::new(outcome.to_string(), chrono::Utc::now().naive_utc(), nonces)
     }
 }

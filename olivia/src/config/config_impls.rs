@@ -198,9 +198,7 @@ impl OutcomeReEmitterConfig {
 }
 
 impl DbConfig {
-    pub fn connect_database<C: core::Group>(
-        &self,
-    ) -> anyhow::Result<Arc<dyn db::Db<SchnorrImpl>>> {
+    pub fn connect_database<C: core::Group>(&self) -> anyhow::Result<Arc<dyn db::Db<SchnorrImpl>>> {
         match self {
             DbConfig::InMemory => Ok(Arc::new(db::in_memory::InMemory::default())),
             DbConfig::Postgres { url } => {

@@ -32,7 +32,7 @@ impl EventReEmitter for HeadsOrTailsEvents {
 fn time_event_to_random(id: &EventId) -> Option<EventId> {
     if EventKind::SingleOccurrence == id.event_kind() && id.as_path().segment(0) == Some("time") {
         let time = id.as_path().segment(1).unwrap();
-        match EventId::from_str(&format!("/random/{}/heads_tails?left-win", time)) {
+        match EventId::from_str(&format!("/random/{}/heads_tails?win", time)) {
             Ok(new_id) => Some(new_id),
             Err(_) => None,
         }
@@ -99,8 +99,8 @@ mod test {
         let mut expecting = vec![
             "/time/2020-09-30T08:00:00?occur",
             "/time/2020-09-30T08:01:00?occur",
-            "/random/2020-09-30T08:00:00/heads_tails?left-win",
-            "/random/2020-09-30T08:01:00/heads_tails?left-win",
+            "/random/2020-09-30T08:00:00/heads_tails?win",
+            "/random/2020-09-30T08:01:00/heads_tails?win",
         ];
 
         outcoming.sort();
@@ -142,8 +142,8 @@ mod test {
         let mut expecting = vec![
             "/time/2020-09-30T08:00:00?occur=true",
             "/time/2020-09-30T08:01:00?occur=true",
-            "/random/2020-09-30T08:00:00/heads_tails?left-win=tails_win",
-            "/random/2020-09-30T08:01:00/heads_tails?left-win=heads_win",
+            "/random/2020-09-30T08:00:00/heads_tails?win=tails_win",
+            "/random/2020-09-30T08:01:00/heads_tails?win=heads_win",
         ];
 
         outcoming.sort();

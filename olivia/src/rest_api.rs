@@ -1,7 +1,7 @@
 use crate::{
     core::{
         http::{EventResponse, PathResponse, RootResponse},
-        EventId, PathRef, Group,
+        EventId, Group, PathRef,
     },
     db::Db,
 };
@@ -11,16 +11,14 @@ use serde::Serialize;
 use std::{convert::Infallible, marker::PhantomData, sync::Arc};
 use warp::{self, http, Filter};
 
-
 #[derive(Clone, Debug)]
 pub enum ApiReply<T> {
     Ok(T),
     Err(ErrorMessage),
 }
 
-
 impl<T> ApiReply<T> {
-    pub async fn map<U, F: FnOnce(T) -> Fut, Fut: Future<Output=U>>(self, op: F) -> ApiReply<U> {
+    pub async fn map<U, F: FnOnce(T) -> Fut, Fut: Future<Output = U>>(self, op: F) -> ApiReply<U> {
         use ApiReply::*;
         match self {
             Ok(t) => Ok(op(t).await),
@@ -28,8 +26,10 @@ impl<T> ApiReply<T> {
         }
     }
 
-
-    pub async fn and_then<U, F: FnOnce(T) -> Fut, Fut: Future<Output=ApiReply<U>>>(self, op: F) -> ApiReply<U> {
+    pub async fn and_then<U, F: FnOnce(T) -> Fut, Fut: Future<Output = ApiReply<U>>>(
+        self,
+        op: F,
+    ) -> ApiReply<U> {
         use ApiReply::*;
         match self {
             Ok(t) => op(t).await,
@@ -86,10 +86,7 @@ impl ErrorMessage {
             error: message.into(),
         }
     }
-
 }
-
-
 
 #[derive(Debug, Default, Clone)]
 pub struct Filters<C> {
@@ -116,32 +113,37 @@ impl<C: Group> Filters<C> {
                     let id = format!("/{}?{}", tail.as_str(), query);
                     let reply = match EventId::from_str(&id) {
                         Ok(event_id) => ApiReply::Ok(event_id),
-                        Err(_) =>   ApiReply::Err(ErrorMessage::bad_request().with_message("unable to parse as event id")),
+                        Err(_) => ApiReply::Err(
+                            ErrorMessage::bad_request().with_message("unable to parse as event id"),
+                        ),
                     };
 
-                    Ok::<_ ,Infallible>(reply)
+                    Ok::<_, Infallible>(reply)
                 },
             )
             .and(self.with_db(db))
-            .and_then(async move |event_id: ApiReply<EventId>, db: Arc<dyn Db<C>>| {
-                let reply = event_id.and_then(async move |event_id| {
-                    let res = db.get_event(&event_id).await;
-                    match res {
-                        Ok(Some(event)) => ApiReply::Ok(event.into()),
-                        Ok(None) => ApiReply::Err(ErrorMessage::not_found()),
-                        Err(_e) =>  ApiReply::Err(ErrorMessage::internal_server_error())
-                    }
-                }).await;
+            .and_then(
+                async move |event_id: ApiReply<EventId>, db: Arc<dyn Db<C>>| {
+                    let reply = event_id
+                        .and_then(async move |event_id| {
+                            let res = db.get_event(&event_id).await;
+                            match res {
+                                Ok(Some(event)) => ApiReply::Ok(event.into()),
+                                Ok(None) => ApiReply::Err(ErrorMessage::not_found()),
+                                Err(_e) => ApiReply::Err(ErrorMessage::internal_server_error()),
+                            }
+                        })
+                        .await;
 
-                Ok::<_, Infallible>(reply)
-            })
+                    Ok::<_, Infallible>(reply)
+                },
+            )
     }
 
     pub fn get_path(
         &self,
         db: Arc<dyn Db<C>>,
-    ) -> impl Filter<Extract = (ApiReply<PathResponse>,), Error = Infallible> + Clone
-    {
+    ) -> impl Filter<Extract = (ApiReply<PathResponse>,), Error = Infallible> + Clone {
         warp::path::tail().and(self.with_db(db)).and_then(
             async move |tail: warp::filters::path::Tail, db: Arc<dyn Db<C>>| {
                 let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
@@ -165,8 +167,8 @@ impl<C: Group> Filters<C> {
         &self,
         db: Arc<dyn Db<C>>,
     ) -> impl Filter<Extract = (ApiReply<RootResponse<C>>,), Error = Infallible> + Clone {
-        self.with_db(db.clone()).and_then(
-            async move |db: Arc<dyn Db<C>>| {
+        self.with_db(db.clone())
+            .and_then(async move |db: Arc<dyn Db<C>>| {
                 let public_keys = db.get_public_keys().await;
                 let res = db.get_node(PathRef::root().as_str()).await;
 
@@ -177,7 +179,7 @@ impl<C: Group> Filters<C> {
                             path_response: PathResponse {
                                 events: node.events,
                                 children: node.children,
-                            }
+                            },
                         })
                     } else {
                         ApiReply::Err(ErrorMessage::internal_server_error())
@@ -187,8 +189,7 @@ impl<C: Group> Filters<C> {
                 };
 
                 Ok::<_, Infallible>(reply)
-            },
-        )
+            })
     }
 }
 
@@ -202,8 +203,7 @@ pub fn routes<C: Group>(
 
     let path = warp::get().and(filters.get_path(db.clone()));
 
-    root.or(event)
-        .or(path)
+    root.or(event).or(path)
 }
 
 #[cfg(test)]

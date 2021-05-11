@@ -1,6 +1,6 @@
 use super::{EventReEmitter, OutcomeReEmitter};
 use crate::{
-    core::{Event, EventKind, StampedOutcome, VsMatchKind, WinOrDraw, Win},
+    core::{Event, EventKind, StampedOutcome, VsMatchKind},
     sources::{EventStream, OutcomeStream, Update},
 };
 use futures::StreamExt;
@@ -17,14 +17,10 @@ impl EventReEmitter for Vs {
 
                 if let EventKind::VsMatch(kind) = event.id.event_kind() {
                     if kind == VsMatchKind::WinOrDraw {
-                        for &right_posited_to_win in &[true, false] {
-                            re_emit.push(Update::from(Event {
-                                id: event.id.replace_kind(EventKind::VsMatch(VsMatchKind::Win {
-                                    right_posited_to_win,
-                                })),
-                                expected_outcome_time: event.expected_outcome_time,
-                            }));
-                        }
+                        re_emit.push(Update::from(Event {
+                            id: event.id.replace_kind(EventKind::VsMatch(VsMatchKind::Win)),
+                            expected_outcome_time: event.expected_outcome_time,
+                        }));
                     }
                 }
 
@@ -44,29 +40,19 @@ impl OutcomeReEmitter for Vs {
                 let mut re_emit = vec![];
 
                 if let EventKind::VsMatch(VsMatchKind::WinOrDraw) = id.event_kind() {
-                    for &right_posited_to_win in &[true, false] {
-                        let new_outcome = match stamped.outcome.value {
-                            x if x == WinOrDraw::LeftWon as u64  => match right_posited_to_win {
-                                true => Win::PositedDidNotWin as u64,
-                                false => Win::PositedWon as u64,
-                            }
-                            x if x == WinOrDraw::RightWon as u64 => match right_posited_to_win {
-                                true => Win::PositedWon as u64,
-                                false => Win::PositedDidNotWin as u64,
-                            }
-                            x if x == WinOrDraw::Draw as u64 => Win::PositedDidNotWin as u64,
-                            _ => continue,
-                        };
-                        re_emit.push(Update::from(StampedOutcome {
-                            time: stamped.time,
-                            outcome: Outcome {
-                                id: id.replace_kind(EventKind::VsMatch(VsMatchKind::Win {
-                                    right_posited_to_win,
-                                })),
-                                value: new_outcome,
-                            },
-                        }));
-                    }
+                    let new_outcome = match stamped.outcome.value {
+                        // A party won then pass through
+                        x if x < 2 => x,
+                        // If draw then the left did not win
+                        _ => 1,
+                    };
+                    re_emit.push(Update::from(StampedOutcome {
+                        time: stamped.time,
+                        outcome: Outcome {
+                            id: id.replace_kind(EventKind::VsMatch(VsMatchKind::Win)),
+                            value: new_outcome,
+                        },
+                    }));
                 }
                 re_emit.push(update);
                 futures::stream::iter(re_emit)
@@ -101,11 +87,9 @@ mod test {
         );
 
         let mut expecting = vec![
-            "/foo/bar/FOO_BAR?left-win",
-            "/foo/bar/FOO_BAR?right-win",
+            "/foo/bar/FOO_BAR?win",
             "/foo/bar/FOO_BAR?vs",
-            "/foo/baz/FOO_BAZ?left-win",
-            "/foo/baz/FOO_BAZ?right-win",
+            "/foo/baz/FOO_BAZ?win",
             "/foo/baz/FOO_BAZ?vs",
         ];
 
@@ -117,6 +101,7 @@ mod test {
 
     #[test]
     fn vs_re_emit_outcomes() {
+        use olivia_core::WinOrDraw;
         let rt = tokio::runtime::Runtime::new().unwrap();
         let time = chrono::Utc::now().naive_utc();
         let incoming: Vec<Update<StampedOutcome>> = {
@@ -159,14 +144,11 @@ mod test {
 
         let mut expecting = vec![
             "/foo/bar/FOO1_BAR1?vs=FOO1_win",
-            "/foo/bar/FOO1_BAR1?left-win=FOO1_win",
-            "/foo/bar/FOO1_BAR1?right-win=FOO1_win",
+            "/foo/bar/FOO1_BAR1?win=FOO1_win",
             "/foo/bar/FOO2_BAR2?vs=BAR2_win",
-            "/foo/bar/FOO2_BAR2?left-win=BAR2_win",
-            "/foo/bar/FOO2_BAR2?right-win=BAR2_win",
+            "/foo/bar/FOO2_BAR2?win=BAR2_win",
             "/foo/bar/FOO3_BAR3?vs=draw",
-            "/foo/bar/FOO3_BAR3?left-win=BAR3_win",
-            "/foo/bar/FOO3_BAR3?right-win=FOO3_win",
+            "/foo/bar/FOO3_BAR3?win=BAR3_win",
         ];
         outcoming.sort();
         expecting.sort();

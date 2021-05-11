@@ -78,7 +78,6 @@ pub fn time_outcomes_stream<C: crate::core::Group>(
             }
             let mut event;
 
-
             while {
                 event = match db.clone().earliest_unattested_time_event().await {
                     Err(err) => {

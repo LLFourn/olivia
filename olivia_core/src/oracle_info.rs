@@ -14,7 +14,6 @@ pub struct OracleKeys<C: Group> {
     pub announcement_key: C::PublicKey,
 }
 
-
 impl<C: Group> OracleInfo<C> {
     pub fn test_oracle_info() -> OracleInfo<C> {
         OracleInfo {
@@ -22,7 +21,7 @@ impl<C: Group> OracleInfo<C> {
             oracle_keys: OracleKeys {
                 attestation_key: C::test_keypair().into(),
                 announcement_key: C::test_keypair().into(),
-            }
+            },
         }
     }
 }
