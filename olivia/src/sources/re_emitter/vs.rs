@@ -73,8 +73,8 @@ mod test {
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         let incoming: Vec<Update<Event>> = vec![
-            EventId::from_str("/foo/bar/FOO_BAR?vs").unwrap().into(),
-            EventId::from_str("/foo/baz/FOO_BAZ?vs").unwrap().into(),
+            EventId::from_str("/foo/bar/FOO_BAR.vs").unwrap().into(),
+            EventId::from_str("/foo/baz/FOO_BAZ.vs").unwrap().into(),
         ];
 
         let re_emitter = Vs;
@@ -87,10 +87,10 @@ mod test {
         );
 
         let mut expecting = vec![
-            "/foo/bar/FOO_BAR?win",
-            "/foo/bar/FOO_BAR?vs",
-            "/foo/baz/FOO_BAZ?win",
-            "/foo/baz/FOO_BAZ?vs",
+            "/foo/bar/FOO_BAR.win",
+            "/foo/bar/FOO_BAR.vs",
+            "/foo/baz/FOO_BAZ.win",
+            "/foo/baz/FOO_BAZ.vs",
         ];
 
         expecting.sort();
@@ -109,20 +109,20 @@ mod test {
                 StampedOutcome {
                     outcome: Outcome {
                         value: WinOrDraw::LeftWon as u64,
-                        id: EventId::from_str("/foo/bar/FOO1_BAR1?vs").unwrap(),
+                        id: EventId::from_str("/foo/bar/FOO1_BAR1.vs").unwrap(),
                     },
                     time,
                 },
                 StampedOutcome {
                     outcome: Outcome {
                         value: WinOrDraw::RightWon as u64,
-                        id: EventId::from_str("/foo/bar/FOO2_BAR2?vs").unwrap(),
+                        id: EventId::from_str("/foo/bar/FOO2_BAR2.vs").unwrap(),
                     },
                     time,
                 },
                 StampedOutcome {
                     outcome: Outcome {
-                        id: EventId::from_str("/foo/bar/FOO3_BAR3?vs").unwrap(),
+                        id: EventId::from_str("/foo/bar/FOO3_BAR3.vs").unwrap(),
                         value: WinOrDraw::Draw as u64,
                     },
                     time,
@@ -143,12 +143,12 @@ mod test {
         );
 
         let mut expecting = vec![
-            "/foo/bar/FOO1_BAR1?vs=FOO1_win",
-            "/foo/bar/FOO1_BAR1?win=FOO1_win",
-            "/foo/bar/FOO2_BAR2?vs=BAR2_win",
-            "/foo/bar/FOO2_BAR2?win=BAR2_win",
-            "/foo/bar/FOO3_BAR3?vs=draw",
-            "/foo/bar/FOO3_BAR3?win=BAR3_win",
+            "/foo/bar/FOO1_BAR1.vs=FOO1_win",
+            "/foo/bar/FOO1_BAR1.win=FOO1_win",
+            "/foo/bar/FOO2_BAR2.vs=BAR2_win",
+            "/foo/bar/FOO2_BAR2.win=BAR2_win",
+            "/foo/bar/FOO3_BAR3.vs=draw",
+            "/foo/bar/FOO3_BAR3.win=BAR3_win",
         ];
         outcoming.sort();
         expecting.sort();

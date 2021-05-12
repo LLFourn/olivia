@@ -186,7 +186,7 @@ pub mod test {
                 // put in a non time event which *SHOULD* be ignored
                 let time = NaiveDateTime::from_str("2020-03-01T00:11:00").unwrap();
                 let mut obs_event = AnnouncedEvent::test_unattested_instance(
-                    EventId::from_str("/foo/bar/baz?occur").unwrap().into(),
+                    EventId::from_str("/foo/bar/baz.occur").unwrap().into(),
                 );
                 obs_event.event.expected_outcome_time = Some(time);
                 obs_event

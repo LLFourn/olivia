@@ -30,9 +30,9 @@ impl EventReEmitter for HeadsOrTailsEvents {
 }
 
 fn time_event_to_random(id: &EventId) -> Option<EventId> {
-    if EventKind::SingleOccurrence == id.event_kind() && id.as_path().segment(0) == Some("time") {
-        let time = id.as_path().segment(1).unwrap();
-        match EventId::from_str(&format!("/random/{}/heads_tails?win", time)) {
+    if EventKind::SingleOccurrence == id.event_kind() && id.path().segment(0) == Some("time") {
+        let time = id.path().segment(1).unwrap();
+        match EventId::from_str(&format!("/random/{}/heads_tails.win", time)) {
             Ok(new_id) => Some(new_id),
             Err(_) => None,
         }
@@ -80,10 +80,10 @@ mod test {
     #[tokio::test]
     async fn heads_vs_tails_remit_events() {
         let incoming: Vec<Update<Event>> = vec![
-            EventId::from_str("/time/2020-09-30T08:00:00?occur")
+            EventId::from_str("/time/2020-09-30T08:00:00.occur")
                 .unwrap()
                 .into(),
-            EventId::from_str("/time/2020-09-30T08:01:00?occur")
+            EventId::from_str("/time/2020-09-30T08:01:00.occur")
                 .unwrap()
                 .into(),
         ];
@@ -97,10 +97,10 @@ mod test {
             .await;
 
         let mut expecting = vec![
-            "/time/2020-09-30T08:00:00?occur",
-            "/time/2020-09-30T08:01:00?occur",
-            "/random/2020-09-30T08:00:00/heads_tails?win",
-            "/random/2020-09-30T08:01:00/heads_tails?win",
+            "/time/2020-09-30T08:00:00.occur",
+            "/time/2020-09-30T08:01:00.occur",
+            "/random/2020-09-30T08:00:00/heads_tails.win",
+            "/random/2020-09-30T08:01:00/heads_tails.win",
         ];
 
         outcoming.sort();
@@ -113,8 +113,9 @@ mod test {
     async fn heads_tails_remit_outcomes() {
         let time = chrono::Utc::now().naive_utc();
         let incoming: Vec<Update<StampedOutcome>> = vec![
-            EventId::from_str("/time/2020-09-30T08:00:00?occur").unwrap(),
-            EventId::from_str("/time/2020-09-30T08:01:00?occur").unwrap(),
+            EventId::from_str("/time/2020-09-30T08:00:00.occur").unwrap(),
+            EventId::from_str("/time/2020-09-30T08:01:00.occur").unwrap(),
+            EventId::from_str("/time/2020-09-30T08:02:00.occur").unwrap(),
         ]
         .into_iter()
         .map(|id| {
@@ -140,10 +141,12 @@ mod test {
             .await;
 
         let mut expecting = vec![
-            "/time/2020-09-30T08:00:00?occur=true",
-            "/time/2020-09-30T08:01:00?occur=true",
-            "/random/2020-09-30T08:00:00/heads_tails?win=tails_win",
-            "/random/2020-09-30T08:01:00/heads_tails?win=heads_win",
+            "/time/2020-09-30T08:00:00.occur=true",
+            "/time/2020-09-30T08:01:00.occur=true",
+            "/time/2020-09-30T08:02:00.occur=true",
+            "/random/2020-09-30T08:00:00/heads_tails.win=heads_win",
+            "/random/2020-09-30T08:01:00/heads_tails.win=heads_win",
+            "/random/2020-09-30T08:02:00/heads_tails.win=tails_win",
         ];
 
         outcoming.sort();

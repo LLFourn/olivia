@@ -102,7 +102,7 @@ impl crate::db::DbWrite<SchnorrImpl> for PgBackend {
         &self,
         obs_event: core::AnnouncedEvent<SchnorrImpl>,
     ) -> Result<(), db::Error> {
-        let node = obs_event.event.id.as_path();
+        let node = obs_event.event.id.path();
         let parents = std::iter::successors(Some(node), |parent| (*parent).parent());
 
         let nodes = parents
@@ -294,7 +294,7 @@ mod test {
         let db: Arc<dyn crate::db::Db> = Arc::new(db);
         let rt = tokio::runtime::Runtime::new().unwrap();
         let event = core::AnnouncedEvent::test_unattested_instance(
-            EventId::from_str("/test/postgres/database_fail?occur")
+            EventId::from_str("/test/postgres/database_fail.occur")
                 .unwrap()
                 .into(),
         );

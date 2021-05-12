@@ -64,16 +64,16 @@ mod test {
 
     #[test]
     fn test_parse_entity() {
-        match Entity::from_str("/foo/bar?occur").unwrap() {
+        match Entity::from_str("/foo/bar.occur").unwrap() {
             Entity::Event(event) => {
-                assert_eq!(EventId::from_str("/foo/bar?occur").unwrap(), event.id)
+                assert_eq!(EventId::from_str("/foo/bar.occur").unwrap(), event.id)
             }
             _ => panic!(),
         }
 
-        match Entity::from_str("/foo/bar?occur=true").unwrap() {
+        match Entity::from_str("/foo/bar.occur=true").unwrap() {
             Entity::Outcome(outcome) => {
-                assert_eq!(outcome.id, EventId::from_str("/foo/bar?occur").unwrap());
+                assert_eq!(outcome.id, EventId::from_str("/foo/bar.occur").unwrap());
                 assert_eq!(outcome.value, crate::Occur::Occurred as u64);
             }
             _ => panic!(),

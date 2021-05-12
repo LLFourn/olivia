@@ -14,7 +14,7 @@ pub fn test_db(db: &dyn Db<impl Group>) {
 }
 
 fn test_insert_unattested(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
-    let unattested_id = EventId::from_str("/test/db/test-insert-unattested?occur").unwrap();
+    let unattested_id = EventId::from_str("/test/db/test-insert-unattested.occur").unwrap();
     let obs_event = AnnouncedEvent::test_unattested_instance(unattested_id.clone().into());
 
     rt.block_on(db.insert_event(obs_event.clone())).unwrap();
@@ -55,7 +55,7 @@ fn test_insert_unattested(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>)
 }
 
 fn test_insert_attested(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
-    let insert_attested_id = EventId::from_str("/test/db/test-insert-attested?occur").unwrap();
+    let insert_attested_id = EventId::from_str("/test/db/test-insert-attested.occur").unwrap();
     let obs_event = AnnouncedEvent::test_attested_instance(insert_attested_id.clone().into());
 
     rt.block_on(db.insert_event(obs_event.clone())).unwrap();
@@ -95,7 +95,7 @@ fn test_insert_attested(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
 
 fn test_insert_unattested_then_complete(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
     let unattested_then_complete_id =
-        EventId::from_str("/test/db/test-insert-unattested-then-complete?occur").unwrap();
+        EventId::from_str("/test/db/test-insert-unattested-then-complete.occur").unwrap();
 
     let mut obs_event =
         AnnouncedEvent::test_attested_instance(unattested_then_complete_id.clone().into());
@@ -118,7 +118,7 @@ fn test_insert_unattested_then_complete(rt: &tokio::runtime::Runtime, db: &dyn D
 }
 
 fn test_insert_grandchild_event(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
-    let grandchild_id = EventId::from_str("/test/db/dbchild/grandchild?occur").unwrap();
+    let grandchild_id = EventId::from_str("/test/db/dbchild/grandchild.occur").unwrap();
     rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(
         grandchild_id.clone().into(),
     )))
@@ -159,7 +159,7 @@ fn test_insert_grandchild_event(rt: &tokio::runtime::Runtime, db: &dyn Db<impl G
 }
 
 fn test_child_event_of_node_with_event(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
-    let child = EventId::from_str("/test/db/test-insert-attested/test-sub-event?occur").unwrap();
+    let child = EventId::from_str("/test/db/test-insert-attested/test-sub-event.occur").unwrap();
     rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(child.into())))
         .unwrap();
     let parent = rt
@@ -183,12 +183,12 @@ fn test_child_event_of_node_with_event(rt: &tokio::runtime::Runtime, db: &dyn Db
             .iter()
             .map(EventId::as_str)
             .collect::<Vec<_>>(),
-        ["/test/db/test-insert-attested/test-sub-event?occur"]
+        ["/test/db/test-insert-attested/test-sub-event.occur"]
     );
 }
 
 fn test_get_non_existent_events(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
-    let non_existent = EventId::from_str("/test/db/dont-exist?occur").unwrap();
+    let non_existent = EventId::from_str("/test/db/dont-exist.occur").unwrap();
     assert!(rt.block_on(db.get_event(&non_existent)).unwrap().is_none());
     assert!(rt
         .block_on(db.get_node("/test/db/dont-exist"))
@@ -197,8 +197,8 @@ fn test_get_non_existent_events(rt: &tokio::runtime::Runtime, db: &dyn Db<impl G
 }
 
 fn test_multiple_events_on_one_node(rt: &tokio::runtime::Runtime, db: &dyn Db<impl Group>) {
-    let first = EventId::from_str("/test/db/RED_BLUE?vs").unwrap();
-    let second = EventId::from_str("/test/db/RED_BLUE?win").unwrap();
+    let first = EventId::from_str("/test/db/RED_BLUE.vs").unwrap();
+    let second = EventId::from_str("/test/db/RED_BLUE.win").unwrap();
 
     rt.block_on(db.insert_event(AnnouncedEvent::test_attested_instance(first.clone().into())))
         .unwrap();

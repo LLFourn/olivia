@@ -42,9 +42,9 @@ impl<C: Group> DbRead<C> for InMemory<C> {
                     let key = key.as_str();
                     if let Some(remaining) = key.strip_prefix(&path) {
                         let end = remaining
-                            .find(['/', '?'].as_ref())
+                            .find(['/', '.'].as_ref())
                             .map(|end| end + path.len())
-                            .expect("always has a ‘?’");
+                            .expect("always has a ‘.’");
 
                         Some(key[..end].to_string())
                     } else {
@@ -62,7 +62,7 @@ impl<C: Group> DbRead<C> for InMemory<C> {
                 .into_iter()
                 .filter(|key| {
                     if let Some(remaining) = key.as_str().strip_prefix(node) {
-                        remaining.starts_with('?')
+                        remaining.starts_with('.')
                     } else {
                         false
                     }

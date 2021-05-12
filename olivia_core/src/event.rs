@@ -4,7 +4,7 @@ use alloc::{
     vec::Vec,
 };
 use chrono::NaiveDateTime;
-use core::{convert::TryFrom, fmt, str::FromStr};
+use core::{fmt, str::FromStr};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventKind {
@@ -44,7 +44,7 @@ impl EventKind {
 #[derive(Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "diesel", derive(diesel::AsExpression, diesel::FromSqlRow))]
 #[cfg_attr(feature = "diesel", sql_type = "diesel::sql_types::Text")]
-pub struct EventId(url::Url);
+pub struct EventId(String);
 
 impl EventId {
     pub fn as_bytes(&self) -> &[u8] {
@@ -52,17 +52,17 @@ impl EventId {
     }
 
     pub fn as_str(&self) -> &str {
-        let scheme_pos = self.0.as_str().find(':').expect("there is always a scheme");
-        &self.0.as_str()[scheme_pos + 1..]
+        self.0.as_str()
     }
 
-    pub fn as_path(&self) -> PathRef<'_> {
-        PathRef(self.0.path())
+    pub fn path(&self) -> PathRef<'_> {
+        let (path, _) = PathRef(self.as_str()).strip_event().expect("event must exist");
+        path
     }
 
     pub fn parties(&self) -> Option<(&str, &str)> {
         if let EventKind::VsMatch(_) = self.event_kind() {
-            let mut parties = self.as_path().last().split('_');
+            let mut parties = self.path().last().split('_');
             Some((parties.next().unwrap(), parties.next().unwrap()))
         } else {
             None
@@ -74,22 +74,11 @@ impl EventId {
     }
 
     pub fn event_kind(&self) -> EventKind {
-        let event_kind = self
-            .0
-            .query()
-            .expect("event ids always have a query string")
-            .split('_')
-            .collect::<Vec<_>>();
-
-        match &event_kind[..] {
-            ["vs"] | ["win"] => {
-                let vs_kind = match &event_kind[..] {
-                    ["vs"] => VsMatchKind::WinOrDraw,
-                    ["win"] => VsMatchKind::Win,
-                    _ => unreachable!("we have narrowed this aready"),
-                };
-                EventKind::VsMatch(vs_kind)
-            }
+        let (_, event_kind) = PathRef(self.as_str()).strip_event().expect("event must exist");
+        let event_kind_segments: Vec<&str> = event_kind.split('_').collect::<Vec<_>>();
+        match &event_kind_segments[..] {
+            ["vs"] => EventKind::VsMatch(VsMatchKind::WinOrDraw),
+            ["win"] => EventKind::VsMatch(VsMatchKind::Win),
             ["occur"] => EventKind::SingleOccurrence,
             ["digits", n] => {
                 EventKind::Digits(u8::from_str(n).expect("we've checked this already"))
@@ -120,9 +109,7 @@ impl EventId {
     }
 
     pub fn replace_kind(&self, kind: EventKind) -> EventId {
-        let mut replaced = self.0.clone();
-        replaced.set_query(Some(&kind.to_string()));
-        EventId(replaced)
+        Self(format!("{}.{}", self.path(), kind))
     }
 
     pub fn descriptor(&self) -> Descriptor {
@@ -164,6 +151,7 @@ impl EventId {
 
 #[derive(Debug, Clone)]
 pub enum EventIdError {
+    NotAnEvent,
     BadFormat,
     UnknownEventKind(String),
 }
@@ -171,6 +159,7 @@ pub enum EventIdError {
 impl core::fmt::Display for EventIdError {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
+            EventIdError::NotAnEvent => write!(f, "not a valid event id"),
             EventIdError::BadFormat => write!(f, "badly formatted event id"),
             EventIdError::UnknownEventKind(event_kind) => {
                 write!(f, "{} is not a recognized event kind", event_kind)
@@ -187,29 +176,20 @@ impl FromStr for EventId {
 
     fn from_str(string: &str) -> Result<EventId, Self::Err> {
         let url =
-            // this event: prefix is just a ahck to make the Url library parse it.
-            // It shouldn't leak.
-            url::Url::parse(&format!("event:{}", string)).map_err(|_| EventIdError::BadFormat)?;
-
-        EventId::try_from(url)
-    }
-}
-
-impl TryFrom<url::Url> for EventId {
-    type Error = EventIdError;
-
-    fn try_from(url: url::Url) -> Result<Self, Self::Error> {
-        let event_kind = url.query().ok_or(EventIdError::BadFormat)?;
-        let path = url
-            .path_segments()
-            .ok_or(EventIdError::BadFormat)?
-            .collect::<Vec<_>>();
+            // test: is just there to give it a scheme which we need for the url lib to parse it
+            url::Url::parse(&format!("test:{}", string)).map_err(|_| EventIdError::BadFormat)?;
+        if url.path() != string {
+            // sanity check -- the URL path is the evet ID so if we roundtrip it, it should come out
+            // the same
+            return Err(EventIdError::BadFormat)
+        }
+        let (path, event_kind) = PathRef::from(string).strip_event().ok_or(EventIdError::BadFormat)?;
         let event_kind_segments = event_kind.split("_").collect::<Vec<_>>();
 
+        // Ensure the path is a valid url path
         match &event_kind_segments[..] {
             ["vs"] | ["win"] => {
-                let last = path.last().ok_or(EventIdError::BadFormat)?;
-                let teams: Vec<_> = last.split('_').collect();
+                let teams: Vec<_> = path.last().split('_').collect();
                 if teams.len() != 2 || teams[0] == teams[1] {
                     return Err(EventIdError::BadFormat);
                 }
@@ -221,7 +201,7 @@ impl TryFrom<url::Url> for EventId {
             _ => return Err(EventIdError::UnknownEventKind(event_kind.into())),
         };
 
-        Ok(EventId(url))
+        Ok(EventId(string.into()))
     }
 }
 
@@ -274,11 +254,20 @@ impl<'a> PathRef<'a> {
         self.0[1..].split('/').nth(index)
     }
 
+    pub fn strip_event(self) -> Option<(PathRef<'a>, &'a str)> {
+        self.0.rfind('/').and_then(|slash_at| {
+            let last_segment = &self.0[slash_at + 1..];
+            last_segment.find('.').map(|dot_at| (PathRef(&self.0[..slash_at + 1 + dot_at]), &last_segment[dot_at + 1..]))
+        })
+    }
+
     pub fn last(self) -> &'a str {
-        self.0
+        let last_segment = self.0
             .rfind('/')
             .map(|at| &self.0[at + 1..])
-            .unwrap_or(&self.0[..])
+            .unwrap_or(&self.0[..]);
+
+        last_segment
     }
 
     pub fn as_str(self) -> &'a str {
@@ -335,7 +324,7 @@ impl From<NaiveDateTime> for Event {
 
 impl From<NaiveDateTime> for EventId {
     fn from(dt: NaiveDateTime) -> Self {
-        EventId::from_str(&format!("/time/{}?occur", dt.format("%FT%T"))).unwrap()
+        EventId::from_str(&format!("/time/{}.occur", dt.format("%FT%T"))).unwrap()
     }
 }
 
@@ -408,24 +397,26 @@ mod test {
 
     #[test]
     fn event_id_from_str() {
-        assert!(EventId::from_str("/foo/bar?occur").is_ok());
-        assert!(EventId::from_str("foo/bar?occur/").is_err());
-        assert!(EventId::from_str("/foo?occur").is_ok());
-        assert!(EventId::from_str("/foo/bar?occur").is_ok());
-        assert!(EventId::from_str("/foo/bar/baz?occur").is_ok());
-        assert!(EventId::from_str("/foo/23/52?occur").is_ok());
-        assert!(EventId::from_str("/foo/bar/FOO_BAR?vs").is_ok());
-        assert!(EventId::from_str("/foo/bar/FOO-BAR?vs").is_err());
+        assert!(EventId::from_str("/foo/bar.occur").is_ok());
+        assert!(EventId::from_str("foo/bar.occur/").is_err());
+        assert!(EventId::from_str("/foo.occur").is_ok());
+        assert!(EventId::from_str("/foo/bar.occur").is_ok());
+        assert!(EventId::from_str("/foo/bar/baz.occur").is_ok());
+        assert!(EventId::from_str("/foo/23/52.occur").is_ok());
+        assert!(EventId::from_str("/foo/bar/FOO_BAR.vs").is_ok());
+        assert!(EventId::from_str("/foo/bar/FOO-BAR.vs").is_err());
+        assert!(EventId::from_str("/foo.occur").is_ok());
+        assert!(EventId::from_str("/test/one/two/3.occur").is_ok());
     }
 
     #[test]
     fn event_id_parent() {
-        let event_id = EventId::from_str("/one/two/three?occur").unwrap();
-        assert_eq!(event_id.as_path().as_str(), "/one/two/three");
-        assert_eq!(event_id.as_path().parent().unwrap().as_str(), "/one/two");
+        let event_id = EventId::from_str("/one/two/three.occur").unwrap();
+        assert_eq!(event_id.path().as_str(), "/one/two/three");
+        assert_eq!(event_id.path().parent().unwrap().as_str(), "/one/two");
         assert_eq!(
             event_id
-                .as_path()
+                .path()
                 .parent()
                 .unwrap()
                 .parent()
@@ -435,7 +426,7 @@ mod test {
         );
         assert_eq!(
             event_id
-                .as_path()
+                .path()
                 .parent()
                 .unwrap()
                 .parent()

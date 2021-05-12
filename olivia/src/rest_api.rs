@@ -107,18 +107,19 @@ impl<C: Group> Filters<C> {
     ) -> impl Filter<Extract = (ApiReply<EventResponse<C>>,), Error = warp::reject::Rejection> + Clone
     {
         warp::path::tail()
-            .and(warp::query::raw())
             .and_then(
-                async move |tail: warp::filters::path::Tail, query: String| {
-                    let id = format!("/{}?{}", tail.as_str(), query);
-                    let reply = match EventId::from_str(&id) {
+                async move |tail: warp::filters::path::Tail| -> Result<ApiReply<EventId>, warp::reject::Rejection> {
+                    let path = format!("/{}", tail.as_str());
+                    // Need to reject if it doesn't have an event ( have a '.' in last segment )
+                    let _ = PathRef::from(path.as_str()).strip_event().ok_or(warp::reject())?;
+                    let reply = match EventId::from_str(path.as_str()) {
                         Ok(event_id) => ApiReply::Ok(event_id),
-                        Err(_) => ApiReply::Err(
+                        Err(e) => { dbg!(e); ApiReply::Err(
                             ErrorMessage::bad_request().with_message("unable to parse as event id"),
-                        ),
+                        ) },
                     };
 
-                    Ok::<_, Infallible>(reply)
+                    Ok(reply)
                 },
             )
             .and(self.with_db(db))
@@ -227,8 +228,8 @@ mod test {
     #[tokio::test]
     async fn get_path() {
         let (oracle, routes) = setup!();
-        let event_id = EventId::from_str("/test/one/two/3?occur").unwrap();
-        let node = event_id.as_path();
+        let event_id = EventId::from_str("/test/one/two/3.occur").unwrap();
+        let node = event_id.path();
 
         {
             let res = warp::test::request()
@@ -236,12 +237,12 @@ mod test {
                 .reply(&routes)
                 .await;
 
-            assert_eq!(res.status(), http::StatusCode::NOT_FOUND);
             let body = j::<ErrorMessage>(&res.body()).expect("returns an error body");
             assert_eq!(
                 body.error,
                 http::StatusCode::NOT_FOUND.canonical_reason().unwrap()
             );
+            assert_eq!(res.status(), http::StatusCode::NOT_FOUND);
         }
 
         oracle.add_event(event_id.clone().into()).await.unwrap();
@@ -265,7 +266,7 @@ mod test {
         }
 
         oracle
-            .add_event(EventId::from_str("/test/one/two/4?occur").unwrap().into())
+            .add_event(EventId::from_str("/test/one/two/4.occur").unwrap().into())
             .await
             .unwrap();
 
@@ -283,7 +284,7 @@ mod test {
         let (oracle, routes) = setup!();
         oracle
             .add_event(
-                EventId::from_str("/test/one/two/three?occur")
+                EventId::from_str("/test/one/two/three.occur")
                     .unwrap()
                     .into(),
             )
@@ -300,7 +301,7 @@ mod test {
     #[tokio::test]
     async fn get_event() {
         let (oracle, routes) = setup!();
-        let event_id = EventId::from_str("/test/one/two/three?occur").unwrap();
+        let event_id = EventId::from_str("/test/one/two/three.occur").unwrap();
 
         oracle
             .add_event(event_id.clone().clone().into())
@@ -309,7 +310,7 @@ mod test {
 
         assert_eq!(
             warp::test::request()
-                .path("/test/one/two/four?occur")
+                .path("/test/one/two/four.occur")
                 .reply(&routes)
                 .await
                 .status(),
