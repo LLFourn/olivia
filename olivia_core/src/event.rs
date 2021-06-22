@@ -4,7 +4,7 @@ use alloc::{
     vec::Vec,
 };
 use chrono::NaiveDateTime;
-use core::{fmt, str::FromStr};
+use core::{convert::TryFrom, fmt, str::FromStr};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventKind {
@@ -56,7 +56,9 @@ impl EventId {
     }
 
     pub fn path(&self) -> PathRef<'_> {
-        let (path, _) = PathRef(self.as_str()).strip_event().expect("event must exist");
+        let (path, _) = PathRef(self.as_str())
+            .strip_event()
+            .expect("event must exist");
         path
     }
 
@@ -74,7 +76,9 @@ impl EventId {
     }
 
     pub fn event_kind(&self) -> EventKind {
-        let (_, event_kind) = PathRef(self.as_str()).strip_event().expect("event must exist");
+        let (_, event_kind) = PathRef(self.as_str())
+            .strip_event()
+            .expect("event must exist");
         let event_kind_segments: Vec<&str> = event_kind.split('_').collect::<Vec<_>>();
         match &event_kind_segments[..] {
             ["vs"] => EventKind::VsMatch(VsMatchKind::WinOrDraw),
@@ -181,9 +185,11 @@ impl FromStr for EventId {
         if url.path() != string {
             // sanity check -- the URL path is the evet ID so if we roundtrip it, it should come out
             // the same
-            return Err(EventIdError::BadFormat)
+            return Err(EventIdError::BadFormat);
         }
-        let (path, event_kind) = PathRef::from(string).strip_event().ok_or(EventIdError::BadFormat)?;
+        let (path, event_kind) = PathRef::from(string)
+            .strip_event()
+            .ok_or(EventIdError::BadFormat)?;
         let event_kind_segments = event_kind.split("_").collect::<Vec<_>>();
 
         // Ensure the path is a valid url path
@@ -233,6 +239,14 @@ impl PartialEq<&str> for EventId {
     }
 }
 
+impl TryFrom<url::Url> for EventId {
+    type Error = EventIdError;
+
+    fn try_from(url: url::Url) -> Result<EventId, Self::Error> {
+        EventId::from_str(url.path())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PathRef<'a>(&'a str);
 
@@ -257,12 +271,18 @@ impl<'a> PathRef<'a> {
     pub fn strip_event(self) -> Option<(PathRef<'a>, &'a str)> {
         self.0.rfind('/').and_then(|slash_at| {
             let last_segment = &self.0[slash_at + 1..];
-            last_segment.find('.').map(|dot_at| (PathRef(&self.0[..slash_at + 1 + dot_at]), &last_segment[dot_at + 1..]))
+            last_segment.find('.').map(|dot_at| {
+                (
+                    PathRef(&self.0[..slash_at + 1 + dot_at]),
+                    &last_segment[dot_at + 1..],
+                )
+            })
         })
     }
 
     pub fn last(self) -> &'a str {
-        let last_segment = self.0
+        let last_segment = self
+            .0
             .rfind('/')
             .map(|at| &self.0[at + 1..])
             .unwrap_or(&self.0[..]);
@@ -415,13 +435,7 @@ mod test {
         assert_eq!(event_id.path().as_str(), "/one/two/three");
         assert_eq!(event_id.path().parent().unwrap().as_str(), "/one/two");
         assert_eq!(
-            event_id
-                .path()
-                .parent()
-                .unwrap()
-                .parent()
-                .unwrap()
-                .as_str(),
+            event_id.path().parent().unwrap().parent().unwrap().as_str(),
             "/one",
         );
         assert_eq!(
@@ -435,6 +449,14 @@ mod test {
                 .unwrap()
                 .as_str(),
             "/"
+        );
+    }
+
+    #[test]
+    fn event_id_from_url() {
+        assert_eq!(
+            EventId::try_from(url::Url::from_str("http://oracle.com/foo/bar.occur").unwrap()).unwrap(),
+            EventId::from_str("/foo/bar.occur").unwrap()
         );
     }
 }

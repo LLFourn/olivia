@@ -79,8 +79,7 @@ impl Outcome {
                             None => return Err(OutcomeError::BadFormat),
                         },
                     },
-                    VsMatchKind::Win
-                     => {
+                    VsMatchKind::Win => {
                         if let Some(winner) = outcome.strip_suffix("_win") {
                             if winner == left {
                                 Ok(0)
@@ -129,16 +128,11 @@ impl Outcome {
             (EventKind::VsMatch(VsMatchKind::WinOrDraw), o) if o == WinOrDraw::Draw as u64 => {
                 write!(f, "draw")
             }
-            (
-                EventKind::VsMatch(VsMatchKind::Win),
-                winner,
-            ) if winner < 2 => {
-                match winner {
-                    0 => write!(f, "{}_win", self.id.parties().unwrap().0),
-                    1 => write!(f, "{}_win", self.id.parties().unwrap().1),
-                    _ => unreachable!("already checked < 2"),
-                }
-            }
+            (EventKind::VsMatch(VsMatchKind::Win), winner) if winner < 2 => match winner {
+                0 => write!(f, "{}_win", self.id.parties().unwrap().0),
+                1 => write!(f, "{}_win", self.id.parties().unwrap().1),
+                _ => unreachable!("already checked < 2"),
+            },
             (EventKind::Digits(..), value) => write!(f, "{}", value),
             _ => unreachable!("enum pairs must match if Outcome is valid"),
         }
