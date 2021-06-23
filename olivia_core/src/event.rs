@@ -333,20 +333,6 @@ pub struct Event {
     pub id: EventId,
     pub expected_outcome_time: Option<NaiveDateTime>,
 }
-impl From<NaiveDateTime> for Event {
-    fn from(dt: NaiveDateTime) -> Self {
-        Event {
-            id: EventId::from(dt),
-            expected_outcome_time: Some(dt),
-        }
-    }
-}
-
-impl From<NaiveDateTime> for EventId {
-    fn from(dt: NaiveDateTime) -> Self {
-        EventId::from_str(&format!("/time/{}.occur", dt.format("%FT%T"))).unwrap()
-    }
-}
 
 #[cfg(feature = "diesel")]
 mod sql_impls {
