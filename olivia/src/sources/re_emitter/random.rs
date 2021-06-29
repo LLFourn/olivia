@@ -74,7 +74,7 @@ impl OutcomeReEmitter for HeadsOrTailsOutcomes {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::core::EventId;
+    use olivia_core::EventId;
     use std::str::FromStr;
 
     #[tokio::test]

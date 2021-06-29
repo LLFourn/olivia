@@ -1,41 +1,29 @@
-use crate::{
-    core::{Event, Group, StampedOutcome, EventId},
-    db::Db,
-    sources::Update,
-};
+use crate::{db::BorrowDb, sources::Update};
 use chrono::{Duration, NaiveDateTime};
 use futures::{channel::oneshot, stream};
-use olivia_core::Outcome;
-use std::sync::Arc;
-use core::str::FromStr;
+use olivia_core::{Event, EventKind, Group, Outcome, StampedOutcome};
 use tokio::time;
 
-pub fn time_events_stream(
-    db: Arc<dyn Db<impl Group>>,
+pub fn time_events_stream<C: Group, D: BorrowDb<C>>(
+    db: D,
     look_ahead: Duration,
     interval: Duration,
     initial_time: NaiveDateTime,
     logger: slog::Logger,
 ) -> impl stream::Stream<Item = Update<Event>> {
-    stream::unfold(None, move |waiting| {
-        let db = db.clone();
-        let logger = logger.clone();
-        async move {
-            if let Some(waiting) = waiting {
-                let res: Result<_, _> = waiting.await;
-                if res.is_err() {
-                    // This should only happen when the last event we emitted cannot be stored in the DB for some reason.
-                    // There is no way to recover from this and there is no reason to keep emitting events
-                    crit!(logger, "Stopping emitting new time events as the consumer was unable to store one of our events");
-                    return None;
-                }
-            }
+    let (sender, receiver) = futures::channel::mpsc::unbounded();
 
-            match db.latest_time_event().await {
+    tokio::spawn(async move {
+        loop {
+            let latest = db
+                .borrow_db()
+                .latest_child_event("/time", EventKind::SingleOccurrence)
+                .await;
+            let (update, waiting) = match latest {
                 Ok(Some(latest)) => {
                     let latest = latest
                         .expected_outcome_time
-                        .expect("time events always this");
+                        .expect("time events always have this");
                     // If the latest event we have in the DB is 19:36 and our interval is 1min
                     // then the next event we want is 19:37.
                     let next_event = latest + interval;
@@ -55,98 +43,104 @@ pub fn time_events_stream(
                         "Stopping emitting new time events as we got a DB error";
                         "error" => format!("{}",err),
                     );
-                    return None;
+                    break;
                 }
+            };
+
+            if let Err(_) = sender.unbounded_send(update) {
+                break;
+            }
+
+            let res: Result<_, _> = waiting.await;
+            if res.is_err() {
+                // This should only happen when the last event we emitted cannot be stored in the DB for some reason.
+                // There is no way to recover from this and there is no reason to keep emitting events
+                crit!(logger, "Stopping emitting new time events as the consumer was unable to store one of our events");
+                break;
             }
         }
-    })
+        ();
+    });
+
+    receiver
 }
 
-pub fn time_outcomes_stream<C: crate::core::Group>(
-    db: Arc<dyn Db<C>>,
+pub fn time_outcomes_stream<C: Group, D: BorrowDb<C>>(
+    db: D,
     logger: slog::Logger,
 ) -> impl stream::Stream<Item = Update<StampedOutcome>> {
-    stream::unfold(None, move |waiting| {
-        let db = db.clone();
-        let logger = logger.clone();
-        async move {
-            if let Some(waiting) = waiting {
-                let res: Result<_, _> = waiting.await;
-                if res.is_err() {
-                    error!(logger,"Stopping emitting time outcomes as the consumer was unable to store one of our events");
-                    return None;
+    let (stream_sender, stream_receiver) = futures::channel::mpsc::unbounded();
+    tokio::spawn(async move {
+        loop {
+            let event = db
+                .borrow_db()
+                .earliest_unattested_child_event("/time", EventKind::SingleOccurrence)
+                .await;
+            let event = match event {
+                Ok(Some(event)) => event,
+                Err(e) => {
+                    crit!(
+                        logger,
+                        "DB error during /time outcome stream";
+                        "error" => format!("{}", e)
+                    );
+                    time::sleep(std::time::Duration::from_secs(60)).await;
+                    continue;
                 }
-            }
-            let mut event;
+                Ok(None) => {
+                    time::sleep(std::time::Duration::from_secs(1)).await;
+                    continue;
+                }
+            };
 
-            while {
-                event = match db.clone().earliest_unattested_time_event().await {
-                    Err(err) => {
-                        crit!(
-                            logger,
-                            "Stopping emitting time outcomes as we got a DB error";
-                            "error" => format!("{}", err)
-                        );
-                        return None;
-                    }
-                    Ok(event) => event,
-                };
-
-                event.is_none()
-            } {
-                time::sleep(std::time::Duration::from_secs(1)).await
-            }
-            let event = event.unwrap();
             let event_complete_time = event
                 .expected_outcome_time
                 .expect("time events always have this");
 
             delay_until(event_complete_time).await;
 
-            let (sender, receiver) = oneshot::channel();
+            let (sender, waiting) = oneshot::channel();
 
-            Some((
-                Update {
-                    update: StampedOutcome {
-                        outcome: Outcome {
-                            id: event.id.clone(),
-                            value: 0,
-                        },
-                        time: now(), // tell the actual truth about when we actually figured it was done
+            let update = Update {
+                update: StampedOutcome {
+                    outcome: Outcome {
+                        id: event.id.clone(),
+                        value: 0,
                     },
-                    processed_notifier: Some(sender),
+                    time: now(), // tell the actual truth about when we actually figured it was done
                 },
-                (Some(receiver)),
-            ))
+                processed_notifier: Some(sender),
+            };
+
+            if let Err(_) = stream_sender.unbounded_send(update) {
+                crit!(
+                    logger,
+                    "receiver died for /time outcomes -- shutting down emitter"
+                );
+                break;
+            }
+
+            if let Err(_) = waiting.await {
+                error!(logger, "processing of outcome for failed (will try again)"; "id" => event.id.as_str());
+                time::sleep(std::time::Duration::from_secs(10)).await;
+            }
         }
-    })
+    });
+
+    stream_receiver
 }
 
 /// coverts a time to an event update wrapped the way we need it to be for stream::unfold
-fn time_to_event_update(
-    dt: NaiveDateTime,
-) -> Option<(Update<Event>, Option<oneshot::Receiver<()>>)> {
+fn time_to_event_update(dt: NaiveDateTime) -> (Update<Event>, oneshot::Receiver<()>) {
     let (sender, receiver) = oneshot::channel();
-    Some((
+    (
         Update {
-            update: time_to_event(dt),
+            update: Event::occur_event_from_dt(dt),
             processed_notifier: Some(sender),
         },
-        Some(receiver),
-    ))
+        receiver,
+    )
 }
-
-fn time_to_event(dt: NaiveDateTime) -> Event {
-    Event {
-        id: time_to_event_id(dt),
-        expected_outcome_time: Some(dt),
-    }
-}
-
-fn time_to_event_id(dt: NaiveDateTime) -> EventId {
-    EventId::from_str(&format!("/time/{}.occur", dt.format("%FT%T"))).unwrap()
-}
-
 
 async fn delay_until(until: NaiveDateTime) {
     let delta = until - now();
@@ -159,299 +153,23 @@ fn now() -> NaiveDateTime {
     chrono::Utc::now().naive_utc()
 }
 
-#[cfg(test)]
-pub mod test {
-    use super::*;
-    use crate::{
-        core::{AnnouncedEvent, EventId, Group},
-        db::in_memory::InMemory,
-    };
-    use futures::stream::StreamExt;
-    use std::str::FromStr;
+// #[cfg(test)]
+// pub mod test {
+//     use super::*;
+//     use crate::{
+//         core::{AnnouncedEvent, EventId, Group},
+//         db::Db,
+//     };
+//     use futures::{Future, stream::StreamExt};
+//     use std::{str::FromStr, sync::Arc};
 
-    fn logger() -> slog::Logger {
-        slog::Logger::root(slog::Discard, o!())
-    }
+//     pub async fn run_time_db_tests<C: Group, D: Db<C>, F: Future<Output=D>>(mut gen: impl FnMut() -> F) {
+//         // test_time_range_db(&gen().await).await;
+//         // time_ticker_events_stream(Arc::new(gen().await)).await;
+//         // time_ticker_outcome_empty_db(gen().await).await;
+//         // time_ticker_outcome_in_future(gen().await).await;
+//         // time_ticker_outcome_with_event_in_past(gen().await).await;
+//         time_ticker_wait_for_event_outcomes(Arc::new(gen().await)).await;
+//     }
 
-    /// this is called from tests for particular DB to populate their
-    /// db before called test_time_ticker_db
-    pub fn time_ticker_db_test_data<C: Group>() -> Vec<AnnouncedEvent<C>> {
-        vec![
-            {
-                let time = NaiveDateTime::from_str("2020-03-01T00:25:00").unwrap();
-                let mut obs_event = AnnouncedEvent::test_unattested_instance(time_to_event(time));
-                obs_event.event.expected_outcome_time = Some(time);
-                obs_event
-            },
-            {
-                let time = NaiveDateTime::from_str("2020-03-01T00:30:00").unwrap();
-                let mut obs_event = AnnouncedEvent::test_unattested_instance(time_to_event(time));
-                obs_event.event.expected_outcome_time = Some(time);
-                obs_event
-            },
-            {
-                let time = NaiveDateTime::from_str("2020-03-01T00:20:00").unwrap();
-                let mut obs_event = AnnouncedEvent::test_unattested_instance(time_to_event(time));
-                obs_event.event.expected_outcome_time = Some(time);
-                obs_event
-            },
-            {
-                // put in a non time event which *SHOULD* be ignored
-                let time = NaiveDateTime::from_str("2020-03-01T00:11:00").unwrap();
-                let mut obs_event = AnnouncedEvent::test_unattested_instance(
-                    EventId::from_str("/foo/bar/baz.occur").unwrap().into(),
-                );
-                obs_event.event.expected_outcome_time = Some(time);
-                obs_event
-            },
-            {
-                let time = NaiveDateTime::from_str("2020-03-01T00:10:00").unwrap();
-                let mut obs_event = AnnouncedEvent::test_attested_instance(time_to_event(time));
-                obs_event.event.expected_outcome_time = Some(time);
-                obs_event.attestation.as_mut().unwrap().time = time;
-                obs_event
-            },
-            {
-                let time = NaiveDateTime::from_str("2020-03-01T00:05:00").unwrap();
-                let mut obs_event = AnnouncedEvent::test_attested_instance(time_to_event(time));
-                obs_event.event.expected_outcome_time = Some(time);
-                obs_event.attestation.as_mut().unwrap().time = time;
-                obs_event
-            },
-            {
-                let time = NaiveDateTime::from_str("2020-03-01T00:15:00").unwrap();
-                let mut obs_event = AnnouncedEvent::test_attested_instance(time_to_event(time));
-                obs_event.event.expected_outcome_time = Some(time);
-                obs_event.attestation.as_mut().unwrap().time = time;
-                obs_event
-            },
-        ]
-    }
-
-    pub async fn test_time_ticker_db<C: Group>(db: Arc<dyn Db<C>>) {
-        let latest_time_event = db
-            .latest_time_event()
-            .await
-            .expect("latest_time_event isn't Err")
-            .expect("latest_time_event isn't None");
-
-        assert_eq!(latest_time_event, time_ticker_db_test_data::<C>()[1].event);
-
-        let earliest_unattested_time_event = db
-            .earliest_unattested_time_event()
-            .await
-            .expect("earliest_unattested_time_event isn't Err")
-            .expect("earliest_unattested_time_event isn't None");
-
-        assert_eq!(
-            earliest_unattested_time_event,
-            time_ticker_db_test_data::<C>()[2].event
-        );
-    }
-
-    #[test]
-    fn time_ticker_events_stream() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let db: Arc<dyn Db> = Arc::new(InMemory::default());
-        let start = now();
-        let look_ahead = Duration::seconds(2);
-        let interval = Duration::seconds(1);
-        let mut stream =
-            time_events_stream(db.clone(), look_ahead, interval, start, logger()).boxed();
-        let mut cur = start.clone();
-
-        {
-            let update = rt.block_on(stream.next()).expect("Not None");
-            let event = update.update;
-            assert_eq!(event.id, time_to_event_id(cur));
-            rt.block_on(db.insert_event(AnnouncedEvent::test_unattested_instance(event)))
-                .unwrap();
-            let _ = update.processed_notifier.unwrap().send(());
-        }
-
-        cur += interval;
-
-        {
-            let update = rt.block_on(stream.next()).expect("Not None");
-            let event = update.update;
-            assert_eq!(event.id, time_to_event_id(cur));
-            rt.block_on(db.insert_event(AnnouncedEvent::test_unattested_instance(event)))
-                .unwrap();
-            let _ = update.processed_notifier.unwrap().send(());
-        }
-
-        cur += interval;
-
-        {
-            let update = rt.block_on(stream.next()).expect("Not None");
-            let event = update.update;
-            assert_eq!(event.id, time_to_event_id(cur));
-            rt.block_on(db.insert_event(AnnouncedEvent::test_unattested_instance(event)))
-                .unwrap();
-            let _ = update.processed_notifier.unwrap().send(());
-        }
-        assert!(
-            now() < start + Duration::milliseconds(100),
-            "we shouldn't have waited for anything yet"
-        );
-
-        cur += interval;
-        {
-            let update = rt.block_on(stream.next()).expect("Not None");
-            let event = update.update;
-            assert_eq!(event.id, time_to_event_id(cur));
-            rt.block_on(db.insert_event(AnnouncedEvent::test_unattested_instance(event)))
-                .unwrap();
-            let _ = update.processed_notifier.unwrap().send(());
-        }
-
-        assert!(
-            now() > start + Duration::seconds(1),
-            "we should have waited for 1 second"
-        );
-        assert!(
-            now() < start + Duration::milliseconds(1100),
-            "shouldn't have waited too much"
-        );
-    }
-
-    #[test]
-    fn time_ticker_outcome_empty_db() {
-        let db: Arc<dyn Db> = Arc::new(InMemory::default());
-        let rt = tokio::runtime::Runtime::new().unwrap();
-
-        let mut stream = time_outcomes_stream(db.clone(), logger()).boxed();
-        let future = stream.next();
-        assert!(
-            rt.block_on(async move {
-                tokio::time::timeout(std::time::Duration::from_millis(1), future).await
-            })
-            .is_err(),
-            "Empty db should just block"
-        );
-    }
-
-    #[test]
-    fn time_ticker_outcome_in_future() {
-        let db: Arc<dyn Db> = Arc::new(InMemory::default());
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let start = now();
-
-        rt.block_on(
-            db.insert_event(AnnouncedEvent::test_unattested_instance(time_to_event(
-                start + Duration::seconds(1),
-            ))),
-        )
-        .unwrap();
-        let mut stream = time_outcomes_stream(db.clone(), logger()).boxed();
-        let future = stream.next();
-
-        assert!(
-            rt.block_on(async move {
-                tokio::time::timeout(std::time::Duration::from_millis(1), future).await
-            })
-            .is_err(),
-            "db with event in the future should just block"
-        );
-    }
-
-    #[test]
-    fn time_ticker_outcome_with_event_in_past() {
-        let db: Arc<dyn Db> = Arc::new(InMemory::default());
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let start = now();
-
-        rt.block_on(db.insert_event(AnnouncedEvent::test_unattested_instance(time_to_event(start))))
-            .unwrap();
-
-        let mut stream = time_outcomes_stream(db.clone(), logger()).boxed();
-        let item = rt.block_on(stream.next()).expect("stream shouldn't stop");
-        let stamped = item.update;
-        assert!(
-            now() < start + Duration::milliseconds(100),
-            "should generate outcome for event in the past immediately"
-        );
-
-        assert_eq!(
-            stamped.outcome.id,
-            time_to_event_id(start),
-            "outcome should be for the time that was inserted"
-        );
-        assert_eq!(
-            stamped.outcome.value,
-            olivia_core::Occur::Occurred as u64,
-            "outcome string should be true"
-        );
-        assert!(
-            stamped.time >= start,
-            "the time of the outcome should be greater than when it was scheduled"
-        );
-        assert!(stamped.time <= now(), "should not be in the future");
-    }
-
-    #[test]
-    fn time_ticker_wait_for_event_outcomes() {
-        use crate::core::Attestation;
-        let db: Arc<dyn Db> = Arc::new(InMemory::default());
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let mut stream = time_outcomes_stream(db.clone(), logger()).boxed();
-        let start = now();
-
-        // add some time events in the future out of order
-        rt.block_on(
-            db.insert_event(AnnouncedEvent::test_unattested_instance(time_to_event(
-                start + Duration::seconds(3),
-            ))),
-        )
-        .unwrap();
-
-        rt.block_on(
-            db.insert_event(AnnouncedEvent::test_unattested_instance(time_to_event(
-                start + Duration::seconds(1),
-            ))),
-        )
-        .unwrap();
-
-        rt.block_on(
-            db.insert_event(AnnouncedEvent::test_unattested_instance(time_to_event(
-                start + Duration::seconds(2),
-            ))),
-        )
-        .unwrap();
-
-        // test that they get emitted in order
-        let first = rt.block_on(stream.next()).unwrap();
-        assert_eq!(
-            first.update.outcome.id,
-            time_to_event_id(start + Duration::seconds(1))
-        );
-        assert!(now() < start + Duration::milliseconds(1100));
-        rt.block_on(db.complete_event(
-            &first.update.outcome.id,
-            Attestation::test_instance(&first.update.outcome.id),
-        ))
-        .unwrap();
-        first.processed_notifier.unwrap().send(()).unwrap();
-
-        let second = rt.block_on(stream.next()).unwrap();
-        assert_eq!(
-            second.update.outcome.id,
-            time_to_event_id(start + Duration::seconds(2))
-        );
-        assert!(now() < start + Duration::milliseconds(2100));
-        rt.block_on(db.complete_event(
-            &second.update.outcome.id,
-            Attestation::test_instance(&first.update.outcome.id),
-        ))
-        .unwrap();
-        second.processed_notifier.unwrap().send(()).unwrap();
-
-        let third = rt.block_on(stream.next()).unwrap();
-        assert_eq!(
-            third.update.outcome.id,
-            time_to_event_id(start + Duration::seconds(3))
-        );
-        assert!(now() >= start + Duration::seconds(3));
-        assert!(now() < start + Duration::milliseconds(3100));
-    }
-}
+// }

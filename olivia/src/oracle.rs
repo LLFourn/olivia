@@ -1,10 +1,6 @@
-use crate::{
-    core::{AnnouncedEvent, Attestation, Event, Group, OracleKeys, StampedOutcome},
-    curve::DeriveKeyPair,
-    keychain::KeyChain,
-    seed::Seed,
-};
+use crate::{keychain::KeyChain, seed::Seed};
 use anyhow::anyhow;
+use olivia_core::{AnnouncedEvent, Attestation, Event, Group, OracleKeys, StampedOutcome};
 use std::sync::Arc;
 
 #[derive(thiserror::Error, Debug)]
@@ -35,12 +31,12 @@ pub enum OutcomeResult {
     DbWriteErr(crate::db::Error),
 }
 
-pub struct Oracle<C: Group + DeriveKeyPair> {
+pub struct Oracle<C: Group> {
     db: Arc<dyn crate::db::Db<C>>,
     keychain: KeyChain<C>,
 }
 
-impl<C: Group + DeriveKeyPair> Oracle<C> {
+impl<C: Group> Oracle<C> {
     pub async fn new(seed: Seed, db: Arc<dyn crate::db::Db<C>>) -> anyhow::Result<Self> {
         let keychain = KeyChain::new(seed);
         let public_keys = keychain.oracle_public_keys();
@@ -120,14 +116,11 @@ impl<C: Group + DeriveKeyPair> Oracle<C> {
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use crate::{
-        core::{EventId, WireEventOutcome},
-        curve::SchnorrImpl,
-        db::Db,
-    };
+    use crate::db::Db;
     use core::{convert::TryInto, str::FromStr};
+    use olivia_core::{EventId, WireEventOutcome};
 
-    pub async fn test_oracle_event_lifecycle(db: Arc<dyn Db<SchnorrImpl>>) {
+    pub async fn test_oracle_event_lifecycle<C: Group>(db: Arc<dyn Db<C>>) {
         let oracle = Oracle::new(crate::seed::Seed::new([42u8; 64]), db.clone())
             .await
             .expect("should be able to create oracle");

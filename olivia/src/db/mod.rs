@@ -1,47 +1,65 @@
-use crate::core::{AnnouncedEvent, Attestation, Event, EventId, Group, OracleKeys};
-pub mod diesel;
+use olivia_core::{
+    AnnouncedEvent, Attestation, ChildDesc, Event, EventId, Group, OracleKeys, RangeKind,
+};
 pub mod in_memory;
+pub mod postgres;
 use async_trait::async_trait;
+use olivia_core::EventKind;
 #[cfg(test)]
 pub mod test;
 
 pub type Error = anyhow::Error;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Item {
+pub struct DbNode {
     pub events: Vec<EventId>,
-    pub children: Vec<String>,
+    pub child_desc: ChildDesc,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename = "kebab-case")]
+pub enum ChildrenKind {
+    List,
+    Range { range_kind: RangeKind },
 }
 
 #[async_trait]
 pub trait DbRead<C: Group>: Send + Sync {
-    async fn get_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent<C>>, Error>;
-    async fn get_node(&self, path: &str) -> Result<Option<Item>, Error>;
+    async fn get_event(&self, id: &EventId) -> anyhow::Result<Option<AnnouncedEvent<C>>>;
+    async fn get_node(&self, path: &str) -> anyhow::Result<Option<DbNode>>;
+    async fn latest_child_event(
+        &self,
+        path: &str,
+        kind: EventKind,
+    ) -> anyhow::Result<Option<Event>>;
+    async fn earliest_unattested_child_event(
+        &self,
+        path: &str,
+        kind: EventKind,
+    ) -> anyhow::Result<Option<Event>>;
+    async fn get_public_keys(&self) -> Result<Option<OracleKeys<C>>, Error>;
 }
 
 #[async_trait]
 pub trait DbWrite<C: Group>: Send + Sync {
     async fn insert_event(&self, observed_event: AnnouncedEvent<C>) -> Result<(), Error>;
+    async fn set_node_kind(&self, path: &str, kind: ChildrenKind) -> Result<(), Error>;
     async fn complete_event(
         &self,
         event_id: &EventId,
         outcome: Attestation<C>,
     ) -> Result<(), Error>;
-}
 
-#[async_trait]
-pub trait DbMeta<C: Group>: Send + Sync {
-    async fn get_public_keys(&self) -> Result<Option<OracleKeys<C>>, Error>;
     async fn set_public_keys(&self, public_key: OracleKeys<C>) -> Result<(), Error>;
 }
 
-#[async_trait]
-pub trait TimeTickerDb {
-    async fn latest_time_event(&self) -> Result<Option<Event>, Error>;
-    async fn earliest_unattested_time_event(&self) -> Result<Option<Event>, Error>;
+pub trait Db<C: Group>: DbRead<C> + DbWrite<C> + Send + Sync + 'static + BorrowDb<C> {}
+
+pub trait BorrowDb<C>: Send + Sync + 'static {
+    fn borrow_db(&self) -> &dyn Db<C>;
 }
 
-pub trait Db<C: Group = crate::curve::SchnorrImpl>:
-    DbRead<C> + DbWrite<C> + TimeTickerDb + DbMeta<C>
-{
+impl<C: Group> BorrowDb<C> for std::sync::Arc<dyn Db<C>> {
+    fn borrow_db(&self) -> &dyn Db<C> {
+        self.as_ref()
+    }
 }

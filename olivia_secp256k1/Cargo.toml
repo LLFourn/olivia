@@ -6,12 +6,14 @@ edition = "2018"
 
 [dependencies]
 olivia_core = { path = "../olivia_core" }
-schnorr_fun = { version = "0.6", features = ["serde"] }
-diesel = { version = "1.4", default-features = false, optional = true }
+schnorr_fun = { version = "0.6", features = ["serde" ] }
 serde  = { version = "1", default-features = false }
 lazy_static = "1"
 sha2 = "0.9"
+bytes = "1"
+anyhow = {  version = "1", features = ["std"], optional = true }
 
 
 [features]
 libsecp_compat = ["schnorr_fun/libsecp_compat"]
+postgres-types = ["olivia_core/postgres-types", "anyhow"]

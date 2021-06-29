@@ -1,6 +1,10 @@
 use super::*;
-use crate::{core, curve::SchnorrImpl, db, sources};
+use crate::{
+    db::{self, postgres::PgBackendWrite, BorrowDb},
+    sources,
+};
 use futures::StreamExt;
+use olivia_core::Group;
 use std::{fs, sync::Arc};
 
 impl LoggerConfig {
@@ -68,11 +72,11 @@ impl LoggersConfig {
 }
 
 impl EventSourceConfig {
-    pub fn to_event_stream<C: core::Group>(
+    pub fn to_event_stream<C: Group>(
         &self,
         name: &str,
         logger: slog::Logger,
-        db: Arc<dyn db::Db<C>>,
+        db: impl BorrowDb<C>,
     ) -> anyhow::Result<sources::EventStream> {
         let name = name.to_owned();
         match self.clone() {
@@ -100,7 +104,7 @@ impl EventSourceConfig {
                 interval,
                 initial_time,
             } => Ok(sources::time_ticker::time_events_stream(
-                db.clone(),
+                db,
                 chrono::Duration::seconds(look_ahead as i64),
                 chrono::Duration::seconds(interval as i64),
                 initial_time.unwrap_or_else(|| {
@@ -127,12 +131,12 @@ impl EventSourceConfig {
 }
 
 impl OutcomeSourceConfig {
-    pub fn to_outcome_stream<C: core::Group>(
+    pub fn to_outcome_stream<C: Group>(
         &self,
         name: &str,
         seed: &Seed,
         logger: slog::Logger,
-        db: Arc<dyn db::Db<C>>,
+        db: impl BorrowDb<C>,
     ) -> anyhow::Result<sources::OutcomeStream> {
         use OutcomeSourceConfig::*;
         match self.clone() {
@@ -156,7 +160,7 @@ impl OutcomeSourceConfig {
             }
             TimeTicker {} => {
                 Ok(sources::time_ticker::time_outcomes_stream(
-                    db.clone(),
+                    db,
                     logger.new(o!("type" => "outcome_source", "name" => name.to_owned(), "source_type" => "time_ticker"))
                 ).boxed())
             }
@@ -197,13 +201,26 @@ impl OutcomeReEmitterConfig {
     }
 }
 
+lazy_static::lazy_static! {
+    static ref IN_MEMORY: db::in_memory::InMemory<olivia_secp256k1::Secp256k1> = db::in_memory::InMemory::default();
+}
+
 impl DbConfig {
-    pub fn connect_database<C: core::Group>(&self) -> anyhow::Result<Arc<dyn db::Db<SchnorrImpl>>> {
+    pub async fn connect_database_read(
+        &self,
+    ) -> anyhow::Result<Arc<dyn db::DbRead<olivia_secp256k1::Secp256k1>>> {
         match self {
-            DbConfig::InMemory => Ok(Arc::new(db::in_memory::InMemory::default())),
-            DbConfig::Postgres { url } => {
-                Ok(Arc::new(db::diesel::postgres::PgBackend::connect(&url)?))
-            }
+            DbConfig::InMemory => Ok(Arc::new(IN_MEMORY.clone())),
+            DbConfig::Postgres { url } => Ok(Arc::new(db::postgres::connect_read(url).await?)),
+        }
+    }
+
+    pub async fn connect_database(
+        &self,
+    ) -> anyhow::Result<Arc<dyn db::Db<olivia_secp256k1::Secp256k1>>> {
+        match self {
+            DbConfig::InMemory => Ok(Arc::new(IN_MEMORY.clone())),
+            DbConfig::Postgres { url } => Ok(Arc::new(PgBackendWrite::connect(url).await?)),
         }
     }
 }

@@ -1,49 +1,46 @@
+use core::fmt::Debug;
+
 use alloc::vec::Vec;
 
+use crate::OracleKeys;
+
+#[cfg(not(feature = "postgres-types"))]
+pub trait GroupObject: PartialEq
+        + Clone
+        + Debug
+        + serde::Serialize
+        + serde::de::DeserializeOwned
+        + core::fmt::Display
+        + Send
+        + Sync
+        + 'static {}
+
+
+#[cfg(feature = "postgres-types")]
+pub trait GroupObject: PartialEq
+  + Clone
+  + Debug
+  + serde::Serialize
+  + serde::de::DeserializeOwned
+  + core::fmt::Display
+  + Send
+  + Sync
+  + postgres_types::FromSqlOwned
+  + postgres_types::ToSql
+  + 'static {}
+
+
 pub trait Group:
-    Clone + Default + PartialEq + serde::Serialize + 'static + Send + Sync + core::fmt::Debug
+    Clone + Default + PartialEq + serde::Serialize + 'static + Send + Sync + Debug
 {
-    type AttestScalar: PartialEq
-        + Clone
-        + core::fmt::Debug
-        + serde::Serialize
-        + serde::de::DeserializeOwned
-        + core::fmt::Display
-        + Send
-        + Sync
-        + 'static;
-
-    type PublicKey: PartialEq
-        + Clone
-        + core::fmt::Debug
-        + serde::Serialize
-        + serde::de::DeserializeOwned
-        + Send
-        + Sync
-        + 'static;
-
-    type PublicNonce: PartialEq
-        + Clone
-        + core::fmt::Debug
-        + serde::Serialize
-        + serde::de::DeserializeOwned
-        + core::fmt::Display
-        + Send
-        + Sync
-        + 'static;
-
-    type Signature: PartialEq
-        + Clone
-        + core::fmt::Debug
-        + serde::Serialize
-        + serde::de::DeserializeOwned
-        + Send
-        + Sync
-        + 'static;
-
-    type KeyPair: Into<Self::PublicKey> + Clone;
-    type NonceKeyPair: Into<Self::PublicNonce> + Clone;
+    type AttestScalar: GroupObject;
+    type PublicKey: GroupObject;
+    type PublicNonce: GroupObject;
+    type Signature: GroupObject;
     type AnticipatedAttestation;
+    type NonceKeyPair: Into<Self::PublicNonce> + Clone + Debug;
+    type KeyPair: Into<Self::PublicKey> + Clone;
+    const KEY_MATERIAL_LEN: usize;
 
     fn name() -> &'static str;
 
@@ -73,10 +70,12 @@ pub trait Group:
     ) -> Vec<Self::AnticipatedAttestation>;
 
     fn sign_announcement(keypair: &Self::KeyPair, announcement: &[u8]) -> Self::Signature;
+    fn keypair_from_secret_bytes(bytes: &[u8]) -> Self::KeyPair;
+    fn nonce_keypair_from_secret_bytes(bytes: &[u8]) -> Self::NonceKeyPair;
 
     fn test_keypair() -> Self::KeyPair;
-
     fn test_nonce_keypair() -> Self::NonceKeyPair;
+    fn test_oracle_keys() -> OracleKeys<Self>;
 }
 
 #[macro_export]

@@ -39,21 +39,21 @@ macro_rules! impl_fromstr_deserailize {
                     if deserializer.is_human_readable() {
                         #[allow(unused_parens)]
                         struct HexVisitor$(<$($tpl),*>)?$((core::marker::PhantomData<($($tpl),*)> ))?;
-                        impl<'de, $($($tpl $(: $tcl)?),*)?> serde::de::Visitor<'de> for HexVisitor$(<$($tpl),*>)? {
+                        impl<'de, $($($tpl $(: $tcl)?),*)?> $crate::serde::de::Visitor<'de> for HexVisitor$(<$($tpl),*>)? {
                             type Value = $type ;
                             fn expecting(
                                 &self,
                                 f: &mut core::fmt::Formatter,
                             ) -> core::fmt::Result {
-                                write!(f, "a {}-byte hex encoded {}", $len, $name)?;
+                                write!(f, "a valid {}-byte hex encoded {}", $len, $name)?;
                                 Ok(())
                             }
 
-                            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<$type , E> {
+                            fn visit_str<E: $crate::serde::de::Error>(self, v: &str) -> Result<$type , E> {
                                 use $crate::hex::HexError::*;
                                 <$type  as core::str::FromStr>::from_str(v).map_err(|e| match e {
-                                    InvalidLength => E::invalid_length(v.len(), &format!("{}", $len).as_str()),
-                                    InvalidEncoding => E::invalid_value(serde::de::Unexpected::Str(v), &self),
+                                    InvalidLength => E::invalid_length(v.len() / 2, &self),
+                                    InvalidEncoding => E::invalid_value($crate::serde::de::Unexpected::Str(v), &self),
                                     InvalidHex => E::custom("invalid hex")
                                 })
                             }
@@ -68,7 +68,7 @@ macro_rules! impl_fromstr_deserailize {
                     #[allow(unused_parens)]
                     struct BytesVisitor$(<$($tpl),*>)?$((core::marker::PhantomData<($($tpl),*)> ))?;
 
-                    impl<'de, $($($tpl $(: $tcl)?),*)?> serde::de::Visitor<'de> for BytesVisitor$(<$($tpl),*>)? {
+                    impl<'de, $($($tpl $(: $tcl)?),*)?> $crate::serde::de::Visitor<'de> for BytesVisitor$(<$($tpl),*>)? {
                         type Value = $type ;
 
                         fn expecting(
@@ -80,16 +80,16 @@ macro_rules! impl_fromstr_deserailize {
                         }
 
                         fn visit_seq<A>(self, mut seq: A) -> Result<$type , A::Error>
-                        where A: serde::de::SeqAccess<'de> {
+                        where A: $crate::serde::de::SeqAccess<'de> {
 
                             let mut $input = [0u8; $len];
                             for i in 0..$len {
                                 $input[i] = seq.next_element()?
-                                    .ok_or_else(|| serde::de::Error::custom(format_args!("invalid length {}, expected {}", i, &self as &dyn serde::de::Expected)))?;
+                                    .ok_or_else(|| $crate::serde::de::Error::invalid_length(i, &self))?;
                             }
 
                             let result = $block;
-                            result.ok_or(serde::de::Error::custom(format_args!("invalid byte encoding, expected {}", &self as &dyn serde::de::Expected)))
+                            result.ok_or($crate::serde::de::Error::custom(format_args!("invalid byte encoding, expected {}", &self as &dyn $crate::serde::de::Expected)))
                         }
                     }
 
@@ -108,11 +108,8 @@ macro_rules! impl_fromsql {
         name => $name:literal,
         fn from_bytes$(<$($tpl:ident  $(: $tcl:ident)?),*>)?($input:ident : [u8;$len:literal]) ->  Option<$type:path> $block:block
     ) => {
-        #[cfg(feature = "diesel")]
-        impl<DB: diesel::backend::Backend>
-            diesel::deserialize::FromSql<diesel::sql_types::Binary, DB> for $type
-        where
-            Vec<u8>: diesel::deserialize::FromSql<diesel::sql_types::Binary, DB>,
+        #[cfg(feature = "postgres")]
+        impl postgres_types::FromSql<'a> for $type
         {
             fn from_sql(bytes: Option<&DB::RawValue>) -> diesel::deserialize::Result<Self> {
                 let vec = <Vec<u8> as diesel::deserialize::FromSql<

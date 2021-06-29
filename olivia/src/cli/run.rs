@@ -1,27 +1,17 @@
-use crate::{
-    config::Config,
-    core::{Event, StampedOutcome},
-    curve::SchnorrImpl,
-    db::Db,
-    log::OracleLog,
-    oracle::Oracle,
-    sources::Update,
-};
+use crate::{config::Config, log::OracleLog, oracle::Oracle, sources::Update};
 use futures::{future::FutureExt, stream, stream::StreamExt};
-use std::sync::Arc;
+use olivia_core::{Event, StampedOutcome};
 
-pub fn run(config: Config) -> anyhow::Result<()> {
-    let rt = tokio::runtime::Runtime::new()?;
-
+pub async fn run(config: Config) -> anyhow::Result<()> {
     let logger = slog::Logger::root(config.loggers.to_slog_drain()?, o!());
-    let db: Arc<dyn Db<SchnorrImpl>> = config.database.connect_database::<SchnorrImpl>()?;
+    let db = config.database.connect_database().await?;
 
     let mut services = vec![];
 
     if let Some(rest_config) = config.rest_api {
         info!(logger, "starting http server on {}", rest_config.listen);
         let rest_api_server = warp::serve(crate::rest_api::routes(
-            db.clone(),
+            config.database.connect_database_read().await?,
             logger.new(o!("type" => "http")),
         ))
         .run(rest_config.listen)
@@ -34,21 +24,31 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     // If we have the secret seed then we are running an attesting oracle
     match config.secret_seed {
         Some(secret_seed) => {
+            let event_conn = config.database.connect_database().await?;
             let event_streams: Vec<_> = config
                 .events
                 .iter()
-                .map(|(name, source)| source.to_event_stream(name, logger.clone(), db.clone()))
+                .map(|(name, source)| {
+                    source.to_event_stream(name, logger.clone(), event_conn.clone())
+                })
                 .collect::<Result<Vec<_>, _>>()?;
+
+            let outcome_conn = config.database.connect_database().await?;
 
             let outcome_streams = config
                 .outcomes
                 .iter()
                 .map(|(name, source)| {
-                    source.to_outcome_stream(name, &secret_seed, logger.clone(), db.clone())
+                    source.to_outcome_stream(
+                        name,
+                        &secret_seed,
+                        logger.clone(),
+                        outcome_conn.clone(),
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let oracle = rt.block_on(Oracle::new(secret_seed, db.clone()))?;
+            let oracle = Oracle::new(secret_seed, db.clone()).await?;
 
             // Processing new events
             let event_loop = stream::select_all(event_streams)
@@ -103,11 +103,11 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             services.push(event_loop);
             services.push(outcome_loop);
 
-            rt.block_on(futures::future::join_all(services));
+            futures::future::join_all(services).await;
         }
         None => {
             // otherwise we are just running an api server
-            rt.block_on(futures::future::join_all(services));
+            futures::future::join_all(services).await;
         }
     }
 

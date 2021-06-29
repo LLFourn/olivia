@@ -1,8 +1,12 @@
-use crate::core::{Event, EventId, StampedOutcome};
 use futures::channel::oneshot::Sender;
+use olivia_core::{Event, EventId, StampedOutcome};
 pub mod re_emitter;
 pub mod redis;
 pub mod time_ticker;
+
+#[cfg(test)]
+mod time_tests;
+
 use futures::Stream;
 
 pub struct Update<E> {

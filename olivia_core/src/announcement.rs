@@ -43,9 +43,9 @@ impl<C: Group> RawOracleEvent<C> {
         self.payload.as_bytes()
     }
 
-    pub unsafe fn from_json_bytes_unchecked(bytes: Vec<u8>) -> Self {
+    pub fn from_json_bytes(bytes: Vec<u8>) -> Self {
         Self {
-            payload: RawOracleEventEncoding::Json(String::from_utf8_unchecked(bytes)),
+            payload: RawOracleEventEncoding::Json(String::from_utf8(bytes).expect("valid JSON")),
             curve: PhantomData,
         }
     }

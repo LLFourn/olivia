@@ -1,6 +1,7 @@
 use anyhow::Context;
 use core::str::FromStr;
-use olivia::{cli, config::Config, core::EventId};
+use olivia::{cli, config::Config};
+use olivia_core::EventId;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -17,12 +18,24 @@ struct Opt {
 
 #[derive(Debug, StructOpt)]
 pub enum Command {
-    Add { entity: String },
+    Add {
+        entity: String,
+    },
     Run,
-    Derive { event: String },
+    Derive {
+        event: String,
+    },
+    /// Database commands
+    Db(Db),
 }
 
-fn main() -> anyhow::Result<()> {
+#[derive(Debug, StructOpt)]
+pub enum Db {
+    Init,
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
     let config: Config = {
         use std::{fs::File, io::Read};
@@ -35,8 +48,11 @@ fn main() -> anyhow::Result<()> {
     };
 
     match opt.cmd {
-        Command::Add { entity } => cli::add::add(config, &entity),
-        Command::Run => cli::run::run(config),
+        Command::Add { entity } => cli::add::add(config, &entity).await,
+        Command::Run => cli::run::run(config).await,
         Command::Derive { event } => cli::derive::derive(config, EventId::from_str(&event)?),
+        Command::Db(db) => match db {
+            Db::Init => cli::db_cmd::init(config).await,
+        },
     }
 }

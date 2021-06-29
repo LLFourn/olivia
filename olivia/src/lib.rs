@@ -8,18 +8,18 @@ pub use crate::oracle::Oracle;
 
 pub mod cli;
 pub mod config;
-pub mod curve;
+mod hex;
 pub mod keychain;
 pub mod log;
+mod macros;
 pub mod rest_api;
 pub mod sources;
 mod util;
+pub use serde;
 
-pub use olivia_core as core;
+mod rest_api_tests;
 
 #[macro_use]
 extern crate slog;
-#[macro_use]
-extern crate diesel;
 #[macro_use]
 extern crate serde_derive;

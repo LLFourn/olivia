@@ -1,10 +1,7 @@
 use super::{EventReEmitter, OutcomeReEmitter};
-use crate::{
-    core::{Event, EventKind, StampedOutcome, VsMatchKind},
-    sources::{EventStream, OutcomeStream, Update},
-};
+use crate::sources::{EventStream, OutcomeStream, Update};
 use futures::StreamExt;
-use olivia_core::Outcome;
+use olivia_core::{Event, EventKind, Outcome, StampedOutcome, VsMatchKind};
 
 pub struct Vs;
 
@@ -65,7 +62,7 @@ impl OutcomeReEmitter for Vs {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::core::EventId;
+    use olivia_core::EventId;
     use std::str::FromStr;
 
     #[test]

@@ -1,24 +1,23 @@
-use crate::{AnnouncedEvent, Attestation, EventId, Group, OracleKeys, RawAnnouncement};
-use alloc::{string::String, vec::Vec};
+use crate::{AnnouncedEvent, Attestation, Group, OracleKeys, RawAnnouncement, PathNode};
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PathResponse {
-    pub events: Vec<EventId>,
-    pub children: Vec<String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct EventResponse<C: Group> {
     pub announcement: RawAnnouncement<C>,
     pub attestation: Option<Attestation<C>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct RootResponse<C: Group> {
     #[serde(flatten)]
     pub public_keys: OracleKeys<C>,
     #[serde(flatten)]
-    pub path_response: PathResponse,
+    pub node: PathNode,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct PathResponse {
+    #[serde(flatten)]
+    pub node: PathNode
 }
 
 impl<C: Group> From<AnnouncedEvent<C>> for EventResponse<C> {

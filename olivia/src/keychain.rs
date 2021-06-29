@@ -1,21 +1,31 @@
-use crate::{
-    core::{Event, EventId, Group, OracleKeys, RawAnnouncement, StampedOutcome},
-    curve::DeriveKeyPair,
-    seed::Seed,
-};
+use crate::seed::Seed;
+use digest::{Update, VariableOutput};
+use olivia_core::{Event, EventId, Group, OracleKeys, RawAnnouncement, StampedOutcome};
+use std::borrow::Borrow;
 
-pub struct KeyChain<C: Group + DeriveKeyPair> {
+pub struct KeyChain<C: Group> {
     announcement_keypair: C::KeyPair,
     attestation_keypair: C::KeyPair,
     event_seed: Seed,
 }
 
-impl<C: Group + DeriveKeyPair> KeyChain<C> {
+impl<C: Group> KeyChain<C> {
     pub fn new(seed: Seed) -> Self {
+        let seed = seed.child(C::name().as_bytes());
+        let announcement_keypair = {
+            let seed = seed.child(b"announcement-key");
+            let hash = seed.to_blake2b_var(C::KEY_MATERIAL_LEN);
+            C::keypair_from_secret_bytes(hash.finalize_boxed().borrow())
+        };
+        let attestation_keypair = {
+            let seed = seed.child(b"attestation-key");
+            let hash = seed.to_blake2b_var(C::KEY_MATERIAL_LEN);
+            C::keypair_from_secret_bytes(hash.finalize_boxed().borrow())
+        };
         Self {
             event_seed: seed.child(b"oracle-events"),
-            announcement_keypair: C::derive_keypair(&seed.child(b"oracle-key/announcement")),
-            attestation_keypair: C::derive_keypair(&seed.child(b"oracle-key/attestation")),
+            announcement_keypair,
+            attestation_keypair,
         }
     }
 
@@ -27,28 +37,41 @@ impl<C: Group + DeriveKeyPair> KeyChain<C> {
     }
 
     pub fn nonces_for_event(&self, event_id: &EventId) -> Vec<C::NonceKeyPair> {
-        let event_idx = self.event_seed.child(event_id.as_bytes());
+        let event_seed = self.event_seed.child(event_id.as_bytes());
         let n = event_id.event_kind().n_nonces();
+        let hash = event_seed.to_blake2b_var(C::KEY_MATERIAL_LEN);
+        dbg!(hash.clone().finalize_boxed());
         (0..n)
-            .map(|i| C::derive_nonce_keypair(&event_idx, i as u32))
+            .map(|i| {
+                let mut hash = hash.clone();
+                hash.update(&[i]);
+                C::nonce_keypair_from_secret_bytes(hash.finalize_boxed().borrow())
+            })
             .collect()
     }
 
     pub fn scalars_for_event_outcome(&self, stamped: &StampedOutcome) -> Vec<C::AttestScalar> {
         let event_id = &stamped.outcome.id;
-        let event_idx = self.event_seed.child(event_id.as_bytes());
+        let event_seed = self.event_seed.child(event_id.as_bytes());
+        let hash = event_seed.to_blake2b_var(C::KEY_MATERIAL_LEN);
+        hash.clone().finalize_boxed();
         stamped
             .outcome
             .attestation_indexes()
             .iter()
             .enumerate()
             .map(|(i, index)| {
-                let nonce_keypair = C::derive_nonce_keypair(&event_idx, i as u32);
+                let nonce_keypair = {
+                    let mut hash = hash.clone();
+                    hash.update(&[i as u8]);
+                    C::nonce_keypair_from_secret_bytes(hash.finalize_boxed().borrow())
+                };
                 let scalar = C::reveal_attest_scalar(
                     &self.attestation_keypair,
                     nonce_keypair.clone(),
                     *index,
                 );
+                // Always verify the attestation before publishing it
                 assert!(C::verify_attest_scalar(
                     &self.attestation_keypair.clone().into(),
                     &nonce_keypair.clone().into(),

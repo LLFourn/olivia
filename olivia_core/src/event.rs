@@ -42,8 +42,6 @@ impl EventKind {
 }
 
 #[derive(Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "diesel", derive(diesel::AsExpression, diesel::FromSqlRow))]
-#[cfg_attr(feature = "diesel", sql_type = "diesel::sql_types::Text")]
 pub struct EventId(String);
 
 impl EventId {
@@ -150,6 +148,10 @@ impl EventId {
 
     pub fn n_nonces(&self) -> u8 {
         self.event_kind().n_nonces()
+    }
+
+    pub fn occur_from_dt(dt: NaiveDateTime) -> EventId {
+        EventId::from_str(&format!("/time/{}.occur", dt.format("%FT%T"))).unwrap()
     }
 }
 
@@ -334,31 +336,48 @@ pub struct Event {
     pub expected_outcome_time: Option<NaiveDateTime>,
 }
 
-#[cfg(feature = "diesel")]
+
+impl Event {
+    pub fn occur_event_from_dt(dt: NaiveDateTime) -> Event {
+        Event {
+            id: EventId::occur_from_dt(dt),
+            expected_outcome_time: Some(dt),
+        }
+    }
+}
+
+
+
+
+#[cfg(feature = "postgres-types")]
 mod sql_impls {
     use super::*;
-    use diesel::{
-        backend::Backend,
-        deserialize::{self, *},
-        serialize::{self, *},
-        sql_types,
-    };
-    use std::io::Write;
+    use postgres_types::*;
+    use postgres_types::private::BytesMut;
+    use std::error::Error;
+    use std::boxed::Box;
 
-    impl<DB: Backend> FromSql<sql_types::Text, DB> for EventId
-    where
-        String: FromSql<sql_types::Text, DB>,
+    impl<'a> FromSql<'a> for EventId
     {
-        fn from_sql(bytes: Option<&DB::RawValue>) -> deserialize::Result<Self> {
-            let string = <String as FromSql<sql_types::Text, DB>>::from_sql(bytes)?;
-            Ok(EventId::from_str(&string)?)
+        fn from_sql(ty: &Type, raw: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>> {
+            EventId::from_str(FromSql::from_sql(ty,raw)?).map_err(|e| Box::new(e) as Box<dyn Error + Sync + Send>)
+        }
+
+        fn accepts(ty: &Type) -> bool {
+            <&str as postgres_types::FromSql>::accepts(ty)
         }
     }
 
-    impl<DB: Backend> ToSql<sql_types::Text, DB> for EventId {
-        fn to_sql<W: Write>(&self, out: &mut Output<W, DB>) -> serialize::Result {
-            ToSql::<sql_types::Text, DB>::to_sql(self.as_str(), out)
+    impl ToSql for EventId {
+        fn to_sql(&self, ty: &Type, out: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+            self.as_str().to_sql(ty, out)
         }
+
+        fn accepts(ty: &Type) -> bool {
+            <&str as postgres_types::ToSql>::accepts(ty)
+        }
+
+        to_sql_checked!();
     }
 }
 

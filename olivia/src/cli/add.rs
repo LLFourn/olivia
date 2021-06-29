@@ -1,14 +1,13 @@
-use olivia_core::StampedOutcome;
-
-use crate::{config::Config, core::Entity, curve::SchnorrImpl, Oracle};
+use crate::{config::Config, Oracle};
+use olivia_core::{Entity, StampedOutcome};
 use std::str::FromStr;
 
-pub fn add(config: Config, entity: &str) -> anyhow::Result<()> {
+pub async fn add(config: Config, entity: &str) -> anyhow::Result<()> {
     let secret_seed = config.secret_seed.ok_or(anyhow::anyhow!(
         "Cannot use the add command when oracle is in read-only mode"
     ))?;
     let rt = tokio::runtime::Runtime::new()?;
-    let db = config.database.connect_database::<SchnorrImpl>()?;
+    let db = config.database.connect_database().await?;
     let oracle = rt.block_on(Oracle::new(secret_seed, db.clone()))?;
 
     match Entity::from_str(entity)? {

@@ -5,13 +5,13 @@ mod descriptor;
 mod entity;
 mod event;
 mod group;
-#[doc(hidden)]
-pub mod hex;
 pub mod http;
 mod macros;
 mod oracle_info;
 mod outcome;
+mod node;
 
+pub use node::*;
 pub use announcement::*;
 pub use attestation::*;
 pub use descriptor::*;
@@ -30,3 +30,5 @@ extern crate std;
 
 pub use chrono;
 pub use url;
+#[cfg(feature = "postgres-types")]
+pub use postgres_types;

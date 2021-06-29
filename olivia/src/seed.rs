@@ -3,7 +3,7 @@ use blake2::{digest::Digest, Blake2b, VarBlake2b};
 #[derive(Clone)]
 pub struct Seed([u8; 64]);
 
-olivia_core::impl_fromstr_deserailize! {
+crate::impl_fromstr_deserialize! {
     name => "oracle seed",
     fn from_bytes(bytes: [u8;64]) -> Option<Seed> {
         Some(Seed(bytes))
@@ -21,8 +21,8 @@ impl Seed {
         blake2::crypto_mac::NewMac::new((&self.0).into())
     }
 
-    pub fn to_blake2b_32(&self) -> VarBlake2b {
-        VarBlake2b::new_keyed(&self.0, 32)
+    pub fn to_blake2b_var(&self, len: usize) -> VarBlake2b {
+        VarBlake2b::new_keyed(&self.0, len)
     }
 
     pub fn child(&self, tag: &[u8]) -> Self {
