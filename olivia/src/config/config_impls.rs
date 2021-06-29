@@ -3,8 +3,9 @@ use crate::{
     db::{self, postgres::PgBackendWrite, BorrowDb},
     sources,
 };
-use futures::StreamExt;
-use olivia_core::Group;
+use db::ChildrenKind;
+use futures::{Future, StreamExt};
+use olivia_core::{Group, RangeKind};
 use std::{fs, sync::Arc};
 
 impl LoggerConfig {
@@ -77,56 +78,64 @@ impl EventSourceConfig {
         name: &str,
         logger: slog::Logger,
         db: impl BorrowDb<C>,
-    ) -> anyhow::Result<sources::EventStream> {
+    ) -> std::pin::Pin<Box<dyn Future<Output=anyhow::Result<sources::EventStream>>>> {
         let name = name.to_owned();
-        match self.clone() {
-            EventSourceConfig::Redis(RedisConfig {
-                connection_info,
-                lists,
-            }) => {
-                info!(
-                    logger,
-                    "Connecting to redis://{}/{} to receive events for '{}'",
-                    connection_info.addr, connection_info.db, name;
-                );
-
-                Ok(sources::redis::event_stream(
-                    redis::Client::open(connection_info.clone())?,
+        let config = self.clone();
+        Box::pin(async {
+            match config {
+                EventSourceConfig::Redis(RedisConfig {
+                    connection_info,
                     lists,
-                    logger.new(
-                        o!("type" => "event_source", "name" => name, "source_type" => "redis"),
-                    ),
-                )?
-                .boxed())
+                }) => {
+                    info!(
+                        logger,
+                        "Connecting to redis://{}/{} to receive events for '{}'",
+                        connection_info.addr, connection_info.db, name;
+                    );
+
+                    Ok(sources::redis::event_stream(
+                        redis::Client::open(connection_info.clone())?,
+                        lists,
+                        logger.new(
+                            o!("type" => "event_source", "name" => name, "source_type" => "redis"),
+                        ),
+                    )?
+                       .boxed())
+                }
+                EventSourceConfig::TimeTicker {
+                    look_ahead,
+                    interval,
+                    initial_time,
+                } => {
+                    db.borrow_db().set_node_kind("/time", ChildrenKind::Range { range_kind: RangeKind::Time { interval } }).await?;
+
+                    Ok(sources::time_ticker::time_events_stream(
+                        db,
+                        chrono::Duration::seconds(look_ahead as i64),
+                        chrono::Duration::seconds(interval as i64),
+                        initial_time.unwrap_or_else(|| {
+                            use chrono::Timelike;
+                            chrono::Utc::now()
+                                .with_second(0)
+                                .unwrap()
+                                .with_nanosecond(0)
+                                .unwrap()
+                                .naive_utc()
+                        }),
+                        logger.new(
+                            o!("type" => "event_source", "name" => name, "source_type" => "time_ticker"),
+                        ),
+                    )
+                       .boxed())
+                },
+                EventSourceConfig::ReEmitter { source, re_emitter } => {
+                    let stream = source.to_event_stream(&name, logger, db).await;
+                    let re_emitter = re_emitter.to_remitter();
+                    stream.map(|stream| re_emitter.re_emit_events(stream.boxed()).boxed())
+                }
             }
-            EventSourceConfig::TimeTicker {
-                look_ahead,
-                interval,
-                initial_time,
-            } => Ok(sources::time_ticker::time_events_stream(
-                db,
-                chrono::Duration::seconds(look_ahead as i64),
-                chrono::Duration::seconds(interval as i64),
-                initial_time.unwrap_or_else(|| {
-                    use chrono::Timelike;
-                    chrono::Utc::now()
-                        .with_second(0)
-                        .unwrap()
-                        .with_nanosecond(0)
-                        .unwrap()
-                        .naive_utc()
-                }),
-                logger.new(
-                    o!("type" => "event_source", "name" => name, "source_type" => "time_ticker"),
-                ),
-            )
-            .boxed()),
-            EventSourceConfig::ReEmitter { source, re_emitter } => {
-                let stream = source.to_event_stream(&name, logger, db);
-                let re_emitter = re_emitter.to_remitter();
-                stream.map(|stream| re_emitter.re_emit_events(stream.boxed()).boxed())
-            }
-        }
+
+        })
     }
 }
 
