@@ -40,7 +40,6 @@ impl<C: Group> KeyChain<C> {
         let event_seed = self.event_seed.child(event_id.as_bytes());
         let n = event_id.event_kind().n_nonces();
         let hash = event_seed.to_blake2b_var(C::KEY_MATERIAL_LEN);
-        dbg!(hash.clone().finalize_boxed());
         (0..n)
             .map(|i| {
                 let mut hash = hash.clone();

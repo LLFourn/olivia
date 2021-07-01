@@ -110,7 +110,7 @@ impl<C: Group> Filters<C> {
                     let _ = PathRef::from(path.as_str()).strip_event().ok_or(warp::reject())?;
                     let reply = match EventId::from_str(path.as_str()) {
                         Ok(event_id) => ApiReply::Ok(event_id),
-                        Err(e) => { dbg!(e); ApiReply::Err(
+                        Err(_e) => { ApiReply::Err(
                             ErrorMessage::bad_request().with_message("unable to parse as event id"),
                         ) },
                     };

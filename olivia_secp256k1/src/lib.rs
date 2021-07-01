@@ -271,7 +271,6 @@ mod test {
                 )
             })
             .collect::<Vec<_>>();
-        dbg!(&oracle_key, &attestation_points, &expected);
         assert_eq!(attestation_points, expected);
     }
 

@@ -108,7 +108,6 @@ impl<C: Group> crate::db::DbRead<C> for tokio_postgres::Client {
                     .get::<_, Option<_>>("kind")
                     .map(serde_json::from_value)
                     .transpose()?;
-                dbg!(&kind);
                 match kind {
                     None | Some(ChildrenKind::List) => {
                         let rows = self
@@ -191,7 +190,7 @@ impl<C: Group> crate::db::DbRead<C> for tokio_postgres::Client {
             .await?;
 
         Ok(row.map(|row| Event {
-            id: dbg!(row.get("id")),
+            id: row.get("id"),
             expected_outcome_time: row.get("expected_outcome_time"),
         }))
     }
