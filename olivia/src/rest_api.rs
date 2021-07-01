@@ -204,6 +204,11 @@ pub fn routes<C: Group>(
     let root = warp::path::end().and(filters.get_root(db.clone()));
 
     let path = warp::get().and(filters.get_path(db.clone()));
+    let cors = warp::cors()
+        .allow_any_origin()
+        .allow_methods(vec!["OPTIONS", "GET", "POST", "DELETE", "PUT"])
+        .allow_headers(vec!["content-type"]);
 
     root.or(event).or(path)
+        .with(cors)
 }
