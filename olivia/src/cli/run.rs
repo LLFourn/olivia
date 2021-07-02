@@ -1,5 +1,9 @@
 use crate::{config::Config, log::OracleLog, oracle::Oracle, sources::Update};
-use futures::{future::FutureExt, stream, stream::{StreamExt, TryStreamExt}};
+use futures::{
+    future::FutureExt,
+    stream,
+    stream::{StreamExt, TryStreamExt},
+};
 use olivia_core::{Event, StampedOutcome};
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
@@ -25,12 +29,12 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     match config.secret_seed {
         Some(secret_seed) => {
             let event_conn = config.database.connect_database().await?;
-            let event_streams: Vec<_> = stream::iter(config
-                .events
-                .iter()
-                .map(|(name, source)| {
-                    source.to_event_stream(name, logger.clone(), event_conn.clone())
-                })).then(async move |source| source.await).try_collect::<Vec<_>>().await?;
+            let event_streams: Vec<_> = stream::iter(config.events.iter().map(|(name, source)| {
+                source.to_event_stream(name, logger.clone(), event_conn.clone())
+            }))
+            .then(async move |source| source.await)
+            .try_collect::<Vec<_>>()
+            .await?;
 
             let outcome_conn = config.database.connect_database().await?;
 

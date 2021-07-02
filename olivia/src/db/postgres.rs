@@ -101,6 +101,8 @@ impl<C: Group> crate::db::DbRead<C> for tokio_postgres::Client {
             .query_opt(r#" SELECT kind FROM tree WHERE id = $1"#, &[&path])
             .await?;
 
+        let trim = |x: String| x.trim_start_matches(path).trim_start_matches('/').to_string();
+
         let child_desc = match row {
             None => return Ok(None),
             Some(row) => {
@@ -114,7 +116,10 @@ impl<C: Group> crate::db::DbRead<C> for tokio_postgres::Client {
                             .query(r"SELECT id FROM tree WHERE parent = $1", &[&path])
                             .await?;
                         ChildDesc::List {
-                            list: rows.into_iter().map(|row| row.get("id")).collect(),
+                            list: rows
+                                .into_iter()
+                                .map(|row| trim(row.get("id")))
+                                .collect(),
                         }
                     }
                     Some(ChildrenKind::Range { range_kind }) => {
@@ -127,8 +132,8 @@ impl<C: Group> crate::db::DbRead<C> for tokio_postgres::Client {
 
                         match row {
                             Some(row) => {
-                                let min = row.get("min");
-                                let max = row.get("max");
+                                let min = trim(row.get::<_, String>("min"));
+                                let max = trim(row.get::<_, String>("max"));
                                 ChildDesc::Range {
                                     start: min,
                                     range_kind,

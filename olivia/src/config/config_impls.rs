@@ -78,7 +78,7 @@ impl EventSourceConfig {
         name: &str,
         logger: slog::Logger,
         db: impl BorrowDb<C>,
-    ) -> std::pin::Pin<Box<dyn Future<Output=anyhow::Result<sources::EventStream>>>> {
+    ) -> std::pin::Pin<Box<dyn Future<Output = anyhow::Result<sources::EventStream>>>> {
         let name = name.to_owned();
         let config = self.clone();
         Box::pin(async {
@@ -100,14 +100,21 @@ impl EventSourceConfig {
                             o!("type" => "event_source", "name" => name, "source_type" => "redis"),
                         ),
                     )?
-                       .boxed())
+                    .boxed())
                 }
                 EventSourceConfig::TimeTicker {
                     look_ahead,
                     interval,
                     initial_time,
                 } => {
-                    db.borrow_db().set_node_kind("/time", ChildrenKind::Range { range_kind: RangeKind::Time { interval } }).await?;
+                    db.borrow_db()
+                        .set_node_kind(
+                            "/time",
+                            ChildrenKind::Range {
+                                range_kind: RangeKind::Time { interval },
+                            },
+                        )
+                        .await?;
 
                     Ok(sources::time_ticker::time_events_stream(
                         db,
@@ -127,14 +134,13 @@ impl EventSourceConfig {
                         ),
                     )
                        .boxed())
-                },
+                }
                 EventSourceConfig::ReEmitter { source, re_emitter } => {
                     let stream = source.to_event_stream(&name, logger, db).await;
                     let re_emitter = re_emitter.to_remitter();
                     stream.map(|stream| re_emitter.re_emit_events(stream.boxed()).boxed())
                 }
             }
-
         })
     }
 }

@@ -209,6 +209,5 @@ pub fn routes<C: Group>(
         .allow_methods(vec!["OPTIONS", "GET", "POST", "DELETE", "PUT"])
         .allow_headers(vec!["content-type"]);
 
-    root.or(event).or(path)
-        .with(cors)
+    root.or(event).or(path).with(cors)
 }

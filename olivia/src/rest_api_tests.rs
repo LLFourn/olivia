@@ -70,7 +70,7 @@ macro_rules! run_rest_api_tests {
                 assert_eq!(
                     body.children.description,
                     ChildDesc::List {
-                        list: vec!["/test/one/two/3".into(), "/test/one/two/4".into()]
+                        list: vec!["3".into(), "4".into()]
                     }
                 );
             }
@@ -93,7 +93,7 @@ macro_rules! run_rest_api_tests {
                 assert_eq!(
                     body.node.children.description,
                     ChildDesc::List {
-                        list: vec!["/test".into()]
+                        list: vec!["test".into()]
                     }
                 );
                 assert_eq!(body.public_keys, $oracle.public_keys());

@@ -112,8 +112,8 @@ macro_rules! run_time_db_tests {
                         start,
                         end,
                     } => {
-                        assert_eq!(start, "/time/2020-03-01T00:05:00");
-                        assert_eq!(end, "/time/2020-03-01T00:30:00");
+                        assert_eq!(start, "2020-03-01T00:05:00");
+                        assert_eq!(end, "2020-03-01T00:30:00");
                         assert_eq!(range_kind, RangeKind::Time { interval: 60 });
                     }
                     _ => panic!("should be a range"),

@@ -42,15 +42,15 @@ async fn test_insert_unattested(db: &dyn Db<impl Group>) {
                 .unwrap()
                 .unwrap()
                 .child_desc,
-            ["/test"]
+            ["test"]
         );
 
         let path = db.get_node("/test").await.unwrap().unwrap();
         assert_eq!(path.events, [""; 0]);
-        assert_children_eq!(path.child_desc, ["/test/db"]);
+        assert_children_eq!(path.child_desc, ["db"]);
         assert_children_eq!(
             db.get_node("/test/db").await.unwrap().unwrap().child_desc,
-            ["/test/db/test-insert-unattested"]
+            ["test-insert-unattested"]
         );
 
         let node_path = db
@@ -78,16 +78,13 @@ async fn test_insert_attested(db: &dyn Db<impl Group>) {
     {
         assert_children_eq!(
             db.get_node("/test").await.unwrap().unwrap().child_desc,
-            ["/test/db"],
+            ["db"],
             "new event did not duplicate parent path"
         );
 
         assert_children_eq!(
             db.get_node("/test/db").await.unwrap().unwrap().child_desc,
-            [
-                "/test/db/test-insert-attested",
-                "/test/db/test-insert-unattested"
-            ]
+            ["test-insert-attested", "test-insert-unattested"]
         );
     }
 }
@@ -129,16 +126,16 @@ async fn test_insert_grandchild_event(db: &dyn Db<impl Group>) {
     assert_children_eq!(
         db.get_node("/test/db").await.unwrap().unwrap().child_desc,
         [
-            "/test/db/dbchild",
-            "/test/db/test-insert-attested",
-            "/test/db/test-insert-unattested",
-            "/test/db/test-insert-unattested-then-complete",
+            "dbchild",
+            "test-insert-attested",
+            "test-insert-unattested",
+            "test-insert-unattested-then-complete",
         ]
     );
 
     let dbchild = db.get_node("/test/db/dbchild").await.unwrap().unwrap();
     assert_eq!(dbchild.events, [""; 0]);
-    assert_children_eq!(dbchild.child_desc, ["/test/db/dbchild/grandchild"]);
+    assert_children_eq!(dbchild.child_desc, ["grandchild"]);
 
     let grandchild = db
         .get_node("/test/db/dbchild/grandchild")
@@ -163,7 +160,7 @@ async fn test_child_event_of_node_with_event(db: &dyn Db<impl Group>) {
 
     assert_children_eq!(
         parent.child_desc,
-        ["/test/db/test-insert-attested/test-sub-event"]
+        ["test-sub-event"]
     );
 
     let parent = db
