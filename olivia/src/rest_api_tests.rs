@@ -68,9 +68,9 @@ macro_rules! run_rest_api_tests {
 
                 let body = j::<PathNode>(&res.body()).unwrap();
                 assert_eq!(
-                    body.children.description,
+                    body.child_desc,
                     ChildDesc::List {
-                        list: vec!["3".into(), "4".into()]
+                        list: vec![Child { name: "3".into(), kind: NodeKind::List }, Child { name: "4".into(), kind: NodeKind::List }]
                     }
                 );
             }
@@ -91,9 +91,12 @@ macro_rules! run_rest_api_tests {
                 assert_eq!(res.status(), 200);
                 let body = j::<RootResponse<_>>(&res.body()).unwrap();
                 assert_eq!(
-                    body.node.children.description,
+                    body.node.child_desc,
                     ChildDesc::List {
-                        list: vec!["test".into()]
+                        list: vec![Child {
+                            name: "test".into(),
+                            kind: NodeKind::List,
+                        }]
                     }
                 );
                 assert_eq!(body.public_keys, $oracle.public_keys());

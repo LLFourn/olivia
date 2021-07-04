@@ -2,21 +2,16 @@ use alloc::{string::String, vec::Vec};
 use crate::EventId;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct Children {
-    pub description: ChildDesc,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum ChildDesc {
     List {
-        list: Vec<String>
+        list: Vec<Child>
     },
     Range {
         #[serde(flatten)]
         range_kind: RangeKind,
-        start: String,
-        end: String,
+        start: Option<Child>,
+        end: Option<Child>,
     }
 }
 
@@ -31,5 +26,18 @@ pub enum RangeKind {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct PathNode {
     pub events: Vec<EventId>,
-    pub children: Children,
+    pub child_desc: ChildDesc,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Child {
+    pub name: String,
+    pub kind: NodeKind,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename = "kebab-case")]
+pub enum NodeKind {
+    List,
+    Range { range_kind: RangeKind },
 }

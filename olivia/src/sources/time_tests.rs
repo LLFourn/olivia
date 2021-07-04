@@ -22,8 +22,8 @@ macro_rules! run_time_db_tests {
 
             #[tokio::test]
             async fn test_time_range_db() {
-                use crate::db::ChildrenKind;
-                use olivia_core::{Children, RangeKind, ChildDesc};
+                use crate::db::NodeKind;
+                use olivia_core::{RangeKind, ChildDesc};
                 $($init)*;
 
                 let test_data = vec![
@@ -83,12 +83,22 @@ macro_rules! run_time_db_tests {
 
                 $db.set_node_kind(
                     "/time",
-                    ChildrenKind::Range {
+                    NodeKind::Range {
                         range_kind: RangeKind::Time { interval: 60 },
                     },
                 )
                    .await
                    .unwrap();
+
+                let root_node = $db.get_node("/").await.unwrap().expect("root exists");
+                if let ChildDesc::List { list } = root_node.child_desc {
+                    assert_eq!(list.len(), 2);
+                    let time = list.iter().find(|child| &child.name == "time").unwrap();
+                    assert_eq!(time.kind, NodeKind::Range { range_kind: RangeKind::Time { interval: 60 } });
+                }
+                else {
+                    panic!("root should be list kind")
+                }
 
                 let latest_time_event = $db
                     .latest_child_event("/time", EventKind::SingleOccurrence)
@@ -112,8 +122,8 @@ macro_rules! run_time_db_tests {
                         start,
                         end,
                     } => {
-                        assert_eq!(start, "2020-03-01T00:05:00");
-                        assert_eq!(end, "2020-03-01T00:30:00");
+                        assert_eq!(start, Some(Child { name: "2020-03-01T00:05:00".into(), kind: NodeKind::List }));
+                        assert_eq!(end, Some(Child { name:  "2020-03-01T00:30:00".into(), kind: NodeKind::List }));
                         assert_eq!(range_kind, RangeKind::Time { interval: 60 });
                     }
                     _ => panic!("should be a range"),

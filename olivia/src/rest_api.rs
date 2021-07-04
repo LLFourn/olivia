@@ -1,7 +1,7 @@
 use crate::db::DbRead;
 use core::str::FromStr;
 use futures::Future;
-use olivia_core::{http::*, Children, EventId, Group, PathNode, PathRef};
+use olivia_core::{http::*, EventId, Group, PathNode, PathRef};
 use serde::Serialize;
 use std::{convert::Infallible, marker::PhantomData, sync::Arc};
 use warp::{self, http, Filter};
@@ -150,9 +150,7 @@ impl<C: Group> Filters<C> {
                     Ok(Some(node)) => ApiReply::Ok(PathResponse {
                         node: PathNode {
                             events: node.events,
-                            children: Children {
-                                description: node.child_desc,
-                            },
+                            child_desc: node.child_desc,
                         },
                     }),
                     Ok(None) => ApiReply::Err(ErrorMessage::not_found()),
@@ -178,9 +176,7 @@ impl<C: Group> Filters<C> {
                             public_keys,
                             node: PathNode {
                                 events: node.events,
-                                children: Children {
-                                    description: node.child_desc,
-                                },
+                                child_desc: node.child_desc,
                             },
                         })
                     } else {

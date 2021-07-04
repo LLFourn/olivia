@@ -1,10 +1,10 @@
-use super::ChildrenKind;
+use super::NodeKind;
 use crate::db::*;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use olivia_core::{
-    AnnouncedEvent, Attestation, ChildDesc, Event, EventId, EventKind, Group, OracleKeys, PathRef,
-    RawAnnouncement, RawOracleEvent,
+    AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, EventKind, Group, OracleKeys,
+    PathRef, RawAnnouncement, RawOracleEvent,
 };
 use std::iter::once;
 use tokio::sync::RwLock;
@@ -96,12 +96,16 @@ impl<C: Group> crate::db::DbRead<C> for tokio_postgres::Client {
         }
     }
 
-    async fn get_node(&self, path: &str) -> Result<Option<DbNode>, Error> {
+    async fn get_node(&self, path: &str) -> Result<Option<PathNode>, Error> {
         let row = self
             .query_opt(r#" SELECT kind FROM tree WHERE id = $1"#, &[&path])
             .await?;
 
-        let trim = |x: String| x.trim_start_matches(path).trim_start_matches('/').to_string();
+        let trim = |x: String| {
+            x.trim_start_matches(path)
+                .trim_start_matches('/')
+                .to_string()
+        };
 
         let child_desc = match row {
             None => return Ok(None),
@@ -111,36 +115,54 @@ impl<C: Group> crate::db::DbRead<C> for tokio_postgres::Client {
                     .map(serde_json::from_value)
                     .transpose()?;
                 match kind {
-                    None | Some(ChildrenKind::List) => {
+                    None | Some(NodeKind::List) => {
                         let rows = self
-                            .query(r"SELECT id FROM tree WHERE parent = $1", &[&path])
+                            .query(
+                                r"SELECT id, kind FROM tree WHERE parent = $1 LIMIT 100",
+                                &[&path],
+                            )
                             .await?;
                         ChildDesc::List {
                             list: rows
                                 .into_iter()
-                                .map(|row| trim(row.get("id")))
+                                .map(|row| Child {
+                                    name: trim(row.get("id")),
+                                    kind: row
+                                        .get::<_, Option<_>>("kind")
+                                        .map(|json| serde_json::from_value(json).unwrap())
+                                        .unwrap_or(NodeKind::List),
+                                })
                                 .collect(),
                         }
                     }
-                    Some(ChildrenKind::Range { range_kind }) => {
-                        let row = self
-                            .query_opt(
-                                r"SELECT MIN(id) as min, MAX(id) as max FROM tree WHERE parent = $1",
+                    Some(NodeKind::Range { range_kind }) => {
+                        let rows = self
+                            .query(
+                                r"( SELECT id, kind FROM tree WHERE parent = $1 ORDER BY id ASC LIMIT 1 )
+                                  UNION ALL
+                                  ( SELECT id, kind FROM tree WHERE parent = $1 ORDER BY id DESC LIMIT 1 )",
                                 &[&path],
                             )
                             .await?;
 
-                        match row {
-                            Some(row) => {
-                                let min = trim(row.get::<_, String>("min"));
-                                let max = trim(row.get::<_, String>("max"));
-                                ChildDesc::Range {
-                                    start: min,
-                                    range_kind,
-                                    end: max,
-                                }
-                            }
-                            None => ChildDesc::List { list: vec![] },
+                        let mut min_max_children = rows
+                            .into_iter()
+                            .map(|row| Child {
+                                name: trim(row.get("id")),
+                                kind: row
+                                    .get::<_, Option<_>>("kind")
+                                    .map(|json| serde_json::from_value(json).unwrap())
+                                    .unwrap_or(NodeKind::List),
+                            })
+                            .collect::<Vec<_>>();
+
+                        let end = min_max_children.pop();
+                        let start = min_max_children.pop();
+
+                        ChildDesc::Range {
+                            start,
+                            range_kind,
+                            end,
                         }
                     }
                 }
@@ -154,7 +176,7 @@ impl<C: Group> crate::db::DbRead<C> for tokio_postgres::Client {
             .map(|row| row.get("id"))
             .collect();
 
-        Ok(Some(DbNode { events, child_desc }))
+        Ok(Some(PathNode { events, child_desc }))
     }
 
     async fn latest_child_event(
@@ -217,7 +239,7 @@ impl<C: Group> crate::db::DbRead<C> for PgBackendWrite {
         self.client.read().await.get_event(id).await
     }
 
-    async fn get_node(&self, path: &str) -> Result<Option<DbNode>, Error> {
+    async fn get_node(&self, path: &str) -> Result<Option<PathNode>, Error> {
         DbRead::<C>::get_node(&*self.client.read().await, path).await
     }
 
@@ -357,7 +379,7 @@ impl<C: Group> crate::db::DbWrite<C> for PgBackendWrite {
         Ok(())
     }
 
-    async fn set_node_kind(&self, path: &str, kind: ChildrenKind) -> anyhow::Result<()> {
+    async fn set_node_kind(&self, path: &str, kind: NodeKind) -> anyhow::Result<()> {
         let kind_json = serde_json::to_value(&kind).unwrap();
         let mut client = self.client.write().await;
         let tx = client.transaction().await?;

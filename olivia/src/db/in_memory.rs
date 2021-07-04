@@ -1,7 +1,9 @@
 use crate::db::*;
 use anyhow::anyhow;
 use async_trait::async_trait;
-use olivia_core::{AnnouncedEvent, Attestation, ChildDesc, Event, EventId, Group, OracleKeys};
+use olivia_core::{
+    AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, Group, OracleKeys,
+};
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -11,7 +13,7 @@ use std::{
 pub struct InMemory<C: Group> {
     public_keys: Arc<RwLock<Option<OracleKeys<C>>>>,
     inner: Arc<RwLock<HashMap<EventId, AnnouncedEvent<C>>>>,
-    node_kinds: Arc<RwLock<HashMap<String, ChildrenKind>>>,
+    node_kinds: Arc<RwLock<HashMap<String, NodeKind>>>,
 }
 
 impl<C: Group> Default for InMemory<C> {
@@ -31,18 +33,13 @@ impl<C: Group> DbRead<C> for InMemory<C> {
         Ok(db.get(&id).map(Clone::clone))
     }
 
-    async fn get_node(&self, node: &str) -> Result<Option<DbNode>, Error> {
+    async fn get_node(&self, node: &str) -> Result<Option<PathNode>, Error> {
         let db = &*self.inner.read().unwrap();
-        let node_kind = {
-            let node_kinds = self.node_kinds.read().unwrap();
-            match node_kinds.get(node).cloned() {
-                Some(node_kind) => node_kind,
-                None => ChildrenKind::List,
-            }
-        };
+        let node_kinds = self.node_kinds.read().unwrap();
+        let node_kind = node_kinds.get(node).cloned().unwrap_or(NodeKind::List);
 
-        let mut children_list: Vec<String> = {
-            let path = if node == "/" {
+        let mut children_list: Vec<Child> = {
+            let parent_prefix = if node == "/" {
                 "/".to_string()
             } else {
                 format!("{}/", node)
@@ -50,14 +47,21 @@ impl<C: Group> DbRead<C> for InMemory<C> {
 
             db.keys()
                 .into_iter()
-                .filter_map(|key| {
-                    let key = key.as_str();
-                    if let Some(remaining) = key.strip_prefix(&path) {
-                        let end = remaining
-                            .find(['/', '.'].as_ref())
-                            .expect("always has a ‘.’");
+                .filter_map(|event_id| {
+                    let child_path = event_id.path().as_str();
+                    if let Some(remaining) = child_path.strip_prefix(&parent_prefix) {
+                        let end = remaining.find('/').unwrap_or(remaining.len());
+                        let name = remaining[..end].to_string();
+                        let child_node = &child_path[..parent_prefix.len() + end];
+                        let child = Child {
+                            name,
+                            kind: node_kinds
+                                .get(child_node)
+                                .cloned()
+                                .unwrap_or(NodeKind::List),
+                        };
 
-                        Some(remaining[..end].to_string())
+                        Some(child)
                     } else {
                         None
                     }
@@ -65,19 +69,19 @@ impl<C: Group> DbRead<C> for InMemory<C> {
                 .collect()
         };
 
-        children_list.sort();
+        children_list.sort_unstable_by_key(|child| child.name.clone());
         children_list.dedup();
 
         let child_desc = match node_kind {
-            ChildrenKind::List => ChildDesc::List {
+            NodeKind::List => ChildDesc::List {
                 list: children_list.clone(),
             },
-            ChildrenKind::Range { range_kind } => match children_list.len() {
+            NodeKind::Range { range_kind } => match children_list.len() {
                 0 => ChildDesc::List { list: vec![] },
                 _ => ChildDesc::Range {
                     range_kind,
-                    start: children_list[0].clone(),
-                    end: children_list[children_list.len() - 1].clone(),
+                    start: Some(children_list[0].clone()),
+                    end: Some(children_list[children_list.len() - 1].clone()),
                 },
             },
         };
@@ -99,7 +103,7 @@ impl<C: Group> DbRead<C> for InMemory<C> {
         if events.is_empty() && children_list.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(DbNode { events, child_desc }))
+            Ok(Some(PathNode { events, child_desc }))
         }
     }
 
@@ -176,7 +180,7 @@ impl<C: Group> DbWrite<C> for InMemory<C> {
         Ok(())
     }
 
-    async fn set_node_kind(&self, path: &str, kind: ChildrenKind) -> Result<(), Error> {
+    async fn set_node_kind(&self, path: &str, kind: NodeKind) -> Result<(), Error> {
         let mut node_kinds = self.node_kinds.write().unwrap();
         node_kinds.insert(path.into(), kind);
         Ok(())
@@ -223,12 +227,6 @@ mod test {
         let db = InMemory::<olivia_secp256k1::Secp256k1>::default();
         crate::db::test::test_db(&db).await;
     }
-
-    // #[tokio::test]
-    // async fn time_ticker_in_memory() {
-    //     use crate::sources::time_ticker;
-    //     time_ticker::test::run_time_db_tests(async || InMemory::<SchnorrImpl>::default()).await;
-    // }
 
     #[tokio::test]
     async fn test_against_oracle() {

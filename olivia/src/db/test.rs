@@ -17,7 +17,11 @@ macro_rules! assert_children_eq {
 
     ($children:expr, [ $($child:literal),* $(,)?] $(,$msg:expr)?) => {
         match $children {
-            ChildDesc::List { mut list }  => { list.sort(); assert_eq!(&list, &[ $($child,)*] as &[&str] $(,$msg)?); } ,
+            ChildDesc::List { mut list }  => {
+                list.sort_unstable_by_key(|child| child.name.clone());
+                let list_ref = list.iter().map(|child| &child.name).collect::<Vec<_>>();
+                assert_eq!(&list_ref, &[ $($child,)*] as &[&str] $(,$msg)?);
+            },
             _ => panic!("children should be a list")
         }
     }
@@ -158,10 +162,7 @@ async fn test_child_event_of_node_with_event(db: &dyn Db<impl Group>) {
         .unwrap()
         .unwrap();
 
-    assert_children_eq!(
-        parent.child_desc,
-        ["test-sub-event"]
-    );
+    assert_children_eq!(parent.child_desc, ["test-sub-event"]);
 
     let parent = db
         .get_node("/test/db/test-insert-attested/test-sub-event")

@@ -3,9 +3,8 @@ use crate::{
     db::{self, postgres::PgBackendWrite, BorrowDb},
     sources,
 };
-use db::ChildrenKind;
 use futures::{Future, StreamExt};
-use olivia_core::{Group, RangeKind};
+use olivia_core::{Group, NodeKind, RangeKind};
 use std::{fs, sync::Arc};
 
 impl LoggerConfig {
@@ -110,7 +109,7 @@ impl EventSourceConfig {
                     db.borrow_db()
                         .set_node_kind(
                             "/time",
-                            ChildrenKind::Range {
+                            NodeKind::Range {
                                 range_kind: RangeKind::Time { interval },
                             },
                         )

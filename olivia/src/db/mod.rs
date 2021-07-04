@@ -1,6 +1,4 @@
-use olivia_core::{
-    AnnouncedEvent, Attestation, ChildDesc, Event, EventId, Group, OracleKeys, RangeKind,
-};
+use olivia_core::{AnnouncedEvent, Attestation, Event, EventId, Group, NodeKind, OracleKeys, PathNode};
 pub mod in_memory;
 pub mod postgres;
 use async_trait::async_trait;
@@ -10,22 +8,10 @@ pub mod test;
 
 pub type Error = anyhow::Error;
 
-pub struct DbNode {
-    pub events: Vec<EventId>,
-    pub child_desc: ChildDesc,
-}
-
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename = "kebab-case")]
-pub enum ChildrenKind {
-    List,
-    Range { range_kind: RangeKind },
-}
-
 #[async_trait]
 pub trait DbRead<C: Group>: Send + Sync {
     async fn get_event(&self, id: &EventId) -> anyhow::Result<Option<AnnouncedEvent<C>>>;
-    async fn get_node(&self, path: &str) -> anyhow::Result<Option<DbNode>>;
+    async fn get_node(&self, path: &str) -> anyhow::Result<Option<PathNode>>;
     async fn latest_child_event(
         &self,
         path: &str,
@@ -42,7 +28,7 @@ pub trait DbRead<C: Group>: Send + Sync {
 #[async_trait]
 pub trait DbWrite<C: Group>: Send + Sync {
     async fn insert_event(&self, observed_event: AnnouncedEvent<C>) -> Result<(), Error>;
-    async fn set_node_kind(&self, path: &str, kind: ChildrenKind) -> Result<(), Error>;
+    async fn set_node_kind(&self, path: &str, kind: NodeKind) -> Result<(), Error>;
     async fn complete_event(
         &self,
         event_id: &EventId,
