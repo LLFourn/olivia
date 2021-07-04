@@ -32,7 +32,7 @@ async fn test_insert_unattested(db: &dyn Db<impl Group>) {
     let obs_event = AnnouncedEvent::test_unattested_instance(unattested_id.clone().into());
 
     db.insert_event(obs_event.clone()).await.unwrap();
-    let entry = db.get_event(&unattested_id).await.unwrap().unwrap();
+    let entry = db.get_announced_event(&unattested_id).await.unwrap().unwrap();
 
     assert_eq!(
         entry, obs_event,
@@ -72,7 +72,7 @@ async fn test_insert_attested(db: &dyn Db<impl Group>) {
     let obs_event = AnnouncedEvent::test_attested_instance(insert_attested_id.clone().into());
 
     db.insert_event(obs_event.clone()).await.unwrap();
-    let entry = db.get_event(&insert_attested_id).await.unwrap().unwrap();
+    let entry = db.get_announced_event(&insert_attested_id).await.unwrap().unwrap();
 
     assert_eq!(
         entry, obs_event,
@@ -107,7 +107,7 @@ async fn test_insert_unattested_then_complete(db: &dyn Db<impl Group>) {
         .unwrap();
 
     let entry = db
-        .get_event(&unattested_then_complete_id)
+        .get_announced_event(&unattested_then_complete_id)
         .await
         .unwrap()
         .unwrap();
@@ -182,7 +182,7 @@ async fn test_child_event_of_node_with_event(db: &dyn Db<impl Group>) {
 
 async fn test_get_non_existent_events(db: &dyn Db<impl Group>) {
     let non_existent = EventId::from_str("/test/db/dont-exist.occur").unwrap();
-    assert!(db.get_event(&non_existent).await.unwrap().is_none());
+    assert!(db.get_announced_event(&non_existent).await.unwrap().is_none());
     assert!(db.get_node("/test/db/dont-exist").await.unwrap().is_none());
 }
 

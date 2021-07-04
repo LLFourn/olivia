@@ -1,9 +1,11 @@
 #[macro_export]
 #[doc(hidden)]
 macro_rules! run_time_db_tests {
-    (db => $db:ident, curve => $curve:ty, { $($init:tt)* }) => {
+    (db => $db:ident,
+     event_db => $event_db:ident,
+     curve => $curve:ty, { $($init:tt)* }) => {
 
-        #[allow(redundant_semicolons, unused_imports)]
+        #[allow(redundant_semicolons, unused_imports, unused_variables)]
         mod time_db_test {
             use super::*;
             use olivia_core::{AnnouncedEvent, EventKind, Event, EventId};
@@ -135,10 +137,16 @@ macro_rules! run_time_db_tests {
                 $($init)*;
                 let look_ahead = Duration::seconds(2);
                 let interval = Duration::seconds(1);
-                let start = now();
-                let mut stream =
-                    time_events_stream($db.clone(), look_ahead, interval, start, logger()).boxed();
-                let mut cur = start.clone();
+                let initial_time = now();
+
+                let mut stream = TimeEventStream {
+                    db: $event_db,
+                    look_ahead,
+                    interval,
+                    initial_time,
+                    logger: logger(),
+                }.start().boxed();
+                let mut cur = initial_time.clone();
 
                 {
                     let update = stream.next().await.expect("Not None");
@@ -174,7 +182,7 @@ macro_rules! run_time_db_tests {
                     let _ = update.processed_notifier.unwrap().send(());
                 }
                 assert!(
-                    now() < start + Duration::milliseconds(100),
+                    now() < initial_time + Duration::milliseconds(100),
                     "we shouldn't have waited for anything yet"
                 );
 
@@ -190,11 +198,11 @@ macro_rules! run_time_db_tests {
                 }
 
                 assert!(
-                    now() > start + Duration::seconds(1),
+                    now() > initial_time + Duration::seconds(1),
                     "we should have waited for 1 second"
                 );
                 assert!(
-                    now() < start + Duration::milliseconds(1200),
+                    now() < initial_time + Duration::milliseconds(1200),
                     "shouldn't have waited too much"
                 );
             }
@@ -202,7 +210,7 @@ macro_rules! run_time_db_tests {
             #[tokio::test]
             async fn time_ticker_outcome_empty_db() {
                 $($init)*;
-                let mut stream = time_outcomes_stream($db, logger()).boxed();
+                let mut stream = TimeOutcomeStream { db: $event_db, logger: logger() }.start().boxed();
                 let future = stream.next();
                 assert!(
                     tokio::time::timeout(std::time::Duration::from_millis(1), future)
@@ -222,7 +230,7 @@ macro_rules! run_time_db_tests {
                 )))
                    .await
                    .unwrap();
-                let mut stream = time_outcomes_stream($db, logger()).boxed();
+                let mut stream = TimeOutcomeStream { db: $event_db, logger: logger() }.start().boxed();
                 let future = stream.next();
 
                 assert!(
@@ -244,7 +252,8 @@ macro_rules! run_time_db_tests {
                    .await
                    .unwrap();
 
-                let mut stream = time_outcomes_stream($db, logger()).boxed();
+
+                let mut stream = TimeOutcomeStream { db: $event_db, logger: logger() }.start().boxed();
                 let item = stream.next().await.expect("stream shouldn't stop");
                 let stamped = item.update;
                 assert!(
@@ -294,7 +303,8 @@ macro_rules! run_time_db_tests {
                    .await
                    .unwrap();
 
-                let mut stream = time_outcomes_stream($db.clone(), logger()).boxed();
+                
+                let mut stream = TimeOutcomeStream { db: $event_db, logger: logger() }.start().boxed();
 
                 // test that they get emitted in order
                 let first = stream.next().await.unwrap();

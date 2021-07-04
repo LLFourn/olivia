@@ -27,12 +27,19 @@ impl<C: Group> Default for InMemory<C> {
 }
 
 #[async_trait]
-impl<C: Group> DbRead<C> for InMemory<C> {
-    async fn get_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent<C>>, crate::db::Error> {
+impl<C: Group> DbReadOracle<C> for InMemory<C> {
+    async fn get_announced_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent<C>>, crate::db::Error> {
         let db = &*self.inner.read().unwrap();
         Ok(db.get(&id).map(Clone::clone))
     }
 
+    async fn get_public_keys(&self) -> Result<Option<OracleKeys<C>>, Error> {
+        Ok(self.public_keys.read().unwrap().as_ref().map(Clone::clone))
+    }
+}
+
+#[async_trait]
+impl<C: Group> DbReadEvent for InMemory<C> {
     async fn get_node(&self, node: &str) -> Result<Option<PathNode>, Error> {
         let db = &*self.inner.read().unwrap();
         let node_kinds = self.node_kinds.read().unwrap();
@@ -141,10 +148,6 @@ impl<C: Group> DbRead<C> for InMemory<C> {
         obs_events.sort_by_cached_key(|obs_event| obs_event.event.expected_outcome_time);
         Ok(obs_events.first().map(|obs_event| obs_event.event.clone()))
     }
-
-    async fn get_public_keys(&self) -> Result<Option<OracleKeys<C>>, Error> {
-        Ok(self.public_keys.read().unwrap().as_ref().map(Clone::clone))
-    }
 }
 
 #[async_trait]
@@ -210,11 +213,12 @@ crate::run_rest_api_tests! {
 #[cfg(test)]
 crate::run_time_db_tests! {
     db => db,
+    event_db => event_db,
     curve => olivia_secp256k1::Secp256k1,
     {
         use std::sync::Arc;
         let db = InMemory::<olivia_secp256k1::Secp256k1>::default();
-        let db: Arc<dyn Db<olivia_secp256k1::Secp256k1>> = Arc::new(db);
+        let event_db: Arc<dyn DbReadEvent> = Arc::new(db.clone());
     }
 }
 

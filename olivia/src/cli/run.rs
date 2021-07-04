@@ -1,9 +1,5 @@
 use crate::{config::Config, log::OracleLog, oracle::Oracle, sources::Update};
-use futures::{
-    future::FutureExt,
-    stream,
-    stream::{StreamExt, TryStreamExt},
-};
+use futures::{future::FutureExt, stream, stream::StreamExt};
 use olivia_core::{Event, StampedOutcome};
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
@@ -15,7 +11,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     if let Some(rest_config) = config.rest_api {
         info!(logger, "starting http server on {}", rest_config.listen);
         let rest_api_server = warp::serve(crate::rest_api::routes(
-            config.database.connect_database_read().await?,
+            config.database.connect_database_read_group().await?,
             logger.new(o!("type" => "http")),
         ))
         .run(rest_config.listen)
@@ -28,15 +24,14 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     // If we have the secret seed then we are running an attesting oracle
     match config.secret_seed {
         Some(secret_seed) => {
-            let event_conn = config.database.connect_database().await?;
-            let event_streams: Vec<_> = stream::iter(config.events.iter().map(|(name, source)| {
-                source.to_event_stream(name, logger.clone(), event_conn.clone())
-            }))
-            .then(async move |source| source.await)
-            .try_collect::<Vec<_>>()
-            .await?;
-
-            let outcome_conn = config.database.connect_database().await?;
+            let conn = config.database.connect_database_read().await?;
+            let event_streams = config
+                .events
+                .iter()
+                .map(|(name, source)| {
+                    source.to_event_stream(name, logger.clone(), conn.clone())
+                })
+                .collect::<Result<Vec<_>, _>>()?;
 
             let outcome_streams = config
                 .outcomes
@@ -46,7 +41,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                         name,
                         &secret_seed,
                         logger.clone(),
-                        outcome_conn.clone(),
+                        conn.clone(),
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;

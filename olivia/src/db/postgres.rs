@@ -55,8 +55,8 @@ impl PgBackendWrite {
 }
 
 #[async_trait]
-impl<C: Group> crate::db::DbRead<C> for tokio_postgres::Client {
-    async fn get_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent<C>>, Error> {
+impl<C: Group> crate::db::DbReadOracle<C> for tokio_postgres::Client {
+    async fn get_announced_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent<C>>, Error> {
         let row = self
             .query_opt(
                 r#"SELECT id,
@@ -96,6 +96,19 @@ impl<C: Group> crate::db::DbRead<C> for tokio_postgres::Client {
         }
     }
 
+    async fn get_public_keys(&self) -> Result<Option<olivia_core::OracleKeys<C>>, Error> {
+        let row = self
+            .query_opt(r#"SELECT value FROM meta WHERE key = 'public_keys'"#, &[])
+            .await?;
+
+        Ok(row
+            .map(|row| serde_json::from_value(row.get("value")))
+            .transpose()?)
+    }
+}
+
+#[async_trait]
+impl crate::db::DbReadEvent for tokio_postgres::Client {
     async fn get_node(&self, path: &str) -> Result<Option<PathNode>, Error> {
         let row = self
             .query_opt(r#" SELECT kind FROM tree WHERE id = $1"#, &[&path])
@@ -221,26 +234,23 @@ impl<C: Group> crate::db::DbRead<C> for tokio_postgres::Client {
             expected_outcome_time: row.get("expected_outcome_time"),
         }))
     }
+}
+
+#[async_trait]
+impl<C: Group> crate::db::DbReadOracle<C> for PgBackendWrite {
+    async fn get_announced_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent<C>>, Error> {
+        self.client.read().await.get_announced_event(id).await
+    }
 
     async fn get_public_keys(&self) -> Result<Option<olivia_core::OracleKeys<C>>, Error> {
-        let row = self
-            .query_opt(r#"SELECT value FROM meta WHERE key = 'public_keys'"#, &[])
-            .await?;
-
-        Ok(row
-            .map(|row| serde_json::from_value(row.get("value")))
-            .transpose()?)
+        self.client.read().await.get_public_keys().await
     }
 }
 
 #[async_trait]
-impl<C: Group> crate::db::DbRead<C> for PgBackendWrite {
-    async fn get_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent<C>>, Error> {
-        self.client.read().await.get_event(id).await
-    }
-
+impl crate::db::DbReadEvent for PgBackendWrite {
     async fn get_node(&self, path: &str) -> Result<Option<PathNode>, Error> {
-        DbRead::<C>::get_node(&*self.client.read().await, path).await
+        DbReadEvent::get_node(&*self.client.read().await, path).await
     }
 
     async fn latest_child_event(
@@ -248,7 +258,7 @@ impl<C: Group> crate::db::DbRead<C> for PgBackendWrite {
         path: &str,
         kind: EventKind,
     ) -> anyhow::Result<Option<Event>> {
-        DbRead::<C>::latest_child_event(&*self.client.read().await, path, kind).await
+        DbReadEvent::latest_child_event(&*self.client.read().await, path, kind).await
     }
 
     async fn earliest_unattested_child_event(
@@ -256,11 +266,7 @@ impl<C: Group> crate::db::DbRead<C> for PgBackendWrite {
         path: &str,
         kind: EventKind,
     ) -> anyhow::Result<Option<Event>> {
-        DbRead::<C>::earliest_unattested_child_event(&*self.client.read().await, path, kind).await
-    }
-
-    async fn get_public_keys(&self) -> Result<Option<olivia_core::OracleKeys<C>>, Error> {
-        self.client.read().await.get_public_keys().await
+        DbReadEvent::earliest_unattested_child_event(&*self.client.read().await, path, kind).await
     }
 }
 
@@ -446,6 +452,7 @@ macro_rules! new_backend {
 #[cfg(all(test, feature = "docker_tests"))]
 crate::run_time_db_tests! {
     db => db,
+    event_db => event_db,
     curve => olivia_secp256k1::Secp256k1,
     {
         use testcontainers::{clients, images, Docker};
@@ -456,6 +463,7 @@ crate::run_time_db_tests! {
         let db = PgBackendWrite::connect(&url).await.unwrap();
         db.setup().await.unwrap();
         let db: Arc<dyn Db<olivia_secp256k1::Secp256k1>> =  Arc::new(db);
+        let event_db: Arc<dyn DbReadEvent> = Arc::new(connect_read(&url).await.unwrap());
     }
 }
 

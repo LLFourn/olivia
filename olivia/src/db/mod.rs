@@ -1,4 +1,6 @@
-use olivia_core::{AnnouncedEvent, Attestation, Event, EventId, Group, NodeKind, OracleKeys, PathNode};
+use olivia_core::{
+    AnnouncedEvent, Attestation, Event, EventId, Group, NodeKind, OracleKeys, PathNode,
+};
 pub mod in_memory;
 pub mod postgres;
 use async_trait::async_trait;
@@ -9,8 +11,13 @@ pub mod test;
 pub type Error = anyhow::Error;
 
 #[async_trait]
-pub trait DbRead<C: Group>: Send + Sync {
-    async fn get_event(&self, id: &EventId) -> anyhow::Result<Option<AnnouncedEvent<C>>>;
+pub trait DbReadOracle<C: Group>: Send + Sync + DbReadEvent {
+    async fn get_announced_event(&self, id: &EventId) -> anyhow::Result<Option<AnnouncedEvent<C>>>;
+    async fn get_public_keys(&self) -> Result<Option<OracleKeys<C>>, Error>;
+}
+
+#[async_trait]
+pub trait DbReadEvent: Send + Sync {
     async fn get_node(&self, path: &str) -> anyhow::Result<Option<PathNode>>;
     async fn latest_child_event(
         &self,
@@ -22,7 +29,6 @@ pub trait DbRead<C: Group>: Send + Sync {
         path: &str,
         kind: EventKind,
     ) -> anyhow::Result<Option<Event>>;
-    async fn get_public_keys(&self) -> Result<Option<OracleKeys<C>>, Error>;
 }
 
 #[async_trait]
@@ -38,7 +44,10 @@ pub trait DbWrite<C: Group>: Send + Sync {
     async fn set_public_keys(&self, public_key: OracleKeys<C>) -> Result<(), Error>;
 }
 
-pub trait Db<C: Group>: DbRead<C> + DbWrite<C> + Send + Sync + 'static + BorrowDb<C> {}
+pub trait Db<C: Group>:
+    DbReadOracle<C> + DbReadEvent + DbWrite<C> + Send + Sync + 'static + BorrowDb<C>
+{
+}
 
 pub trait BorrowDb<C>: Send + Sync + 'static {
     fn borrow_db(&self) -> &dyn Db<C>;

@@ -58,7 +58,7 @@ impl<C: Group> Oracle<C> {
     }
 
     pub async fn add_event(&self, new_event: Event) -> Result<(), EventResult> {
-        match self.db.get_event(&new_event.id).await {
+        match self.db.get_announced_event(&new_event.id).await {
             Ok(Some(AnnouncedEvent {
                 attestation: Some(_),
                 ..
@@ -83,7 +83,7 @@ impl<C: Group> Oracle<C> {
     }
 
     pub async fn complete_event(&self, stamped: StampedOutcome) -> Result<(), OutcomeResult> {
-        let existing = self.db.get_event(&stamped.outcome.id).await;
+        let existing = self.db.get_announced_event(&stamped.outcome.id).await;
         let outcome_val_str = stamped.outcome.outcome_str();
         match existing {
             Ok(None) => Err(OutcomeResult::EventNotExist),
@@ -133,7 +133,7 @@ pub mod test {
         assert!(oracle.add_event(event_id.clone().into()).await.is_ok());
 
         let event = db
-            .get_event(&event_id)
+            .get_announced_event(&event_id)
             .await
             .unwrap()
             .expect("event should be there");
@@ -154,7 +154,7 @@ pub mod test {
         assert!(oracle.complete_event(outcome.clone()).await.is_ok());
 
         let attested_event = db
-            .get_event(&event_id)
+            .get_announced_event(&event_id)
             .await
             .unwrap()
             .expect("event should still be there");

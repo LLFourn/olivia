@@ -1,4 +1,4 @@
-use crate::db::DbRead;
+use crate::db::DbReadOracle;
 use core::str::FromStr;
 use futures::Future;
 use olivia_core::{http::*, EventId, Group, PathNode, PathRef};
@@ -91,15 +91,15 @@ pub struct Filters<C> {
 impl<C: Group> Filters<C> {
     pub fn with_db(
         &self,
-        db: Arc<dyn DbRead<C>>,
-    ) -> impl Filter<Extract = (Arc<dyn DbRead<C>>,), Error = std::convert::Infallible> + Clone
+        db: Arc<dyn DbReadOracle<C>>,
+    ) -> impl Filter<Extract = (Arc<dyn DbReadOracle<C>>,), Error = std::convert::Infallible> + Clone
     {
         warp::any().map(move || db.clone())
     }
 
     pub fn get_event(
         &self,
-        db: Arc<dyn DbRead<C>>,
+        db: Arc<dyn DbReadOracle<C>>,
     ) -> impl Filter<Extract = (ApiReply<EventResponse<C>>,), Error = warp::reject::Rejection> + Clone
     {
         warp::path::tail()
@@ -120,10 +120,10 @@ impl<C: Group> Filters<C> {
             )
             .and(self.with_db(db))
             .and_then(
-                async move |event_id: ApiReply<EventId>, db: Arc<dyn DbRead<C>>| {
+                async move |event_id: ApiReply<EventId>, db: Arc<dyn DbReadOracle<C>>| {
                     let reply = event_id
                         .and_then(async move |event_id| {
-                            let res = db.get_event(&event_id).await;
+                            let res = db.get_announced_event(&event_id).await;
                             match res {
                                 Ok(Some(event)) => ApiReply::Ok(event.into()),
                                 Ok(None) => ApiReply::Err(ErrorMessage::not_found()),
@@ -139,10 +139,10 @@ impl<C: Group> Filters<C> {
 
     pub fn get_path(
         &self,
-        db: Arc<dyn DbRead<C>>,
+        db: Arc<dyn DbReadOracle<C>>,
     ) -> impl Filter<Extract = (ApiReply<PathResponse>,), Error = Infallible> + Clone {
         warp::path::tail().and(self.with_db(db)).and_then(
-            async move |tail: warp::filters::path::Tail, db: Arc<dyn DbRead<C>>| {
+            async move |tail: warp::filters::path::Tail, db: Arc<dyn DbReadOracle<C>>| {
                 let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
                 let path = &format!("/{}", tail);
                 let node = db.get_node(&path).await;
@@ -163,10 +163,10 @@ impl<C: Group> Filters<C> {
 
     pub fn get_root(
         &self,
-        db: Arc<dyn DbRead<C>>,
+        db: Arc<dyn DbReadOracle<C>>,
     ) -> impl Filter<Extract = (ApiReply<RootResponse<C>>,), Error = Infallible> + Clone {
         self.with_db(db.clone())
-            .and_then(async move |db: Arc<dyn DbRead<C>>| {
+            .and_then(async move |db: Arc<dyn DbReadOracle<C>>| {
                 let public_keys = db.get_public_keys().await;
                 let res = db.get_node(PathRef::root().as_str()).await;
 
@@ -192,7 +192,7 @@ impl<C: Group> Filters<C> {
 }
 
 pub fn routes<C: Group>(
-    db: Arc<dyn DbRead<C>>,
+    db: Arc<dyn DbReadOracle<C>>,
     _logger: slog::Logger,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::reject::Rejection> + Clone {
     let filters = Filters::<C>::default();
