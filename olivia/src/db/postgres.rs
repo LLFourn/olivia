@@ -109,13 +109,13 @@ impl<C: Group> crate::db::DbReadOracle<C> for tokio_postgres::Client {
 
 #[async_trait]
 impl crate::db::DbReadEvent for tokio_postgres::Client {
-    async fn get_node(&self, path: &str) -> Result<Option<PathNode>, Error> {
+    async fn get_node(&self, path: PathRef<'_>) -> Result<Option<PathNode>, Error> {
         let row = self
-            .query_opt(r#" SELECT kind FROM tree WHERE id = $1"#, &[&path])
+            .query_opt(r#" SELECT kind FROM tree WHERE id = $1"#, &[&path.as_str()])
             .await?;
 
         let trim = |x: String| {
-            x.trim_start_matches(path)
+            x.trim_start_matches(path.as_str())
                 .trim_start_matches('/')
                 .to_string()
         };
@@ -132,7 +132,7 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
                         let rows = self
                             .query(
                                 r"SELECT id, kind FROM tree WHERE parent = $1 LIMIT 100",
-                                &[&path],
+                                &[&path.as_str()],
                             )
                             .await?;
                         ChildDesc::List {
@@ -154,7 +154,7 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
                                 r"( SELECT id, kind FROM tree WHERE parent = $1 ORDER BY id ASC LIMIT 1 )
                                   UNION ALL
                                   ( SELECT id, kind FROM tree WHERE parent = $1 ORDER BY id DESC LIMIT 1 )",
-                                &[&path],
+                                &[&path.as_str()],
                             )
                             .await?;
 
@@ -183,7 +183,7 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
         };
 
         let events = self
-            .query(r#"SELECT id FROM event WHERE node = $1"#, &[&path])
+            .query(r#"SELECT id FROM event WHERE node = $1"#, &[&path.as_str()])
             .await?
             .into_iter()
             .map(|row| row.get("id"))
@@ -194,9 +194,10 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
 
     async fn latest_child_event(
         &self,
-        path: &str,
+        path: PathRef<'_>,
         kind: EventKind,
     ) -> anyhow::Result<Option<Event>> {
+        dbg!(path);
         let row = self
             .query_opt(
                 r#"SELECT event.id, expected_outcome_time FROM event
@@ -204,7 +205,7 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
                  WHERE tree.parent = $1
                    AND event.id LIKE ('%' || $2::text)
                  ORDER BY expected_outcome_time DESC LIMIT 1"#,
-                &[&path, &kind.to_string()],
+                &[&path.as_str(), &kind.to_string()],
             )
             .await?;
         Ok(row.map(|row| Event {
@@ -214,7 +215,7 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
     }
     async fn earliest_unattested_child_event(
         &self,
-        path: &str,
+        path: PathRef<'_>,
         kind: EventKind,
     ) -> anyhow::Result<Option<Event>> {
         let row = self
@@ -225,7 +226,7 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
                  AND (att).outcome IS NULL
                  AND event.id LIKE ('%' || $2::text)
               ORDER BY expected_outcome_time ASC LIMIT 1"#,
-                &[&path, &kind.to_string()],
+                &[&path.as_str(), &kind.to_string()],
             )
             .await?;
 
@@ -249,13 +250,13 @@ impl<C: Group> crate::db::DbReadOracle<C> for PgBackendWrite {
 
 #[async_trait]
 impl crate::db::DbReadEvent for PgBackendWrite {
-    async fn get_node(&self, path: &str) -> Result<Option<PathNode>, Error> {
+    async fn get_node(&self, path: PathRef<'_>) -> Result<Option<PathNode>, Error> {
         DbReadEvent::get_node(&*self.client.read().await, path).await
     }
 
     async fn latest_child_event(
         &self,
-        path: &str,
+        path: PathRef<'_>,
         kind: EventKind,
     ) -> anyhow::Result<Option<Event>> {
         DbReadEvent::latest_child_event(&*self.client.read().await, path, kind).await
@@ -263,7 +264,7 @@ impl crate::db::DbReadEvent for PgBackendWrite {
 
     async fn earliest_unattested_child_event(
         &self,
-        path: &str,
+        path: PathRef<'_>,
         kind: EventKind,
     ) -> anyhow::Result<Option<Event>> {
         DbReadEvent::earliest_unattested_child_event(&*self.client.read().await, path, kind).await
@@ -385,16 +386,16 @@ impl<C: Group> crate::db::DbWrite<C> for PgBackendWrite {
         Ok(())
     }
 
-    async fn set_node_kind(&self, path: &str, kind: NodeKind) -> anyhow::Result<()> {
-        let kind_json = serde_json::to_value(&kind).unwrap();
+    async fn insert_node(&self, node: Node) -> anyhow::Result<()> {
+        let kind_json = serde_json::to_value(&node.kind).unwrap();
         let mut client = self.client.write().await;
         let tx = client.transaction().await?;
         let row = tx
-            .query_opt("SELECT kind FROM tree WHERE id = $1", &[&path])
+            .query_opt("SELECT kind FROM tree WHERE id = $1", &[&node.path.as_str()])
             .await?;
         let existing_kind = match row {
             None => {
-                self.insert_node_parents(&tx, PathRef::from(path)).await?;
+                self.insert_node_parents(&tx, node.path.as_path_ref()).await?;
                 None
             }
             Some(row) => row
@@ -405,19 +406,19 @@ impl<C: Group> crate::db::DbWrite<C> for PgBackendWrite {
 
         match existing_kind {
             Some(existing_kind) => {
-                if kind != existing_kind {
+                if node.kind != existing_kind {
                     return Err(anyhow!(
                         "Tried to change kind of {} from {:?} to {:?}",
-                        path,
+                        node.path,
                         existing_kind,
-                        kind
+                        node.kind
                     ));
                 }
             }
             None => {
                 tx.execute(
                     "UPDATE tree SET kind = $1 WHERE id = $2",
-                    &[&kind_json, &path],
+                    &[&kind_json, &node.path.as_str()],
                 )
                 .await?;
             }

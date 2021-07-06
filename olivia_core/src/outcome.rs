@@ -1,14 +1,10 @@
-use crate::{EventId, EventKind, VsMatchKind};
+use crate::{EventId, EventKind, PrefixPath, VsMatchKind};
 use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
 use chrono::NaiveDateTime;
-use core::{
-    convert::{TryFrom, TryInto},
-    fmt,
-    str::FromStr,
-};
+use core::{convert::{TryFrom, TryInto}, fmt, str::FromStr};
 
 #[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -204,4 +200,29 @@ pub enum WinOrDraw {
 
 pub enum Occur {
     Occurred = 0,
+}
+
+
+impl PrefixPath for Outcome {
+    fn prefix_path(mut self, path: crate::PathRef<'_>) -> Self {
+        self.id = self.id.prefix_path(path);
+        self
+    }
+
+    fn strip_prefix_path(mut self, path: crate::PathRef<'_>) -> Self {
+        self.id = self.id.strip_prefix_path(path);
+        self
+    }
+}
+
+impl PrefixPath for StampedOutcome {
+    fn prefix_path(mut self, path: crate::PathRef<'_>) -> Self {
+        self.outcome = self.outcome.prefix_path(path);
+        self
+    }
+
+    fn strip_prefix_path(mut self, path: crate::PathRef<'_>) -> Self {
+        self.outcome = self.outcome.strip_prefix_path(path);
+        self
+    }
 }

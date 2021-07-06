@@ -1,5 +1,5 @@
 use super::*;
-use olivia_core::{ChildDesc, Group, PathRef};
+use olivia_core::{ChildDesc, Group, PathRef, path};
 use std::str::FromStr;
 
 pub async fn test_db<C: Group>(db: &dyn Db<C>) {
@@ -29,19 +29,23 @@ macro_rules! assert_children_eq {
 
 async fn test_insert_unattested(db: &dyn Db<impl Group>) {
     let unattested_id = EventId::from_str("/test/db/test-insert-unattested.occur").unwrap();
-    let obs_event = AnnouncedEvent::test_unattested_instance(unattested_id.clone().into());
+    let ann_event = AnnouncedEvent::test_unattested_instance(unattested_id.clone().into());
 
-    db.insert_event(obs_event.clone()).await.unwrap();
-    let entry = db.get_announced_event(&unattested_id).await.unwrap().unwrap();
+    db.insert_event(ann_event.clone()).await.unwrap();
+    let entry = db
+        .get_announced_event(&unattested_id)
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(
-        entry, obs_event,
+        entry, ann_event,
         "unattested entry retrieved should be same as inserted"
     );
 
     {
         assert_children_eq!(
-            db.get_node(PathRef::root().as_str())
+            db.get_node(PathRef::root())
                 .await
                 .unwrap()
                 .unwrap()
@@ -49,16 +53,16 @@ async fn test_insert_unattested(db: &dyn Db<impl Group>) {
             ["test"]
         );
 
-        let path = db.get_node("/test").await.unwrap().unwrap();
+        let path = db.get_node(path!("/test")).await.unwrap().unwrap();
         assert_eq!(path.events, [""; 0]);
         assert_children_eq!(path.child_desc, ["db"]);
         assert_children_eq!(
-            db.get_node("/test/db").await.unwrap().unwrap().child_desc,
+            db.get_node(path!("/test/db")).await.unwrap().unwrap().child_desc,
             ["test-insert-unattested"]
         );
 
         let node_path = db
-            .get_node("/test/db/test-insert-unattested")
+            .get_node(path!("/test/db/test-insert-unattested"))
             .await
             .unwrap()
             .unwrap();
@@ -69,25 +73,29 @@ async fn test_insert_unattested(db: &dyn Db<impl Group>) {
 
 async fn test_insert_attested(db: &dyn Db<impl Group>) {
     let insert_attested_id = EventId::from_str("/test/db/test-insert-attested.occur").unwrap();
-    let obs_event = AnnouncedEvent::test_attested_instance(insert_attested_id.clone().into());
+    let ann_event = AnnouncedEvent::test_attested_instance(insert_attested_id.clone().into());
 
-    db.insert_event(obs_event.clone()).await.unwrap();
-    let entry = db.get_announced_event(&insert_attested_id).await.unwrap().unwrap();
+    db.insert_event(ann_event.clone()).await.unwrap();
+    let entry = db
+        .get_announced_event(&insert_attested_id)
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(
-        entry, obs_event,
+        entry, ann_event,
         "attested entry retrieved should be same as inserted"
     );
 
     {
         assert_children_eq!(
-            db.get_node("/test").await.unwrap().unwrap().child_desc,
+            db.get_node(path!("/test")).await.unwrap().unwrap().child_desc,
             ["db"],
             "new event did not duplicate parent path"
         );
 
         assert_children_eq!(
-            db.get_node("/test/db").await.unwrap().unwrap().child_desc,
+            db.get_node(path!("/test/db")).await.unwrap().unwrap().child_desc,
             ["test-insert-attested", "test-insert-unattested"]
         );
     }
@@ -97,11 +105,11 @@ async fn test_insert_unattested_then_complete(db: &dyn Db<impl Group>) {
     let unattested_then_complete_id =
         EventId::from_str("/test/db/test-insert-unattested-then-complete.occur").unwrap();
 
-    let mut obs_event =
+    let mut ann_event =
         AnnouncedEvent::test_attested_instance(unattested_then_complete_id.clone().into());
-    let attestation = obs_event.attestation.take().unwrap();
+    let attestation = ann_event.attestation.take().unwrap();
 
-    db.insert_event(obs_event.clone()).await.unwrap();
+    db.insert_event(ann_event.clone()).await.unwrap();
     db.complete_event(&unattested_then_complete_id, attestation.clone())
         .await
         .unwrap();
@@ -112,9 +120,9 @@ async fn test_insert_unattested_then_complete(db: &dyn Db<impl Group>) {
         .unwrap()
         .unwrap();
 
-    obs_event.attestation = Some(attestation);
+    ann_event.attestation = Some(attestation);
     assert_eq!(
-        entry, obs_event,
+        entry, ann_event,
         "event should have an attestation after calling complete_event"
     );
 }
@@ -128,7 +136,7 @@ async fn test_insert_grandchild_event(db: &dyn Db<impl Group>) {
     .unwrap();
 
     assert_children_eq!(
-        db.get_node("/test/db").await.unwrap().unwrap().child_desc,
+        db.get_node(path!("/test/db")).await.unwrap().unwrap().child_desc,
         [
             "dbchild",
             "test-insert-attested",
@@ -137,12 +145,12 @@ async fn test_insert_grandchild_event(db: &dyn Db<impl Group>) {
         ]
     );
 
-    let dbchild = db.get_node("/test/db/dbchild").await.unwrap().unwrap();
+    let dbchild = db.get_node(path!("/test/db/dbchild")).await.unwrap().unwrap();
     assert_eq!(dbchild.events, [""; 0]);
     assert_children_eq!(dbchild.child_desc, ["grandchild"]);
 
     let grandchild = db
-        .get_node("/test/db/dbchild/grandchild")
+        .get_node(path!("/test/db/dbchild/grandchild"))
         .await
         .unwrap()
         .unwrap();
@@ -157,7 +165,7 @@ async fn test_child_event_of_node_with_event(db: &dyn Db<impl Group>) {
         .await
         .unwrap();
     let parent = db
-        .get_node("/test/db/test-insert-attested")
+        .get_node(path!("/test/db/test-insert-attested"))
         .await
         .unwrap()
         .unwrap();
@@ -165,7 +173,7 @@ async fn test_child_event_of_node_with_event(db: &dyn Db<impl Group>) {
     assert_children_eq!(parent.child_desc, ["test-sub-event"]);
 
     let parent = db
-        .get_node("/test/db/test-insert-attested/test-sub-event")
+        .get_node(path!("/test/db/test-insert-attested/test-sub-event"))
         .await
         .unwrap()
         .unwrap();
@@ -182,8 +190,12 @@ async fn test_child_event_of_node_with_event(db: &dyn Db<impl Group>) {
 
 async fn test_get_non_existent_events(db: &dyn Db<impl Group>) {
     let non_existent = EventId::from_str("/test/db/dont-exist.occur").unwrap();
-    assert!(db.get_announced_event(&non_existent).await.unwrap().is_none());
-    assert!(db.get_node("/test/db/dont-exist").await.unwrap().is_none());
+    assert!(db
+        .get_announced_event(&non_existent)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(db.get_node(path!("/test/db/dont-exist")).await.unwrap().is_none());
 }
 
 async fn test_multiple_events_on_one_node(db: &dyn Db<impl Group>) {
@@ -199,7 +211,7 @@ async fn test_multiple_events_on_one_node(db: &dyn Db<impl Group>) {
     .await
     .unwrap();
 
-    let mut red_blue = db.get_node("/test/db/RED_BLUE").await.unwrap().unwrap();
+    let mut red_blue = db.get_node(path!("/test/db/RED_BLUE")).await.unwrap().unwrap();
 
     red_blue.events.sort();
 

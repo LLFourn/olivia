@@ -1,13 +1,13 @@
 secret-seed: "42424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242"
 
 events:
-  timer:
+  /time:
     type: "time-ticker"
     interval: 60
     look-ahead: 300
 
 outcomes:
-  timer:
+  /time:
     type: "time-ticker"
 
 rest-api:

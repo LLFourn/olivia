@@ -1,4 +1,4 @@
-use crate::Descriptor;
+use crate::{Descriptor, Path, PathError, PathRef, PrefixPath};
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -41,8 +41,8 @@ impl EventKind {
     }
 }
 
-#[derive(Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
-pub struct EventId(String);
+#[derive(Clone, Debug, PartialEq, Hash, Eq, PartialOrd, Ord)]
+pub struct EventId(Path);
 
 impl EventId {
     pub fn as_bytes(&self) -> &[u8] {
@@ -54,7 +54,7 @@ impl EventId {
     }
 
     pub fn path(&self) -> PathRef<'_> {
-        let (path, _) = PathRef(self.as_str())
+        let (path, _) = self.0.as_path_ref()
             .strip_event()
             .expect("event must exist");
         path
@@ -69,13 +69,8 @@ impl EventId {
         }
     }
 
-    pub fn unit(&self) -> Option<String> {
-        None
-    }
-
     pub fn event_kind(&self) -> EventKind {
-        let (_, event_kind) = PathRef(self.as_str())
-            .strip_event()
+        let (_, event_kind) = self.0.as_path_ref().strip_event()
             .expect("event must exist");
         let event_kind_segments: Vec<&str> = event_kind.split('_').collect::<Vec<_>>();
         match &event_kind_segments[..] {
@@ -111,7 +106,7 @@ impl EventId {
     }
 
     pub fn replace_kind(&self, kind: EventKind) -> EventId {
-        Self(format!("{}.{}", self.path(), kind))
+        Self(Path(format!("{}.{}", self.path(), kind)))
     }
 
     pub fn descriptor(&self) -> Descriptor {
@@ -127,12 +122,13 @@ impl EventId {
             EventKind::SingleOccurrence => Descriptor::Enum {
                 outcomes: vec!["true".into()],
             },
-            EventKind::Digits(n) => Descriptor::DigitDecomposition {
-                base: 10,
-                is_signed: false,
-                n_digits: n,
-                unit: self.unit(),
-            },
+            EventKind::Digits(_) => unimplemented!(),
+            // Descriptor::DigitDecomposition {
+            //     base: 10,
+            //     is_signed: false,
+            //     n_digits: n,
+            //     unit: self.unit(),
+            // },
         }
     }
 
@@ -151,7 +147,7 @@ impl EventId {
     }
 
     pub fn occur_from_dt(dt: NaiveDateTime) -> EventId {
-        EventId::from_str(&format!("/time/{}.occur", dt.format("%FT%T"))).unwrap()
+        EventId::from_str(&format!("/{}.occur", dt.format("%FT%T"))).unwrap()
     }
 }
 
@@ -174,6 +170,14 @@ impl core::fmt::Display for EventIdError {
     }
 }
 
+impl From<PathError> for EventIdError {
+    fn from(e: PathError) -> Self {
+        match e {
+            PathError::BadFormat => EventIdError::BadFormat
+        }
+    }
+}
+
 #[cfg(feature = "std")]
 impl std::error::Error for EventIdError {}
 
@@ -181,20 +185,26 @@ impl FromStr for EventId {
     type Err = EventIdError;
 
     fn from_str(string: &str) -> Result<EventId, Self::Err> {
-        let url =
-            // test: is just there to give it a scheme which we need for the url lib to parse it
-            url::Url::parse(&format!("test:{}", string)).map_err(|_| EventIdError::BadFormat)?;
-        if url.path() != string {
-            // sanity check -- the URL path is the evet ID so if we roundtrip it, it should come out
-            // the same
-            return Err(EventIdError::BadFormat);
-        }
-        let (path, event_kind) = PathRef::from(string)
+        // it must at least be a valid path
+        let id_as_path = Path::from_str(string)?;
+
+        EventId::try_from(id_as_path)
+    }
+
+}
+
+impl TryFrom<Path> for EventId {
+    type Error = EventIdError;
+
+    fn try_from(id_as_path: Path) -> Result<Self, Self::Error> {
+
+        // It must have a `.` in the last segment to be an event
+        let (path, event_kind) = id_as_path.as_path_ref()
             .strip_event()
             .ok_or(EventIdError::BadFormat)?;
+
         let event_kind_segments = event_kind.split("_").collect::<Vec<_>>();
 
-        // Ensure the path is a valid url path
         match &event_kind_segments[..] {
             ["vs"] | ["win"] => {
                 let teams: Vec<_> = path.last().split('_').collect();
@@ -209,13 +219,19 @@ impl FromStr for EventId {
             _ => return Err(EventIdError::UnknownEventKind(event_kind.into())),
         };
 
-        Ok(EventId(string.into()))
+        Ok(EventId(id_as_path))
     }
 }
 
 impl From<EventId> for String {
     fn from(eid: EventId) -> Self {
         eid.as_str().to_string()
+    }
+}
+
+impl From<EventId> for Path {
+    fn from(eid: EventId) -> Self {
+        eid.0
     }
 }
 
@@ -249,85 +265,12 @@ impl TryFrom<url::Url> for EventId {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PathRef<'a>(&'a str);
-
-impl<'a> PathRef<'a> {
-    pub fn parent(self) -> Option<PathRef<'a>> {
-        if self == Self::root() {
-            return None;
-        }
-        self.0.rfind('/').map(|at| {
-            if at == 0 {
-                PathRef::root()
-            } else {
-                PathRef(&self.0[..at])
-            }
-        })
-    }
-
-    pub fn segment(self, index: usize) -> Option<&'a str> {
-        self.0[1..].split('/').nth(index)
-    }
-
-    pub fn strip_event(self) -> Option<(PathRef<'a>, &'a str)> {
-        self.0.rfind('/').and_then(|slash_at| {
-            let last_segment = &self.0[slash_at + 1..];
-            last_segment.find('.').map(|dot_at| {
-                (
-                    PathRef(&self.0[..slash_at + 1 + dot_at]),
-                    &last_segment[dot_at + 1..],
-                )
-            })
-        })
-    }
-
-    pub fn last(self) -> &'a str {
-        let last_segment = self
-            .0
-            .rfind('/')
-            .map(|at| &self.0[at + 1..])
-            .unwrap_or(&self.0[..]);
-
-        last_segment
-    }
-
-    pub fn as_str(self) -> &'a str {
-        self.0
-    }
-
-    pub fn root() -> Self {
-        PathRef("/")
-    }
-
-    pub fn is_root(self) -> bool {
-        self == Self::root()
-    }
-}
-
-impl<'a> From<&'a str> for PathRef<'a> {
-    fn from(s: &'a str) -> Self {
-        PathRef(s)
-    }
-}
-
 impl fmt::Display for EventId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-impl fmt::Debug for EventId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self, f)
-    }
-}
-
-impl fmt::Display for PathRef<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -345,7 +288,6 @@ impl Event {
         }
     }
 }
-
 
 
 
@@ -383,25 +325,12 @@ mod sql_impls {
 
 mod serde_impl {
     use super::*;
-    use core::fmt;
     use serde::de;
+
     impl<'de> de::Deserialize<'de> for EventId {
         fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<EventId, D::Error> {
-            struct Visitor;
-
-            impl<'de> de::Visitor<'de> for Visitor {
-                type Value = EventId;
-
-                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                    formatter.write_str("A valid event_id")
-                }
-
-                fn visit_str<E: de::Error>(self, v: &str) -> Result<EventId, E> {
-                    EventId::from_str(v).map_err(|e| E::custom(format!("{}", e)))
-                }
-            }
-
-            deserializer.deserialize_str(Visitor)
+            let s = String::deserialize(deserializer)?;
+            EventId::from_str(&s).map_err(de::Error::custom)
         }
     }
 
@@ -410,9 +339,31 @@ mod serde_impl {
             &self,
             serializer: Ser,
         ) -> Result<Ser::Ok, Ser::Error> {
-            let tmp = serializer.collect_str(&self);
-            tmp
+            serializer.collect_str(&self)
         }
+    }
+}
+
+
+impl PrefixPath for EventId {
+    fn prefix_path(self, path: PathRef<'_>) -> Self {
+        Self(Path::from(self).prefix_path(path).into())
+    }
+
+    fn strip_prefix_path(self, path: PathRef<'_>) -> Self {
+        Self(Path::from(self).strip_prefix_path(path).into())
+    }
+}
+
+impl PrefixPath for Event {
+    fn prefix_path(mut self, path: PathRef<'_>) -> Self {
+        self.id = self.id.prefix_path(path);
+        self
+    }
+
+    fn strip_prefix_path(mut self, path: PathRef<'_>) -> Self {
+        self.id = self.id.strip_prefix_path(path);
+        self
     }
 }
 
@@ -423,7 +374,8 @@ mod test {
     #[test]
     fn event_id_from_str() {
         assert!(EventId::from_str("/foo/bar.occur").is_ok());
-        assert!(EventId::from_str("foo/bar.occur/").is_err());
+        assert!(EventId::from_str("foo/bar.occur").is_err());
+        assert!(EventId::from_str("/foo/bar.occur/").is_err());
         assert!(EventId::from_str("/foo.occur").is_ok());
         assert!(EventId::from_str("/foo/bar.occur").is_ok());
         assert!(EventId::from_str("/foo/bar/baz.occur").is_ok());
@@ -432,6 +384,15 @@ mod test {
         assert!(EventId::from_str("/foo/bar/FOO-BAR.vs").is_err());
         assert!(EventId::from_str("/foo.occur").is_ok());
         assert!(EventId::from_str("/test/one/two/3.occur").is_ok());
+    }
+
+    #[test]
+    fn path_from_str() {
+        assert!(Path::from_str("/foo/bar").is_ok());
+        assert!(Path::from_str("/foo/bar/").is_err());
+        assert!(Path::from_str("foo/bar").is_err());
+        assert!(Path::from_str("/").is_ok());
+        assert!(Path::from_str("/").unwrap().as_path_ref().is_root())
     }
 
     #[test]

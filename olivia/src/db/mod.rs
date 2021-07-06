@@ -1,10 +1,13 @@
 use olivia_core::{
-    AnnouncedEvent, Attestation, Event, EventId, Group, NodeKind, OracleKeys, PathNode,
+    AnnouncedEvent, Attestation, Event, EventId, Group, NodeKind, OracleKeys, PathNode, PathRef, Node
 };
 pub mod in_memory;
 pub mod postgres;
+mod prefixed;
+pub use prefixed::*;
 use async_trait::async_trait;
 use olivia_core::EventKind;
+
 #[cfg(test)]
 pub mod test;
 
@@ -18,15 +21,15 @@ pub trait DbReadOracle<C: Group>: Send + Sync + DbReadEvent {
 
 #[async_trait]
 pub trait DbReadEvent: Send + Sync {
-    async fn get_node(&self, path: &str) -> anyhow::Result<Option<PathNode>>;
+    async fn get_node(&self, path: PathRef<'_>) -> anyhow::Result<Option<PathNode>>;
     async fn latest_child_event(
         &self,
-        path: &str,
+        path: PathRef<'_>,
         kind: EventKind,
     ) -> anyhow::Result<Option<Event>>;
     async fn earliest_unattested_child_event(
         &self,
-        path: &str,
+        path: PathRef<'_>,
         kind: EventKind,
     ) -> anyhow::Result<Option<Event>>;
 }
@@ -34,7 +37,7 @@ pub trait DbReadEvent: Send + Sync {
 #[async_trait]
 pub trait DbWrite<C: Group>: Send + Sync {
     async fn insert_event(&self, observed_event: AnnouncedEvent<C>) -> Result<(), Error>;
-    async fn set_node_kind(&self, path: &str, kind: NodeKind) -> Result<(), Error>;
+    async fn insert_node(&self, node: Node) -> Result<(), Error>;
     async fn complete_event(
         &self,
         event_id: &EventId,

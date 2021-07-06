@@ -1,5 +1,6 @@
 use crate::seed::Seed;
 use chrono::NaiveDateTime;
+use olivia_core::Path;
 use std::{collections::HashMap, str::FromStr};
 
 mod config_impls;
@@ -15,9 +16,9 @@ pub type RootDrain = Box<
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
-    pub events: HashMap<String, EventSourceConfig>,
+    pub events: HashMap<Path, EventSourceConfig>,
     #[serde(default)]
-    pub outcomes: HashMap<String, OutcomeSourceConfig>,
+    pub outcomes: HashMap<Path, OutcomeSourceConfig>,
     #[serde(default)]
     pub database: DbConfig,
     #[serde(default)]

@@ -10,6 +10,7 @@ mod macros;
 mod oracle_info;
 mod outcome;
 mod node;
+mod path;
 
 pub use node::*;
 pub use announcement::*;
@@ -20,6 +21,7 @@ pub use event::*;
 pub use group::*;
 pub use oracle_info::*;
 pub use outcome::*;
+pub use path::*;
 
 #[cfg_attr(not(feature = "std"), macro_use)]
 extern crate alloc;
@@ -32,3 +34,15 @@ pub use chrono;
 pub use url;
 #[cfg(feature = "postgres-types")]
 pub use postgres_types;
+
+pub trait PrefixPath {
+    fn prefix_path(self, path: PathRef<'_>) -> Self;
+    fn strip_prefix_path(self, path: PathRef<'_>) -> Self;
+}
+
+#[macro_export]
+macro_rules! path {
+    ($path:literal) => {
+        $crate::Path::from_str($path).unwrap().as_path_ref()
+    }
+}

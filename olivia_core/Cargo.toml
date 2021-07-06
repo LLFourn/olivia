@@ -15,5 +15,5 @@ postgres-types = {version = "0.2", features = ["derive", "with-serde_json-1", "w
 
 
 [features]
-default = []
+default = ["std"]
 std = []

@@ -8,6 +8,7 @@ pub trait OracleLog {
 impl OracleLog for slog::Logger {
     fn log_event_result(&self, res: Result<(), EventResult>) {
         use EventResult::*;
+        dbg!(&res);
         match res {
             Ok(_) => info!(self, "created"),
             Err(e) => match e {
@@ -29,7 +30,7 @@ impl OracleLog for slog::Logger {
                 OutcomeChanged { existing, new } => {
                     crit!(self, "outcome changed"; "existing" => existing, "new" => new)
                 }
-                EventNotExist => error!(self, "event doesn't exist"),
+                EventNotExist => warn!(self, "event doesn't exist"),
                 DbReadErr(e) => crit!(self, "database read"; "error" => format!("{}", e)),
                 DbWriteErr(e) => crit!(self, "database write"; "error" => format!("{}", e)),
             },

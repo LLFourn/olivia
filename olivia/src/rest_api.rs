@@ -1,10 +1,11 @@
 use crate::db::DbReadOracle;
 use core::str::FromStr;
 use futures::Future;
-use olivia_core::{http::*, EventId, Group, PathNode, PathRef};
+use olivia_core::{http::*, EventId, Group, PathNode, PathRef, Path};
 use serde::Serialize;
 use std::{convert::Infallible, marker::PhantomData, sync::Arc};
 use warp::{self, http, Filter};
+use core::convert::TryFrom;
 
 #[derive(Clone, Debug)]
 pub enum ApiReply<T> {
@@ -105,14 +106,21 @@ impl<C: Group> Filters<C> {
         warp::path::tail()
             .and_then(
                 async move |tail: warp::filters::path::Tail| -> Result<ApiReply<EventId>, warp::reject::Rejection> {
-                    let path = format!("/{}", tail.as_str());
-                    // Need to reject if it doesn't have an event ( have a '.' in last segment )
-                    let _ = PathRef::from(path.as_str()).strip_event().ok_or(warp::reject())?;
-                    let reply = match EventId::from_str(path.as_str()) {
+                    let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
+                    let path = format!("/{}", tail);
+                    let path = match Path::from_str(&path) {
+                        Ok(path) => path,
+                        Err(_) => return Ok(ApiReply::Err(ErrorMessage::bad_request().with_message(format!("'{}' is not a valid event path", path))))
+                    };
+
+                    // if we've got a valid bath but it doesn't look like an event we should reject
+                    let _ = path.as_path_ref().strip_event().ok_or(warp::reject())?;
+
+                    let reply = match EventId::try_from(path.clone()) {
                         Ok(event_id) => ApiReply::Ok(event_id),
-                        Err(_e) => { ApiReply::Err(
-                            ErrorMessage::bad_request().with_message("unable to parse as event id"),
-                        ) },
+                        Err(e) =>  ApiReply::Err(
+                            ErrorMessage::bad_request().with_message(format!("'{}' is not a valid event id: {}", path, e)),
+                        ),
                     };
 
                     Ok(reply)
@@ -144,8 +152,11 @@ impl<C: Group> Filters<C> {
         warp::path::tail().and(self.with_db(db)).and_then(
             async move |tail: warp::filters::path::Tail, db: Arc<dyn DbReadOracle<C>>| {
                 let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
-                let path = &format!("/{}", tail);
-                let node = db.get_node(&path).await;
+                let path = match Path::from_str(&format!("/{}", tail)) {
+                    Ok(path) => path,
+                    Err(_) => return Ok(ApiReply::Err(ErrorMessage::bad_request().with_message(format!("'/{}' is not a valid event path", tail)))),
+                };
+                let node = db.get_node(path.as_path_ref()).await;
                 let reply = match node {
                     Ok(Some(node)) => ApiReply::Ok(PathResponse {
                         node: PathNode {
@@ -168,7 +179,7 @@ impl<C: Group> Filters<C> {
         self.with_db(db.clone())
             .and_then(async move |db: Arc<dyn DbReadOracle<C>>| {
                 let public_keys = db.get_public_keys().await;
-                let res = db.get_node(PathRef::root().as_str()).await;
+                let res = db.get_node(PathRef::root()).await;
 
                 let reply = if let Ok(Some(public_keys)) = public_keys {
                     if let Ok(Some(node)) = res {

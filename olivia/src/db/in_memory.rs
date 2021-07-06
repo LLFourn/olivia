@@ -2,18 +2,19 @@ use crate::db::*;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use olivia_core::{
-    AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, Group, OracleKeys,
+    AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, Group, OracleKeys, Path
 };
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
+    str::FromStr,
 };
 
 #[derive(Clone)]
 pub struct InMemory<C: Group> {
     public_keys: Arc<RwLock<Option<OracleKeys<C>>>>,
     inner: Arc<RwLock<HashMap<EventId, AnnouncedEvent<C>>>>,
-    node_kinds: Arc<RwLock<HashMap<String, NodeKind>>>,
+    node_kinds: Arc<RwLock<HashMap<Path, NodeKind>>>,
 }
 
 impl<C: Group> Default for InMemory<C> {
@@ -28,7 +29,10 @@ impl<C: Group> Default for InMemory<C> {
 
 #[async_trait]
 impl<C: Group> DbReadOracle<C> for InMemory<C> {
-    async fn get_announced_event(&self, id: &EventId) -> Result<Option<AnnouncedEvent<C>>, crate::db::Error> {
+    async fn get_announced_event(
+        &self,
+        id: &EventId,
+    ) -> Result<Option<AnnouncedEvent<C>>, crate::db::Error> {
         let db = &*self.inner.read().unwrap();
         Ok(db.get(&id).map(Clone::clone))
     }
@@ -40,13 +44,13 @@ impl<C: Group> DbReadOracle<C> for InMemory<C> {
 
 #[async_trait]
 impl<C: Group> DbReadEvent for InMemory<C> {
-    async fn get_node(&self, node: &str) -> Result<Option<PathNode>, Error> {
+    async fn get_node(&self, node: PathRef<'_>) -> Result<Option<PathNode>, Error> {
         let db = &*self.inner.read().unwrap();
         let node_kinds = self.node_kinds.read().unwrap();
-        let node_kind = node_kinds.get(node).cloned().unwrap_or(NodeKind::List);
+        let node_kind = node_kinds.get(&node.to_path()).cloned().unwrap_or(NodeKind::List);
 
         let mut children_list: Vec<Child> = {
-            let parent_prefix = if node == "/" {
+            let parent_prefix = if node == PathRef::root() {
                 "/".to_string()
             } else {
                 format!("{}/", node)
@@ -63,7 +67,7 @@ impl<C: Group> DbReadEvent for InMemory<C> {
                         let child = Child {
                             name,
                             kind: node_kinds
-                                .get(child_node)
+                                .get(&Path::from_str(child_node).unwrap())
                                 .cloned()
                                 .unwrap_or(NodeKind::List),
                         };
@@ -97,7 +101,7 @@ impl<C: Group> DbReadEvent for InMemory<C> {
             db.keys()
                 .into_iter()
                 .filter(|key| {
-                    if let Some(remaining) = key.as_str().strip_prefix(node) {
+                    if let Some(remaining) = key.as_str().strip_prefix(node.as_str()) {
                         remaining.starts_with('.')
                     } else {
                         false
@@ -116,37 +120,37 @@ impl<C: Group> DbReadEvent for InMemory<C> {
 
     async fn latest_child_event(
         &self,
-        path: &str,
+        path: PathRef<'_>,
         kind: EventKind,
     ) -> anyhow::Result<Option<Event>> {
         let db = self.inner.read().unwrap();
-        let mut obs_events: Vec<&AnnouncedEvent<C>> = db
+        let mut ann_events: Vec<&AnnouncedEvent<C>> = db
             .values()
-            .filter(|obs_event| {
-                obs_event.event.id.as_str().starts_with(path)
-                    && obs_event.event.id.as_str().ends_with(&kind.to_string())
+            .filter(|ann_event| {
+                ann_event.event.id.as_str().starts_with(path.as_str())
+                    && ann_event.event.id.as_str().ends_with(&kind.to_string())
             })
             .collect();
-        obs_events.sort_by_cached_key(|obs_event| obs_event.event.expected_outcome_time);
-        Ok(obs_events.last().map(|obs_event| obs_event.event.clone()))
+        ann_events.sort_by_cached_key(|ann_event| ann_event.event.expected_outcome_time);
+        Ok(ann_events.last().map(|ann_event| ann_event.event.clone()))
     }
 
     async fn earliest_unattested_child_event(
         &self,
-        path: &str,
+        path: PathRef<'_>,
         kind: EventKind,
     ) -> anyhow::Result<Option<Event>> {
         let db = self.inner.read().unwrap();
-        let mut obs_events: Vec<&AnnouncedEvent<C>> = db
+        let mut ann_events: Vec<&AnnouncedEvent<C>> = db
             .values()
-            .filter(|obs_event| {
-                obs_event.event.id.as_str().starts_with(path)
-                    && obs_event.event.id.as_str().ends_with(&kind.to_string())
-                    && obs_event.attestation == None
+            .filter(|ann_event| {
+                ann_event.event.id.as_str().starts_with(path.as_str())
+                    && ann_event.event.id.as_str().ends_with(&kind.to_string())
+                    && ann_event.attestation == None
             })
             .collect();
-        obs_events.sort_by_cached_key(|obs_event| obs_event.event.expected_outcome_time);
-        Ok(obs_events.first().map(|obs_event| obs_event.event.clone()))
+        ann_events.sort_by_cached_key(|ann_event| ann_event.event.expected_outcome_time);
+        Ok(ann_events.first().map(|ann_event| ann_event.event.clone()))
     }
 }
 
@@ -183,9 +187,9 @@ impl<C: Group> DbWrite<C> for InMemory<C> {
         Ok(())
     }
 
-    async fn set_node_kind(&self, path: &str, kind: NodeKind) -> Result<(), Error> {
+    async fn insert_node(&self, node: Node) -> Result<(), Error> {
         let mut node_kinds = self.node_kinds.write().unwrap();
-        node_kinds.insert(path.into(), kind);
+        node_kinds.insert(node.path, node.kind);
         Ok(())
     }
 }
