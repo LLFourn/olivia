@@ -2,12 +2,12 @@ use crate::db::*;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use olivia_core::{
-    AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, Group, OracleKeys, Path
+    AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, Group, OracleKeys, Path,
 };
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
     str::FromStr,
+    sync::{Arc, RwLock},
 };
 
 #[derive(Clone)]
@@ -47,7 +47,10 @@ impl<C: Group> DbReadEvent for InMemory<C> {
     async fn get_node(&self, node: PathRef<'_>) -> Result<Option<PathNode>, Error> {
         let db = &*self.inner.read().unwrap();
         let node_kinds = self.node_kinds.read().unwrap();
-        let node_kind = node_kinds.get(&node.to_path()).cloned().unwrap_or(NodeKind::List);
+        let node_kind = node_kinds
+            .get(&node.to_path())
+            .cloned()
+            .unwrap_or(NodeKind::List);
 
         let mut children_list: Vec<Child> = {
             let parent_prefix = if node == PathRef::root() {

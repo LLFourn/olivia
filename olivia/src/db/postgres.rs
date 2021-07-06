@@ -197,7 +197,6 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
         path: PathRef<'_>,
         kind: EventKind,
     ) -> anyhow::Result<Option<Event>> {
-        dbg!(path);
         let row = self
             .query_opt(
                 r#"SELECT event.id, expected_outcome_time FROM event
@@ -391,11 +390,15 @@ impl<C: Group> crate::db::DbWrite<C> for PgBackendWrite {
         let mut client = self.client.write().await;
         let tx = client.transaction().await?;
         let row = tx
-            .query_opt("SELECT kind FROM tree WHERE id = $1", &[&node.path.as_str()])
+            .query_opt(
+                "SELECT kind FROM tree WHERE id = $1",
+                &[&node.path.as_str()],
+            )
             .await?;
         let existing_kind = match row {
             None => {
-                self.insert_node_parents(&tx, node.path.as_path_ref()).await?;
+                self.insert_node_parents(&tx, node.path.as_path_ref())
+                    .await?;
                 None
             }
             Some(row) => row

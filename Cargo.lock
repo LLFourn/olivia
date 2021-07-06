@@ -780,6 +780,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-postgres",
+ "tokio-stream",
  "warp",
 ]
 
@@ -1599,6 +1600,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

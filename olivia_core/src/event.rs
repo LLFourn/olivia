@@ -132,6 +132,10 @@ impl EventId {
         }
     }
 
+    pub fn from_path_and_kind(path: Path, kind: EventKind) -> Self {
+        EventId(Path(format!("{}.{}", path, kind)))
+    }
+
     pub fn is_binary(&self) -> bool {
         match self.event_kind() {
             EventKind::VsMatch(kind) => match kind {
@@ -147,7 +151,7 @@ impl EventId {
     }
 
     pub fn occur_from_dt(dt: NaiveDateTime) -> EventId {
-        EventId::from_str(&format!("/{}.occur", dt.format("%FT%T"))).unwrap()
+        Self::from_path_and_kind(Path(format!("/{}", dt.format("%FT%T"))), EventKind::SingleOccurrence)
     }
 }
 

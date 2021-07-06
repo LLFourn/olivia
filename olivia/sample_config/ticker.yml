@@ -5,10 +5,20 @@ events:
     type: "time-ticker"
     interval: 60
     look-ahead: 300
+  /random:
+    type: "subscriber"
+    subscribe: "/time"
+    subscriber:
+      type: "heads-or-tails"
 
 outcomes:
   /time:
     type: "time-ticker"
+  /random:
+    type: "subscriber"
+    subscribe: "/time"
+    subscriber:
+      type: "heads-or-tails"
 
 rest-api:
   listen: "127.0.0.1:8000"

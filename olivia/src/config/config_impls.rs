@@ -1,11 +1,12 @@
 use super::*;
 use crate::{
+    broadcaster::Broadcaster,
     db::{self, postgres::PgBackendWrite, DbReadEvent, PrefixedDb},
     sources,
 };
 use futures::StreamExt;
-use olivia_core::{Node, NodeKind, Path, PrefixPath, RangeKind};
-use sources::{Update, time_ticker::TimeOutcomeStream};
+use olivia_core::{Event, Node, NodeKind, Path, PrefixPath, RangeKind, StampedOutcome};
+use sources::{time_ticker::TimeOutcomeStream, Update};
 use std::{fs, sync::Arc};
 
 impl Config {
@@ -13,13 +14,19 @@ impl Config {
         &self,
         db: Arc<dyn DbReadEvent>,
         logger: slog::Logger,
-    ) -> anyhow::Result<Vec<sources::EventStream>> {
+        broadcaster: &mut Broadcaster<Event>,
+    ) -> anyhow::Result<Vec<sources::Stream<Event>>> {
         let mut streams = vec![];
 
         for (parent, source) in self.events.clone() {
             let db = PrefixedDb::new(db.clone(), parent.clone());
-            let stream = source.to_event_stream(logger.new(o!("parent" => parent.to_string())), db)?;
-            let prefixed_stream = stream.map(move |update| update.prefix_path(parent.as_path_ref()));
+            let stream = source.to_event_stream(
+                logger.new(o!("parent" => parent.to_string())),
+                db,
+                broadcaster,
+            )?;
+            let prefixed_stream =
+                stream.map(move |update| update.prefix_path(parent.as_path_ref()));
             streams.push(prefixed_stream.boxed())
         }
 
@@ -31,17 +38,20 @@ impl Config {
         db: Arc<dyn DbReadEvent>,
         secret_seed: &Seed,
         logger: slog::Logger,
-    ) -> anyhow::Result<Vec<sources::OutcomeStream>> {
+        broadcaster: &mut Broadcaster<StampedOutcome>,
+    ) -> anyhow::Result<Vec<sources::Stream<StampedOutcome>>> {
         let mut streams = vec![];
 
         for (parent, source) in self.outcomes.clone() {
             let db = PrefixedDb::new(db.clone(), parent.clone());
             let stream = source.to_outcome_stream(
-                secret_seed,
+                &secret_seed.child(parent.as_str().as_bytes()),
                 logger.new(o!("parent" => parent.to_string())),
                 db,
+                broadcaster,
             )?;
-            let prefixed_stream = stream.map(move |update| update.prefix_path(parent.as_path_ref()));
+            let prefixed_stream =
+                stream.map(move |update| update.prefix_path(parent.as_path_ref()));
             streams.push(prefixed_stream.boxed());
         }
 
@@ -51,11 +61,12 @@ impl Config {
     pub fn build_node_streams(
         &self,
         logger: slog::Logger,
-    ) -> anyhow::Result<Vec<sources::NodeStream>> {
+    ) -> anyhow::Result<Vec<sources::Stream<Node>>> {
         let mut streams = vec![];
         for (parent, source) in self.events.clone() {
             let stream = source.to_node_stream(logger.new(o!("parent" => parent.to_string())))?;
-            let prefixed_stream = stream.map(move |update| update.prefix_path(parent.as_path_ref()));
+            let prefixed_stream =
+                stream.map(move |update| update.prefix_path(parent.as_path_ref()));
             streams.push(prefixed_stream.boxed());
         }
         Ok(streams)
@@ -131,7 +142,8 @@ impl EventSourceConfig {
         &self,
         logger: slog::Logger,
         db: PrefixedDb,
-    ) -> anyhow::Result<sources::EventStream> {
+        broadcaster: &mut Broadcaster<Event>,
+    ) -> anyhow::Result<sources::Stream<Event>> {
         let config = self.clone();
         match config {
             EventSourceConfig::Redis(RedisConfig {
@@ -177,15 +189,19 @@ impl EventSourceConfig {
                 .start()
                 .boxed())
             }
-            EventSourceConfig::ReEmitter { source, re_emitter } => {
-                let stream = source.to_event_stream(logger, db);
-                let re_emitter = re_emitter.to_remitter();
-                stream.map(|stream| re_emitter.re_emit_events(stream.boxed()).boxed())
+            EventSourceConfig::Subscriber {
+                subscribe,
+                subscriber,
+            } => {
+                let subscriber = subscriber.to_subscriber();
+                Ok(subscriber
+                    .start(broadcaster.subscribe_to(subscribe).boxed())
+                    .boxed())
             }
         }
     }
 
-    pub fn to_node_stream(&self, _logger: slog::Logger) -> anyhow::Result<sources::NodeStream> {
+    pub fn to_node_stream(&self, _logger: slog::Logger) -> anyhow::Result<sources::Stream<Node>> {
         use EventSourceConfig::*;
         Ok(match *self {
             TimeTicker { interval, .. } => futures::stream::iter(vec![Update {
@@ -197,7 +213,17 @@ impl EventSourceConfig {
                 },
                 processed_notifier: None,
             }])
-            .boxed(),
+                .boxed(),
+            // Subscriber { subscribe, subscriber: EventSubscriberConfig::HeadsOrTails } => {
+            //     futures::stream::iter(vec![Update {
+            //         update: Node {
+            //             path: Path::root(),
+            //             kind: NodeKind::Range {
+            //                 range_kinds:: RangeKind::Time { interval },
+            //             }
+            //         }
+            //     }])
+            // }
             _ => futures::stream::empty().boxed(),
         })
     }
@@ -209,7 +235,8 @@ impl OutcomeSourceConfig {
         seed: &Seed,
         logger: slog::Logger,
         db: PrefixedDb,
-    ) -> anyhow::Result<sources::OutcomeStream> {
+        broadcaster: &mut Broadcaster<StampedOutcome>,
+    ) -> anyhow::Result<sources::Stream<StampedOutcome>> {
         use OutcomeSourceConfig::*;
         match self.clone() {
             Redis(RedisConfig {
@@ -221,54 +248,52 @@ impl OutcomeSourceConfig {
                     "Connecting to redis://{}/{} to receive outcomes",
                     connection_info.addr, connection_info.db;
                 );
-                Ok(
-                    sources::redis::event_stream(
-                        redis::Client::open(connection_info.clone())?,
-                        lists,
-                        logger.new(o!("type" => "outcome_source", "source_type" => "redis"))
-                    )?
-                        .boxed()
-                )
+                Ok(sources::redis::event_stream(
+                    redis::Client::open(connection_info.clone())?,
+                    lists,
+                    logger.new(o!("type" => "outcome_source", "source_type" => "redis")),
+                )?
+                .boxed())
             }
-            TimeTicker {} => {
-                Ok(TimeOutcomeStream {
-                    db,
-                    logger: logger.new(o!("type" => "outcome_source", "source_type" => "time_ticker")),
-                }.start().boxed())
+            TimeTicker {} => Ok(TimeOutcomeStream {
+                db,
+                logger: logger.new(o!("type" => "outcome_source", "source_type" => "time_ticker")),
             }
-            ReEmitter { source, re_emitter } => {
-                // let stream = source.to_outcome_stream(seed, logger, db);
-                // let re_emitter = re_emitter.to_remitter(seed);
-                // stream.map(|stream| re_emitter.re_emit_outcomes(stream.boxed()).boxed())
-                unimplemented!()
+            .start()
+            .boxed()),
+            Subscriber {
+                subscribe,
+                subscriber,
+            } => {
+                let subscriber = subscriber.to_subscriber(seed);
+                Ok(subscriber
+                    .start(broadcaster.subscribe_to(subscribe).boxed())
+                    .boxed())
             }
         }
     }
 }
 
-impl EventReEmitterConfig {
-    pub fn to_remitter(&self) -> Box<dyn sources::re_emitter::EventReEmitter> {
-        use EventReEmitterConfig::*;
+impl EventSubscriberConfig {
+    pub fn to_subscriber(&self) -> Box<dyn sources::subscriber::Subscriber<Event>> {
+        use EventSubscriberConfig::*;
         match self {
-            Vs => Box::new(crate::sources::re_emitter::Vs),
-            HeadsOrTails => Box::new(crate::sources::re_emitter::HeadsOrTailsEvents),
+            Vs => unimplemented!(),
+            HeadsOrTails => Box::new(crate::sources::subscriber::HeadsOrTailsEvents),
         }
     }
 }
 
-impl OutcomeReEmitterConfig {
-    pub fn to_remitter(
+impl OutcomeSubscriberConfig {
+    pub fn to_subscriber(
         &self,
-        parent: Path,
         seed: &Seed,
-    ) -> Box<dyn sources::re_emitter::OutcomeReEmitter> {
-        use OutcomeReEmitterConfig::*;
+    ) -> Box<dyn sources::subscriber::Subscriber<StampedOutcome>> {
+        use OutcomeSubscriberConfig::*;
         match self {
-            Vs => Box::new(crate::sources::re_emitter::Vs),
-            HeadsOrTails => Box::new(crate::sources::re_emitter::HeadsOrTailsOutcomes {
-                seed: seed
-                    .child(b"heads-or-tails-outcomes")
-                    .child(parent.as_str().as_bytes()),
+            Vs => unimplemented!(),
+            HeadsOrTails => Box::new(crate::sources::subscriber::HeadsOrTailsOutcomes {
+                seed: seed.child(b"heads-or-tails-outcomes"),
             }),
         }
     }

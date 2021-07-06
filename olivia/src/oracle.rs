@@ -84,7 +84,7 @@ impl<C: Group> Oracle<C> {
 
     pub async fn complete_event(&self, stamped: StampedOutcome) -> Result<(), OutcomeResult> {
         let existing = self.db.get_announced_event(&stamped.outcome.id).await;
-        let outcome_val_str = stamped.outcome.outcome_str();
+        let outcome_val_str = stamped.outcome.outcome_string();
         match existing {
             Ok(None) => Err(OutcomeResult::EventNotExist),
             Ok(Some(AnnouncedEvent {

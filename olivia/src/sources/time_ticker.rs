@@ -1,4 +1,7 @@
-use crate::{db::{DbReadEvent, PrefixedDb}, sources::Update};
+use crate::{
+    db::{DbReadEvent, PrefixedDb},
+    sources::Update,
+};
 use chrono::{Duration, NaiveDateTime};
 use futures::{channel::oneshot, stream};
 use olivia_core::{Event, EventKind, Outcome, PathRef, StampedOutcome};
@@ -43,7 +46,6 @@ impl TimeEventStream {
                         time_to_event_update(next_event)
                     }
                     Ok(None) => {
-                        dbg!(&initial_time);
                         // This means this is our first run against this backend, we add a new event to get us started.
                         time_to_event_update(initial_time)
                     }
@@ -62,7 +64,7 @@ impl TimeEventStream {
                     break;
                 }
 
-                if let Err(_)| Ok(true) = waiting.await {
+                if let Err(_) | Ok(true) = waiting.await {
                     error!(logger, "processing of new time event failed (will try again)"; "id" => event_id.as_str());
                     time::sleep(std::time::Duration::from_secs(10)).await;
                 }
@@ -86,10 +88,7 @@ impl TimeOutcomeStream {
         tokio::spawn(async move {
             loop {
                 let event = db
-                    .earliest_unattested_child_event(
-                        PathRef::root(),
-                        EventKind::SingleOccurrence,
-                    )
+                    .earliest_unattested_child_event(PathRef::root(), EventKind::SingleOccurrence)
                     .await;
                 let event = match event {
                     Ok(Some(event)) => event,
@@ -135,7 +134,7 @@ impl TimeOutcomeStream {
                     break;
                 }
 
-                if let Err(_)| Ok(true) = waiting.await {
+                if let Err(_) | Ok(true) = waiting.await {
                     error!(logger, "processing of outcome for failed (will try again)"; "id" => event.id.as_str());
                     time::sleep(std::time::Duration::from_secs(10)).await;
                 }

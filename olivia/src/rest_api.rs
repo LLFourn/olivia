@@ -1,11 +1,10 @@
 use crate::db::DbReadOracle;
-use core::str::FromStr;
+use core::{convert::TryFrom, str::FromStr};
 use futures::Future;
-use olivia_core::{http::*, EventId, Group, PathNode, PathRef, Path};
+use olivia_core::{http::*, EventId, Group, Path, PathNode, PathRef};
 use serde::Serialize;
 use std::{convert::Infallible, marker::PhantomData, sync::Arc};
 use warp::{self, http, Filter};
-use core::convert::TryFrom;
 
 #[derive(Clone, Debug)]
 pub enum ApiReply<T> {
@@ -154,7 +153,12 @@ impl<C: Group> Filters<C> {
                 let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
                 let path = match Path::from_str(&format!("/{}", tail)) {
                     Ok(path) => path,
-                    Err(_) => return Ok(ApiReply::Err(ErrorMessage::bad_request().with_message(format!("'/{}' is not a valid event path", tail)))),
+                    Err(_) => {
+                        return Ok(ApiReply::Err(
+                            ErrorMessage::bad_request()
+                                .with_message(format!("'/{}' is not a valid event path", tail)),
+                        ))
+                    }
                 };
                 let node = db.get_node(path.as_path_ref()).await;
                 let reply = match node {

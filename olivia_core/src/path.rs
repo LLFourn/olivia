@@ -40,6 +40,18 @@ impl<'a> PathRef<'a> {
         })
     }
 
+    pub fn is_parent_of(self, path: PathRef<'_>) -> bool {
+        if path == self {
+            true
+        }
+        else {
+            match path.parent() {
+                Some(parent) => self.is_parent_of(parent),
+                None => false
+            }
+        }
+    }
+
     pub fn segment(self, index: usize) -> Option<&'a str> {
         self.0[1..].split('/').nth(index)
     }

@@ -8,7 +8,6 @@ pub trait OracleLog {
 impl OracleLog for slog::Logger {
     fn log_event_result(&self, res: Result<(), EventResult>) {
         use EventResult::*;
-        dbg!(&res);
         match res {
             Ok(_) => info!(self, "created"),
             Err(e) => match e {

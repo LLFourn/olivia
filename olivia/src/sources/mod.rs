@@ -1,13 +1,11 @@
 use futures::channel::oneshot::Sender;
-use olivia_core::{Event, EventId, Node, PathRef, PrefixPath, StampedOutcome};
-pub mod re_emitter;
+use olivia_core::{Event, EventId, PathRef, PrefixPath};
 pub mod redis;
+pub mod subscriber;
 pub mod time_ticker;
 
 #[cfg(test)]
 mod time_tests;
-
-use futures::Stream;
 
 pub struct Update<E> {
     pub update: E, // An Event or EventOutcome
@@ -39,9 +37,6 @@ impl<E: PrefixPath> PrefixPath for Update<E> {
         self.update = self.update.strip_prefix_path(path);
         self
     }
-
 }
 
-pub type EventStream = std::pin::Pin<Box<dyn Stream<Item = Update<Event>> + Send>>;
-pub type OutcomeStream = std::pin::Pin<Box<dyn Stream<Item = Update<StampedOutcome>> + Send>>;
-pub type NodeStream = std::pin::Pin<Box<dyn Stream<Item = Update<Node>> + Send>>;
+pub type Stream<T> = std::pin::Pin<Box<dyn futures::Stream<Item = Update<T>> + Send>>;

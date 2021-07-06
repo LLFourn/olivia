@@ -67,16 +67,16 @@ pub enum EventSourceConfig {
     },
     Redis(RedisConfig),
     #[serde(rename_all = "kebab-case")]
-    ReEmitter {
-        source: Box<EventSourceConfig>,
-        re_emitter: EventReEmitterConfig,
+    Subscriber {
+        subscribe: Path,
+        subscriber: EventSubscriberConfig,
     },
 }
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case", tag = "type")]
 #[serde(deny_unknown_fields)]
-pub enum EventReEmitterConfig {
+pub enum EventSubscriberConfig {
     Vs,
     HeadsOrTails,
 }
@@ -84,7 +84,7 @@ pub enum EventReEmitterConfig {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case", tag = "type")]
 #[serde(deny_unknown_fields)]
-pub enum OutcomeReEmitterConfig {
+pub enum OutcomeSubscriberConfig {
     Vs,
     HeadsOrTails,
 }
@@ -96,9 +96,9 @@ pub enum OutcomeSourceConfig {
     TimeTicker {},
     Redis(RedisConfig),
     #[serde(rename_all = "kebab-case")]
-    ReEmitter {
-        source: Box<OutcomeSourceConfig>,
-        re_emitter: OutcomeReEmitterConfig,
+    Subscriber {
+        subscribe: Path,
+        subscriber: OutcomeSubscriberConfig,
     },
 }
 

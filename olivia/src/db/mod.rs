@@ -1,12 +1,13 @@
 use olivia_core::{
-    AnnouncedEvent, Attestation, Event, EventId, Group, NodeKind, OracleKeys, PathNode, PathRef, Node
+    AnnouncedEvent, Attestation, Event, EventId, Group, Node, NodeKind, OracleKeys, PathNode,
+    PathRef,
 };
 pub mod in_memory;
 pub mod postgres;
 mod prefixed;
-pub use prefixed::*;
 use async_trait::async_trait;
 use olivia_core::EventKind;
+pub use prefixed::*;
 
 #[cfg(test)]
 pub mod test;

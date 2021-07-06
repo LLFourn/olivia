@@ -1,5 +1,5 @@
 use super::*;
-use olivia_core::{ChildDesc, Group, PathRef, path};
+use olivia_core::{path, ChildDesc, Group, PathRef};
 use std::str::FromStr;
 
 pub async fn test_db<C: Group>(db: &dyn Db<C>) {
@@ -57,7 +57,11 @@ async fn test_insert_unattested(db: &dyn Db<impl Group>) {
         assert_eq!(path.events, [""; 0]);
         assert_children_eq!(path.child_desc, ["db"]);
         assert_children_eq!(
-            db.get_node(path!("/test/db")).await.unwrap().unwrap().child_desc,
+            db.get_node(path!("/test/db"))
+                .await
+                .unwrap()
+                .unwrap()
+                .child_desc,
             ["test-insert-unattested"]
         );
 
@@ -89,13 +93,21 @@ async fn test_insert_attested(db: &dyn Db<impl Group>) {
 
     {
         assert_children_eq!(
-            db.get_node(path!("/test")).await.unwrap().unwrap().child_desc,
+            db.get_node(path!("/test"))
+                .await
+                .unwrap()
+                .unwrap()
+                .child_desc,
             ["db"],
             "new event did not duplicate parent path"
         );
 
         assert_children_eq!(
-            db.get_node(path!("/test/db")).await.unwrap().unwrap().child_desc,
+            db.get_node(path!("/test/db"))
+                .await
+                .unwrap()
+                .unwrap()
+                .child_desc,
             ["test-insert-attested", "test-insert-unattested"]
         );
     }
@@ -136,7 +148,11 @@ async fn test_insert_grandchild_event(db: &dyn Db<impl Group>) {
     .unwrap();
 
     assert_children_eq!(
-        db.get_node(path!("/test/db")).await.unwrap().unwrap().child_desc,
+        db.get_node(path!("/test/db"))
+            .await
+            .unwrap()
+            .unwrap()
+            .child_desc,
         [
             "dbchild",
             "test-insert-attested",
@@ -145,7 +161,11 @@ async fn test_insert_grandchild_event(db: &dyn Db<impl Group>) {
         ]
     );
 
-    let dbchild = db.get_node(path!("/test/db/dbchild")).await.unwrap().unwrap();
+    let dbchild = db
+        .get_node(path!("/test/db/dbchild"))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(dbchild.events, [""; 0]);
     assert_children_eq!(dbchild.child_desc, ["grandchild"]);
 
@@ -195,7 +215,11 @@ async fn test_get_non_existent_events(db: &dyn Db<impl Group>) {
         .await
         .unwrap()
         .is_none());
-    assert!(db.get_node(path!("/test/db/dont-exist")).await.unwrap().is_none());
+    assert!(db
+        .get_node(path!("/test/db/dont-exist"))
+        .await
+        .unwrap()
+        .is_none());
 }
 
 async fn test_multiple_events_on_one_node(db: &dyn Db<impl Group>) {
@@ -211,7 +235,11 @@ async fn test_multiple_events_on_one_node(db: &dyn Db<impl Group>) {
     .await
     .unwrap();
 
-    let mut red_blue = db.get_node(path!("/test/db/RED_BLUE")).await.unwrap().unwrap();
+    let mut red_blue = db
+        .get_node(path!("/test/db/RED_BLUE"))
+        .await
+        .unwrap()
+        .unwrap();
 
     red_blue.events.sort();
 

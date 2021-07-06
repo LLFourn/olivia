@@ -104,13 +104,13 @@ impl Outcome {
         Ok(Self { value: value?, id })
     }
 
-    pub fn outcome_str(&self) -> String {
+    pub fn outcome_string(&self) -> String {
         let mut outcome_str = String::new();
-        self.write_outcome_str(&mut outcome_str).unwrap();
+        self.write_outcome_string(&mut outcome_str).unwrap();
         outcome_str
     }
 
-    pub fn write_outcome_str(&self, f: &mut impl fmt::Write) -> fmt::Result {
+    pub fn write_outcome_string(&self, f: &mut impl fmt::Write) -> fmt::Result {
         match (self.id.event_kind(), self.value) {
             (EventKind::SingleOccurrence, o) if o == Occur::Occurred as u64 => {
                 write!(f, "{}", "true")
@@ -145,7 +145,7 @@ impl Outcome {
 impl fmt::Display for Outcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}=", self.id)?;
-        self.write_outcome_str(f)
+        self.write_outcome_string(f)
     }
 }
 
