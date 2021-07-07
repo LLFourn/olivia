@@ -65,7 +65,7 @@ macro_rules! run_time_db_tests {
                     $db.insert_event(event.clone()).await.unwrap();
                 }
 
-                $db.insert_node(
+                $db.set_node(
                     Node {
                         path: Path::from_str("/time").unwrap(),
                         kind:  NodeKind::Range {

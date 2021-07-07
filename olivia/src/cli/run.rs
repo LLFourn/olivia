@@ -29,6 +29,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         Some(secret_seed) => {
             let mut event_broadcaster = Broadcaster::default();
             let mut outcome_broadcaster = Broadcaster::default();
+            let mut node_broadcaster = Broadcaster::default();
 
             let read_conn = config.database.connect_database_read().await?;
             let event_streams = config.build_event_streams(
@@ -42,10 +43,11 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                 logger.clone(),
                 &mut outcome_broadcaster,
             )?;
-            let node_streams = config.build_node_streams(logger.clone())?;
+            let node_streams = config.build_node_streams(logger.clone(), &mut node_broadcaster)?;
 
             let event_broadcaster = Arc::new(event_broadcaster);
             let outcome_broadcaster = Arc::new(outcome_broadcaster);
+            let node_broadcaster = Arc::new(node_broadcaster);
 
             let oracle = Oracle::new(secret_seed.clone(), db.clone()).await?;
 
@@ -114,10 +116,14 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                      }: Update<Node>| {
                         let logger =
                             logger.new(o!("type" => "new_node", "path" => node.path.to_string()));
+                        let node_broadcaster = node_broadcaster.clone();
 
-                        db.insert_node(node).map(move |res| {
+                        db.set_node(node.clone()).map(move |res| {
                             if let Some(processed_notifier) = processed_notifier {
                                 let _ = processed_notifier.send(res.is_err());
+                            }
+                            if res.is_ok() {
+                                node_broadcaster.process(node.path.clone().as_path_ref(), node);
                             }
                             match res {
                                 Ok(()) => {

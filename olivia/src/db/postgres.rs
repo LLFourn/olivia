@@ -1,6 +1,5 @@
 use super::NodeKind;
 use crate::db::*;
-use anyhow::anyhow;
 use async_trait::async_trait;
 use olivia_core::{
     AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, EventKind, Group, OracleKeys,
@@ -109,7 +108,7 @@ impl<C: Group> crate::db::DbReadOracle<C> for tokio_postgres::Client {
 
 #[async_trait]
 impl crate::db::DbReadEvent for tokio_postgres::Client {
-    async fn get_node(&self, path: PathRef<'_>) -> Result<Option<PathNode>, Error> {
+    async fn get_node(&self, path: PathRef<'_>) -> Result<Option<GetPath>, Error> {
         let row = self
             .query_opt(r#" SELECT kind FROM tree WHERE id = $1"#, &[&path.as_str()])
             .await?;
@@ -186,10 +185,10 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
             .query(r#"SELECT id FROM event WHERE node = $1"#, &[&path.as_str()])
             .await?
             .into_iter()
-            .map(|row| row.get("id"))
+            .map(|row| row.get::<_,EventId>("id").event_kind())
             .collect();
 
-        Ok(Some(PathNode { events, child_desc }))
+        Ok(Some(GetPath { events, child_desc }))
     }
 
     async fn latest_child_event(
@@ -249,7 +248,7 @@ impl<C: Group> crate::db::DbReadOracle<C> for PgBackendWrite {
 
 #[async_trait]
 impl crate::db::DbReadEvent for PgBackendWrite {
-    async fn get_node(&self, path: PathRef<'_>) -> Result<Option<PathNode>, Error> {
+    async fn get_node(&self, path: PathRef<'_>) -> Result<Option<GetPath>, Error> {
         DbReadEvent::get_node(&*self.client.read().await, path).await
     }
 
@@ -271,7 +270,7 @@ impl crate::db::DbReadEvent for PgBackendWrite {
 }
 
 impl PgBackendWrite {
-    async fn insert_node_parents(
+    async fn set_node_parents(
         &self,
         tx: &Transaction<'_>,
         node: PathRef<'_>,
@@ -319,7 +318,7 @@ impl<C: Group> crate::db::DbWrite<C> for PgBackendWrite {
         let mut client = self.client.write().await;
         let tx = client.transaction().await?;
         let node = event.event.id.path();
-        self.insert_node_parents(&tx, node).await?;
+        self.set_node_parents(&tx, node).await?;
 
         tx.execute(
             "INSERT INTO event (id, node, expected_outcome_time, ann) VALUES ($1,$2,$3,ROW($4,$5))",
@@ -385,47 +384,17 @@ impl<C: Group> crate::db::DbWrite<C> for PgBackendWrite {
         Ok(())
     }
 
-    async fn insert_node(&self, node: Node) -> anyhow::Result<()> {
+    async fn set_node(&self, node: Node) -> anyhow::Result<()> {
         let kind_json = serde_json::to_value(&node.kind).unwrap();
         let mut client = self.client.write().await;
         let tx = client.transaction().await?;
-        let row = tx
-            .query_opt(
-                "SELECT kind FROM tree WHERE id = $1",
-                &[&node.path.as_str()],
-            )
-            .await?;
-        let existing_kind = match row {
-            None => {
-                self.insert_node_parents(&tx, node.path.as_path_ref())
-                    .await?;
-                None
-            }
-            Some(row) => row
-                .get::<_, Option<_>>("kind")
-                .map(serde_json::from_value)
-                .transpose()?,
-        };
+        self.set_node_parents(&tx, node.path.as_path_ref()).await?;
+        tx.execute(
+            r#"UPDATE tree SET kind = $1 WHERE id = $2"#,
+            &[&kind_json, &node.path.as_str()],
+        )
+          .await?;
 
-        match existing_kind {
-            Some(existing_kind) => {
-                if node.kind != existing_kind {
-                    return Err(anyhow!(
-                        "Tried to change kind of {} from {:?} to {:?}",
-                        node.path,
-                        existing_kind,
-                        node.kind
-                    ));
-                }
-            }
-            None => {
-                tx.execute(
-                    "UPDATE tree SET kind = $1 WHERE id = $2",
-                    &[&kind_json, &node.path.as_str()],
-                )
-                .await?;
-            }
-        }
         tx.commit().await?;
         Ok(())
     }

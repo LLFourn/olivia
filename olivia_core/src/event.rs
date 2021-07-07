@@ -6,17 +6,46 @@ use alloc::{
 use chrono::NaiveDateTime;
 use core::{convert::TryFrom, fmt, str::FromStr};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EventKind {
     VsMatch(VsMatchKind),
     SingleOccurrence,
     Digits(u8),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VsMatchKind {
     WinOrDraw,
     Win,
+}
+
+#[derive(Debug, Clone)]
+pub enum EventKindError {
+    Unknown
+}
+
+impl fmt::Display for EventKindError {
+
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use EventKindError::*;
+        match self {
+            Unknown => write!(f, "unknown event kind")
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for EventKindError {  }
+
+
+
+impl EventKind {
+    pub fn n_nonces(&self) -> u8 {
+        match self {
+            EventKind::Digits(n) => *n,
+            _ => 1,
+        }
+    }
 }
 
 impl fmt::Display for EventKind {
@@ -32,12 +61,20 @@ impl fmt::Display for EventKind {
     }
 }
 
-impl EventKind {
-    pub fn n_nonces(&self) -> u8 {
-        match self {
-            EventKind::Digits(n) => *n,
-            _ => 1,
-        }
+impl FromStr for EventKind {
+    type Err = EventKindError;
+
+    fn from_str(event_kind: &str) -> Result<Self, Self::Err> {
+        let event_kind_segments: Vec<&str> = event_kind.split('_').collect::<Vec<_>>();
+        Ok(match &event_kind_segments[..] {
+            ["vs"] => EventKind::VsMatch(VsMatchKind::WinOrDraw),
+            ["win"] => EventKind::VsMatch(VsMatchKind::Win),
+            ["occur"] => EventKind::SingleOccurrence,
+            ["digits", n] => {
+                EventKind::Digits(u8::from_str(n).expect("we've checked this already"))
+            }
+            _ => return Err(EventKindError::Unknown)
+        })
     }
 }
 
@@ -72,19 +109,7 @@ impl EventId {
     pub fn event_kind(&self) -> EventKind {
         let (_, event_kind) = self.0.as_path_ref().strip_event()
             .expect("event must exist");
-        let event_kind_segments: Vec<&str> = event_kind.split('_').collect::<Vec<_>>();
-        match &event_kind_segments[..] {
-            ["vs"] => EventKind::VsMatch(VsMatchKind::WinOrDraw),
-            ["win"] => EventKind::VsMatch(VsMatchKind::Win),
-            ["occur"] => EventKind::SingleOccurrence,
-            ["digits", n] => {
-                EventKind::Digits(u8::from_str(n).expect("we've checked this already"))
-            }
-            this => unreachable!(
-                "valid event ids have already been checked to not be {}",
-                this.join("_")
-            ),
-        }
+        EventKind::from_str(event_kind).expect("Event kind must be valid since this is a valid event id")
     }
 
     pub fn n_outcomes_for_nonce(&self, _nonce_index: usize) -> u32 {
@@ -160,6 +185,7 @@ pub enum EventIdError {
     NotAnEvent,
     BadFormat,
     UnknownEventKind(String),
+    MissingEventKind,
 }
 
 impl core::fmt::Display for EventIdError {
@@ -167,6 +193,7 @@ impl core::fmt::Display for EventIdError {
         match self {
             EventIdError::NotAnEvent => write!(f, "not a valid event id"),
             EventIdError::BadFormat => write!(f, "badly formatted event id"),
+            EventIdError::MissingEventKind => write!(f, "event id is valid path but doesn't end in '.<event-kind>'"),
             EventIdError::UnknownEventKind(event_kind) => {
                 write!(f, "{} is not a recognized event kind", event_kind)
             }
@@ -205,7 +232,7 @@ impl TryFrom<Path> for EventId {
         // It must have a `.` in the last segment to be an event
         let (path, event_kind) = id_as_path.as_path_ref()
             .strip_event()
-            .ok_or(EventIdError::BadFormat)?;
+            .ok_or(EventIdError::MissingEventKind)?;
 
         let event_kind_segments = event_kind.split("_").collect::<Vec<_>>();
 
@@ -346,6 +373,23 @@ mod serde_impl {
             serializer.collect_str(&self)
         }
     }
+
+    impl<'de> de::Deserialize<'de> for EventKind {
+        fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<EventKind, D::Error> {
+            let s = String::deserialize(deserializer)?;
+            EventKind::from_str(&s).map_err(de::Error::custom)
+        }
+    }
+
+    impl serde::Serialize for EventKind {
+        fn serialize<Ser: serde::Serializer>(
+            &self,
+            serializer: Ser,
+        ) -> Result<Ser::Ok, Ser::Error> {
+            serializer.collect_str(&self)
+        }
+    }
+
 }
 
 

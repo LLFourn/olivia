@@ -61,10 +61,12 @@ impl Config {
     pub fn build_node_streams(
         &self,
         logger: slog::Logger,
+        broadcaster: &mut Broadcaster<Node>,
     ) -> anyhow::Result<Vec<sources::Stream<Node>>> {
         let mut streams = vec![];
         for (parent, source) in self.events.clone() {
-            let stream = source.to_node_stream(logger.new(o!("parent" => parent.to_string())))?;
+            let stream = source
+                .to_node_stream(logger.new(o!("parent" => parent.to_string())), broadcaster)?;
             let prefixed_stream =
                 stream.map(move |update| update.prefix_path(parent.as_path_ref()));
             streams.push(prefixed_stream.boxed());
@@ -201,7 +203,11 @@ impl EventSourceConfig {
         }
     }
 
-    pub fn to_node_stream(&self, _logger: slog::Logger) -> anyhow::Result<sources::Stream<Node>> {
+    pub fn to_node_stream(
+        &self,
+        _logger: slog::Logger,
+        broadcaster: &mut Broadcaster<Node>,
+    ) -> anyhow::Result<sources::Stream<Node>> {
         use EventSourceConfig::*;
         Ok(match *self {
             TimeTicker { interval, .. } => futures::stream::iter(vec![Update {
@@ -213,17 +219,17 @@ impl EventSourceConfig {
                 },
                 processed_notifier: None,
             }])
-                .boxed(),
-            // Subscriber { subscribe, subscriber: EventSubscriberConfig::HeadsOrTails } => {
-            //     futures::stream::iter(vec![Update {
-            //         update: Node {
-            //             path: Path::root(),
-            //             kind: NodeKind::Range {
-            //                 range_kinds:: RangeKind::Time { interval },
-            //             }
-            //         }
-            //     }])
-            // }
+            .boxed(),
+            Subscriber {
+                ref subscribe,
+                subscriber: EventSubscriberConfig::HeadsOrTails,
+            } => {
+                // simply re-emit the node changes of the namespace we are subscribed to
+                broadcaster
+                    .subscribe_to(subscribe.clone())
+                    .map(Update::new)
+                    .boxed()
+            }
             _ => futures::stream::empty().boxed(),
         })
     }

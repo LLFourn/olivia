@@ -1,5 +1,5 @@
 use super::*;
-use olivia_core::{path, ChildDesc, Group, PathRef};
+use olivia_core::{path, Child, ChildDesc, Group, Path, PathRef, RangeKind};
 use std::str::FromStr;
 
 pub async fn test_db<C: Group>(db: &dyn Db<C>) {
@@ -11,6 +11,7 @@ pub async fn test_db<C: Group>(db: &dyn Db<C>) {
     test_get_non_existent_events(db).await;
     test_multiple_events_on_one_node(db).await;
     test_insert_and_get_public_keys(db).await;
+    test_set_node(db).await;
 }
 
 macro_rules! assert_children_eq {
@@ -54,7 +55,7 @@ async fn test_insert_unattested(db: &dyn Db<impl Group>) {
         );
 
         let path = db.get_node(path!("/test")).await.unwrap().unwrap();
-        assert_eq!(path.events, [""; 0]);
+        assert_eq!(path.events, [EventKind::SingleOccurrence; 0]);
         assert_children_eq!(path.child_desc, ["db"]);
         assert_children_eq!(
             db.get_node(path!("/test/db"))
@@ -71,7 +72,7 @@ async fn test_insert_unattested(db: &dyn Db<impl Group>) {
             .unwrap()
             .unwrap();
         assert_children_eq!(node_path.child_desc, []);
-        assert_eq!(node_path.events, [unattested_id]);
+        assert_eq!(node_path.events, [unattested_id.event_kind()]);
     }
 }
 
@@ -166,7 +167,7 @@ async fn test_insert_grandchild_event(db: &dyn Db<impl Group>) {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(dbchild.events, [""; 0]);
+    assert_eq!(dbchild.events, []);
     assert_children_eq!(dbchild.child_desc, ["grandchild"]);
 
     let grandchild = db
@@ -176,7 +177,7 @@ async fn test_insert_grandchild_event(db: &dyn Db<impl Group>) {
         .unwrap();
 
     assert_children_eq!(grandchild.child_desc, []);
-    assert_eq!(grandchild.events[..], [grandchild_id])
+    assert_eq!(grandchild.events[..], [grandchild_id.event_kind()])
 }
 
 async fn test_child_event_of_node_with_event(db: &dyn Db<impl Group>) {
@@ -200,11 +201,8 @@ async fn test_child_event_of_node_with_event(db: &dyn Db<impl Group>) {
 
     assert_eq!(
         parent
-            .events
-            .iter()
-            .map(EventId::as_str)
-            .collect::<Vec<_>>(),
-        ["/test/db/test-insert-attested/test-sub-event.occur"]
+            .events,
+        [EventKind::SingleOccurrence]
     );
 }
 
@@ -243,7 +241,7 @@ async fn test_multiple_events_on_one_node(db: &dyn Db<impl Group>) {
 
     red_blue.events.sort();
 
-    assert_eq!(red_blue.events, [first, second]);
+    assert_eq!(red_blue.events, [first.event_kind(), second.event_kind()]);
 }
 
 async fn test_insert_and_get_public_keys<G: Group>(db: &dyn Db<G>) {
@@ -251,4 +249,58 @@ async fn test_insert_and_get_public_keys<G: Group>(db: &dyn Db<G>) {
     db.set_public_keys(oracle_keys.clone()).await.unwrap();
     let retrieved_keys = db.get_public_keys().await.unwrap().unwrap();
     assert_eq!(oracle_keys, retrieved_keys);
+}
+
+async fn test_set_node<G: Group>(db: &dyn Db<G>) {
+    let first = EventId::from_str("/test/time/2020-09-30T08:00:00.occur").unwrap();
+    let second = EventId::from_str("/test/time/2020-09-30T08:01:00.occur").unwrap();
+    let child_first = Child {
+        name: first.path().segment(2).unwrap().to_string(),
+        kind: NodeKind::List,
+    };
+    let child_second = Child {
+        name: second.path().segment(2).unwrap().to_string(),
+        kind: NodeKind::List,
+    };
+
+    db.insert_event(AnnouncedEvent::test_unattested_instance(first.clone().into())).await.unwrap();
+    db.insert_event(AnnouncedEvent::test_unattested_instance(second.clone().into())).await.unwrap();
+
+    db.set_node(Node {
+        path: Path::from_str("/test/time").unwrap(),
+        kind: NodeKind::Range {
+            range_kind: RangeKind::Time { interval: 60 },
+        },
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(
+        db.get_node(path!("/test/time")).await.unwrap().unwrap(),
+        GetPath {
+            events: vec![],
+            child_desc: ChildDesc::Range {
+                range_kind: RangeKind::Time { interval: 60 },
+                start: Some(child_first.clone()),
+                end: Some(child_second.clone())
+            }
+        }
+    );
+
+    db.set_node(Node {
+        path: Path::from_str("/test/time").unwrap(),
+        kind: NodeKind::List,
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(
+        db.get_node(path!("/test/time")).await.unwrap().unwrap(),
+        GetPath {
+            events: vec![],
+            child_desc: ChildDesc::List {
+                list: vec![child_first, child_second]
+            },
+        }
+    );
 }

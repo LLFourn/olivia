@@ -44,7 +44,7 @@ impl<C: Group> DbReadOracle<C> for InMemory<C> {
 
 #[async_trait]
 impl<C: Group> DbReadEvent for InMemory<C> {
-    async fn get_node(&self, node: PathRef<'_>) -> Result<Option<PathNode>, Error> {
+    async fn get_node(&self, node: PathRef<'_>) -> Result<Option<GetPath>, Error> {
         let db = &*self.inner.read().unwrap();
         let node_kinds = self.node_kinds.read().unwrap();
         let node_kind = node_kinds
@@ -100,7 +100,7 @@ impl<C: Group> DbReadEvent for InMemory<C> {
             },
         };
 
-        let events: Vec<EventId> = {
+        let events = {
             db.keys()
                 .into_iter()
                 .filter(|key| {
@@ -110,14 +110,14 @@ impl<C: Group> DbReadEvent for InMemory<C> {
                         false
                     }
                 })
-                .map(Clone::clone)
-                .collect()
+                .map(EventId::event_kind)
+                .collect::<Vec<_>>()
         };
 
         if events.is_empty() && children_list.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(PathNode { events, child_desc }))
+            Ok(Some(GetPath { events, child_desc }))
         }
     }
 
@@ -190,7 +190,7 @@ impl<C: Group> DbWrite<C> for InMemory<C> {
         Ok(())
     }
 
-    async fn insert_node(&self, node: Node) -> Result<(), Error> {
+    async fn set_node(&self, node: Node) -> Result<(), Error> {
         let mut node_kinds = self.node_kinds.write().unwrap();
         node_kinds.insert(node.path, node.kind);
         Ok(())

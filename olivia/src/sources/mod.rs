@@ -21,6 +21,15 @@ impl<E> From<E> for Update<E> {
     }
 }
 
+impl<E> Update<E> {
+    pub fn new(e: E) -> Self {
+        Self {
+            update: e,
+            processed_notifier: None,
+        }
+    }
+}
+
 impl From<EventId> for Update<Event> {
     fn from(id: EventId) -> Self {
         Update::from(Event::from(id))

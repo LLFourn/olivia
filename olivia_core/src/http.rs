@@ -1,4 +1,4 @@
-use crate::{AnnouncedEvent, Attestation, Group, OracleKeys, RawAnnouncement, PathNode};
+use crate::{AnnouncedEvent, Attestation, Group, OracleKeys, RawAnnouncement, GetPath};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct EventResponse<C: Group> {
@@ -11,13 +11,13 @@ pub struct RootResponse<C: Group> {
     #[serde(flatten)]
     pub public_keys: OracleKeys<C>,
     #[serde(flatten)]
-    pub node: PathNode,
+    pub node: GetPath,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct PathResponse {
     #[serde(flatten)]
-    pub node: PathNode
+    pub node: GetPath
 }
 
 impl<C: Group> From<AnnouncedEvent<C>> for EventResponse<C> {

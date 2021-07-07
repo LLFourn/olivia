@@ -13,7 +13,7 @@ macro_rules! run_rest_api_tests {
             use crate::rest_api::ErrorMessage;
             use warp::http;
             use serde_json::from_slice as j;
-            use olivia_core::{ PathNode, http::*};
+            use olivia_core::{ GetPath, http::*};
             use core::str::FromStr;
 
             #[tokio::test]
@@ -52,8 +52,8 @@ macro_rules! run_rest_api_tests {
                     let res = warp::test::request().path(path).reply(&$routes).await;
 
                     assert_eq!(res.status(), 200);
-                    let body = j::<PathNode>(&res.body()).unwrap();
-                    assert_eq!(body.events, [event_id.clone()]);
+                    let body = j::<GetPath>(&res.body()).unwrap();
+                    assert_eq!(body.events, [event_id.event_kind()]);
                 }
 
                 $oracle
@@ -66,7 +66,7 @@ macro_rules! run_rest_api_tests {
                     .reply(&$routes)
                     .await;
 
-                let body = j::<PathNode>(&res.body()).unwrap();
+                let body = j::<GetPath>(&res.body()).unwrap();
                 assert_eq!(
                     body.child_desc,
                     ChildDesc::List {

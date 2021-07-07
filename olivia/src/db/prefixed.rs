@@ -16,7 +16,7 @@ impl PrefixedDb {
 
 #[async_trait]
 impl DbReadEvent for PrefixedDb {
-    async fn get_node(&self, _path: PathRef<'_>) -> anyhow::Result<Option<PathNode>> {
+    async fn get_node(&self, _path: PathRef<'_>) -> anyhow::Result<Option<GetPath>> {
         unimplemented!("this shouldn't be needed");
     }
 

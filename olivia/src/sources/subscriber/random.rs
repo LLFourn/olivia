@@ -21,6 +21,9 @@ pub struct HeadsOrTailsOutcomes {
 impl Subscriber<Event> for HeadsOrTailsEvents {
     fn start(&self, events: subscriber::Stream<Event>) -> sources::Stream<Event> {
         events
+            .filter(|event| {
+                std::future::ready(event.id.event_kind() == EventKind::SingleOccurrence)
+            })
             .map(|event| {
                 Update::from(Event {
                     id: event_to_heads_tails(&event.id),
@@ -45,6 +48,9 @@ impl Subscriber<StampedOutcome> for HeadsOrTailsOutcomes {
     ) -> sources::Stream<StampedOutcome> {
         let seed = self.seed.clone();
         outcomes
+            .filter(|stamped| {
+                std::future::ready(stamped.outcome.id.event_kind() == EventKind::SingleOccurrence)
+            })
             .map(move |stamped| {
                 let event_id = event_to_heads_tails(&stamped.outcome.id);
                 let event_randomness = seed.child(event_id.as_bytes());

@@ -1,7 +1,7 @@
 use crate::db::DbReadOracle;
 use core::{convert::TryFrom, str::FromStr};
 use futures::Future;
-use olivia_core::{http::*, EventId, Group, Path, PathNode, PathRef};
+use olivia_core::{http::*, EventId, Group, Path, GetPath, PathRef};
 use serde::Serialize;
 use std::{convert::Infallible, marker::PhantomData, sync::Arc};
 use warp::{self, http, Filter};
@@ -163,7 +163,7 @@ impl<C: Group> Filters<C> {
                 let node = db.get_node(path.as_path_ref()).await;
                 let reply = match node {
                     Ok(Some(node)) => ApiReply::Ok(PathResponse {
-                        node: PathNode {
+                        node: GetPath {
                             events: node.events,
                             child_desc: node.child_desc,
                         },
@@ -189,7 +189,7 @@ impl<C: Group> Filters<C> {
                     if let Ok(Some(node)) = res {
                         ApiReply::Ok(RootResponse {
                             public_keys,
-                            node: PathNode {
+                            node: GetPath {
                                 events: node.events,
                                 child_desc: node.child_desc,
                             },

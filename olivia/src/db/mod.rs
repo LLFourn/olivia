@@ -1,5 +1,5 @@
 use olivia_core::{
-    AnnouncedEvent, Attestation, Event, EventId, Group, Node, NodeKind, OracleKeys, PathNode,
+    AnnouncedEvent, Attestation, Event, EventId, Group, Node, NodeKind, OracleKeys, GetPath,
     PathRef,
 };
 pub mod in_memory;
@@ -22,7 +22,7 @@ pub trait DbReadOracle<C: Group>: Send + Sync + DbReadEvent {
 
 #[async_trait]
 pub trait DbReadEvent: Send + Sync {
-    async fn get_node(&self, path: PathRef<'_>) -> anyhow::Result<Option<PathNode>>;
+    async fn get_node(&self, path: PathRef<'_>) -> anyhow::Result<Option<GetPath>>;
     async fn latest_child_event(
         &self,
         path: PathRef<'_>,
@@ -38,7 +38,7 @@ pub trait DbReadEvent: Send + Sync {
 #[async_trait]
 pub trait DbWrite<C: Group>: Send + Sync {
     async fn insert_event(&self, observed_event: AnnouncedEvent<C>) -> Result<(), Error>;
-    async fn insert_node(&self, node: Node) -> Result<(), Error>;
+    async fn set_node(&self, node: Node) -> Result<(), Error>;
     async fn complete_event(
         &self,
         event_id: &EventId,
