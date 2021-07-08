@@ -4,7 +4,11 @@ use alloc::{
     vec::Vec,
 };
 use chrono::NaiveDateTime;
-use core::{convert::{TryFrom, TryInto}, fmt, str::FromStr};
+use core::{
+    convert::{TryFrom, TryInto},
+    fmt,
+    str::FromStr,
+};
 
 #[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -201,7 +205,6 @@ pub enum WinOrDraw {
 pub enum Occur {
     Occurred = 0,
 }
-
 
 impl PrefixPath for Outcome {
     fn prefix_path(mut self, path: crate::PathRef<'_>) -> Self {

@@ -5,30 +5,34 @@ use alloc::vec::Vec;
 use crate::OracleKeys;
 
 #[cfg(not(feature = "postgres-types"))]
-pub trait GroupObject: PartialEq
-        + Clone
-        + Debug
-        + serde::Serialize
-        + serde::de::DeserializeOwned
-        + core::fmt::Display
-        + Send
-        + Sync
-        + 'static {}
-
+pub trait GroupObject:
+    PartialEq
+    + Clone
+    + Debug
+    + serde::Serialize
+    + serde::de::DeserializeOwned
+    + core::fmt::Display
+    + Send
+    + Sync
+    + 'static
+{
+}
 
 #[cfg(feature = "postgres-types")]
-pub trait GroupObject: PartialEq
-  + Clone
-  + Debug
-  + serde::Serialize
-  + serde::de::DeserializeOwned
-  + core::fmt::Display
-  + Send
-  + Sync
-  + postgres_types::FromSqlOwned
-  + postgres_types::ToSql
-  + 'static {}
-
+pub trait GroupObject:
+    PartialEq
+    + Clone
+    + Debug
+    + serde::Serialize
+    + serde::de::DeserializeOwned
+    + core::fmt::Display
+    + Send
+    + Sync
+    + postgres_types::FromSqlOwned
+    + postgres_types::ToSql
+    + 'static
+{
+}
 
 pub trait Group:
     Clone + Default + PartialEq + serde::Serialize + 'static + Send + Sync + Debug

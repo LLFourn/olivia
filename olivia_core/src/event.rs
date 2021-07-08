@@ -21,23 +21,20 @@ pub enum VsMatchKind {
 
 #[derive(Debug, Clone)]
 pub enum EventKindError {
-    Unknown
+    Unknown,
 }
 
 impl fmt::Display for EventKindError {
-
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use EventKindError::*;
         match self {
-            Unknown => write!(f, "unknown event kind")
+            Unknown => write!(f, "unknown event kind"),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for EventKindError {  }
-
-
+impl std::error::Error for EventKindError {}
 
 impl EventKind {
     pub fn n_nonces(&self) -> u8 {
@@ -73,7 +70,7 @@ impl FromStr for EventKind {
             ["digits", n] => {
                 EventKind::Digits(u8::from_str(n).expect("we've checked this already"))
             }
-            _ => return Err(EventKindError::Unknown)
+            _ => return Err(EventKindError::Unknown),
         })
     }
 }
@@ -91,7 +88,9 @@ impl EventId {
     }
 
     pub fn path(&self) -> PathRef<'_> {
-        let (path, _) = self.0.as_path_ref()
+        let (path, _) = self
+            .0
+            .as_path_ref()
             .strip_event()
             .expect("event must exist");
         path
@@ -107,9 +106,13 @@ impl EventId {
     }
 
     pub fn event_kind(&self) -> EventKind {
-        let (_, event_kind) = self.0.as_path_ref().strip_event()
+        let (_, event_kind) = self
+            .0
+            .as_path_ref()
+            .strip_event()
             .expect("event must exist");
-        EventKind::from_str(event_kind).expect("Event kind must be valid since this is a valid event id")
+        EventKind::from_str(event_kind)
+            .expect("Event kind must be valid since this is a valid event id")
     }
 
     pub fn n_outcomes_for_nonce(&self, _nonce_index: usize) -> u32 {
@@ -176,7 +179,10 @@ impl EventId {
     }
 
     pub fn occur_from_dt(dt: NaiveDateTime) -> EventId {
-        Self::from_path_and_kind(Path(format!("/{}", dt.format("%FT%T"))), EventKind::SingleOccurrence)
+        Self::from_path_and_kind(
+            Path(format!("/{}", dt.format("%FT%T"))),
+            EventKind::SingleOccurrence,
+        )
     }
 }
 
@@ -193,7 +199,10 @@ impl core::fmt::Display for EventIdError {
         match self {
             EventIdError::NotAnEvent => write!(f, "not a valid event id"),
             EventIdError::BadFormat => write!(f, "badly formatted event id"),
-            EventIdError::MissingEventKind => write!(f, "event id is valid path but doesn't end in '.<event-kind>'"),
+            EventIdError::MissingEventKind => write!(
+                f,
+                "event id is valid path but doesn't end in '.<event-kind>'"
+            ),
             EventIdError::UnknownEventKind(event_kind) => {
                 write!(f, "{} is not a recognized event kind", event_kind)
             }
@@ -204,7 +213,7 @@ impl core::fmt::Display for EventIdError {
 impl From<PathError> for EventIdError {
     fn from(e: PathError) -> Self {
         match e {
-            PathError::BadFormat => EventIdError::BadFormat
+            PathError::BadFormat => EventIdError::BadFormat,
         }
     }
 }
@@ -221,16 +230,15 @@ impl FromStr for EventId {
 
         EventId::try_from(id_as_path)
     }
-
 }
 
 impl TryFrom<Path> for EventId {
     type Error = EventIdError;
 
     fn try_from(id_as_path: Path) -> Result<Self, Self::Error> {
-
         // It must have a `.` in the last segment to be an event
-        let (path, event_kind) = id_as_path.as_path_ref()
+        let (path, event_kind) = id_as_path
+            .as_path_ref()
             .strip_event()
             .ok_or(EventIdError::MissingEventKind)?;
 
@@ -302,14 +310,12 @@ impl fmt::Display for EventId {
     }
 }
 
-
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Event {
     pub id: EventId,
     pub expected_outcome_time: Option<NaiveDateTime>,
 }
-
 
 impl Event {
     pub fn occur_event_from_dt(dt: NaiveDateTime) -> Event {
@@ -320,20 +326,16 @@ impl Event {
     }
 }
 
-
-
 #[cfg(feature = "postgres-types")]
 mod sql_impls {
     use super::*;
-    use postgres_types::*;
-    use postgres_types::private::BytesMut;
-    use std::error::Error;
-    use std::boxed::Box;
+    use postgres_types::{private::BytesMut, *};
+    use std::{boxed::Box, error::Error};
 
-    impl<'a> FromSql<'a> for EventId
-    {
+    impl<'a> FromSql<'a> for EventId {
         fn from_sql(ty: &Type, raw: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>> {
-            EventId::from_str(FromSql::from_sql(ty,raw)?).map_err(|e| Box::new(e) as Box<dyn Error + Sync + Send>)
+            EventId::from_str(FromSql::from_sql(ty, raw)?)
+                .map_err(|e| Box::new(e) as Box<dyn Error + Sync + Send>)
         }
 
         fn accepts(ty: &Type) -> bool {
@@ -342,7 +344,11 @@ mod sql_impls {
     }
 
     impl ToSql for EventId {
-        fn to_sql(&self, ty: &Type, out: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        fn to_sql(
+            &self,
+            ty: &Type,
+            out: &mut BytesMut,
+        ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
             self.as_str().to_sql(ty, out)
         }
 
@@ -389,9 +395,7 @@ mod serde_impl {
             serializer.collect_str(&self)
         }
     }
-
 }
-
 
 impl PrefixPath for EventId {
     fn prefix_path(self, path: PathRef<'_>) -> Self {
@@ -469,7 +473,8 @@ mod test {
     #[test]
     fn event_id_from_url() {
         assert_eq!(
-            EventId::try_from(url::Url::from_str("http://oracle.com/foo/bar.occur").unwrap()).unwrap(),
+            EventId::try_from(url::Url::from_str("http://oracle.com/foo/bar.occur").unwrap())
+                .unwrap(),
             EventId::from_str("/foo/bar.occur").unwrap()
         );
     }

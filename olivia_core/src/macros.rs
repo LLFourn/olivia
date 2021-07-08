@@ -109,8 +109,7 @@ macro_rules! impl_fromsql {
         fn from_bytes$(<$($tpl:ident  $(: $tcl:ident)?),*>)?($input:ident : [u8;$len:literal]) ->  Option<$type:path> $block:block
     ) => {
         #[cfg(feature = "postgres")]
-        impl postgres_types::FromSql<'a> for $type
-        {
+        impl postgres_types::FromSql<'a> for $type {
             fn from_sql(bytes: Option<&DB::RawValue>) -> diesel::deserialize::Result<Self> {
                 let vec = <Vec<u8> as diesel::deserialize::FromSql<
                     diesel::sql_types::Binary,

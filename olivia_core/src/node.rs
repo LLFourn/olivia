@@ -1,27 +1,25 @@
-use alloc::{string::String, vec::Vec};
 use crate::{EventKind, Path, PrefixPath};
+use alloc::{string::String, vec::Vec};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case", tag = "kind")]
 pub enum ChildDesc {
     List {
-        list: Vec<Child>
+        list: Vec<Child>,
     },
     Range {
         #[serde(flatten)]
         range_kind: RangeKind,
         start: Option<Child>,
         end: Option<Child>,
-    }
+    },
 }
-
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "range-kind", rename_all = "kebab-case")]
 pub enum RangeKind {
-    Time { interval: u32 }
+    Time { interval: u32 },
 }
-
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
@@ -42,16 +40,17 @@ pub struct Child {
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum NodeKind {
     List,
-    Range { range_kind: RangeKind },
+    Range {
+        #[serde(flatten)]
+        range_kind: RangeKind,
+    },
 }
-
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Node {
     pub path: Path,
     pub kind: NodeKind,
 }
-
 
 impl PrefixPath for Node {
     fn prefix_path(mut self, path: crate::PathRef<'_>) -> Self {
