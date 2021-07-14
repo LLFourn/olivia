@@ -3,5 +3,6 @@
 members = [
         "olivia",
         "olivia_core",
-        "olivia_secp256k1"
+        "olivia_secp256k1",
+        "olivia_describe"
 ]
