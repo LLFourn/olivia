@@ -1,0 +1,19 @@
+{
+  "name": "olivia_describe",
+  "description": "descriptions for event ids and paths",
+  "version": "0.1.0",
+  "license": "0BSD",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LLFourn/olivia"
+  },
+  "files": [
+    "olivia_describe_bg.wasm",
+    "olivia_describe.js",
+    "olivia_describe_bg.js",
+    "olivia_describe.d.ts"
+  ],
+  "module": "olivia_describe.js",
+  "types": "olivia_describe.d.ts",
+  "sideEffects": false
+}
