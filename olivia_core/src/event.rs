@@ -296,14 +296,6 @@ impl PartialEq<&str> for EventId {
     }
 }
 
-impl TryFrom<url::Url> for EventId {
-    type Error = EventIdError;
-
-    fn try_from(url: url::Url) -> Result<EventId, Self::Error> {
-        EventId::from_str(url.path())
-    }
-}
-
 impl fmt::Display for EventId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
@@ -467,15 +459,6 @@ mod test {
                 .unwrap()
                 .as_str(),
             "/"
-        );
-    }
-
-    #[test]
-    fn event_id_from_url() {
-        assert_eq!(
-            EventId::try_from(url::Url::from_str("http://oracle.com/foo/bar.occur").unwrap())
-                .unwrap(),
-            EventId::from_str("/foo/bar.occur").unwrap()
         );
     }
 }

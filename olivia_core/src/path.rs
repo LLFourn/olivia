@@ -47,8 +47,8 @@ impl<'a> PathRef<'a> {
         }
     }
 
-    pub fn segment(self, index: usize) -> Option<&'a str> {
-        self.0[1..].split('/').nth(index)
+    pub fn segments(self) -> impl Iterator<Item = &'a str> {
+        self.0[1..].split('/')
     }
 
     pub fn strip_event(self) -> Option<(PathRef<'a>, &'a str)> {
@@ -106,12 +106,7 @@ impl FromStr for Path {
     type Err = PathError;
 
     fn from_str(string: &str) -> Result<Self, PathError> {
-        let url =
-            // test: is just there to give it a scheme which we need for the url lib to parse it
-            url::Url::parse(&format!("test:{}", string)).map_err(|_| PathError::BadFormat)?;
-        if url.path() != string
-            || !string.starts_with('/')
-            || (string.ends_with('/') && string != "/")
+        if !string.starts_with('/') || (string.ends_with('/') && string != "/")
         {
             // sanity check -- the URL path is the evet ID so if we roundtrip it, it should come out
             // the same

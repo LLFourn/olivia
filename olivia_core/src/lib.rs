@@ -33,7 +33,6 @@ extern crate std;
 pub use chrono;
 #[cfg(feature = "postgres-types")]
 pub use postgres_types;
-pub use url;
 
 pub trait PrefixPath {
     fn prefix_path(self, path: PathRef<'_>) -> Self;

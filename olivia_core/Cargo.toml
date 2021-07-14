@@ -8,8 +8,7 @@ edition = "2018"
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde", "clock"], default-features = false }
-serde = {  version = "1", features = ["derive", "alloc"], default-features = false }
-url = {  version = "2.1", default-features = false }
+serde = {  version = "1", features = ["derive", "alloc"], default-features = false  }
 serde_json = "1"
 postgres-types = {version = "0.2", features = ["derive", "with-serde_json-1", "with-chrono-0_4" ], optional = true}
 
