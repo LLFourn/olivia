@@ -44,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
         let mut content = String::new();
         file.read_to_string(&mut content)?;
         serde_yaml::from_str(&content)
-            .context(format!("could not deserialize {} as YAML", file_name))?
+            .context(format!("{} is an invalid configuration file", file_name))?
     };
 
     match opt.cmd {

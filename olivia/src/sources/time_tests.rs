@@ -8,29 +8,32 @@ macro_rules! run_time_db_tests {
         #[allow(redundant_semicolons, unused_imports, unused_variables)]
         mod time_db_test {
             use super::*;
-            use olivia_core::{AnnouncedEvent, EventKind, Event, EventId, path, PrefixPath, Path};
-            use chrono::{NaiveDateTime, Duration};
-            use crate::sources::time_ticker::*;
+            use olivia_core::{AnnouncedEvent, EventKind, Event, EventId, path, PrefixPath, Path, Outcome, chrono::{NaiveDateTime, Duration, Utc}};
+            use crate::sources::ticker::*;
             use core::str::FromStr;
-            use futures::stream::StreamExt;
+            use tokio_stream::StreamExt;
             fn logger() -> slog::Logger {
                 slog::Logger::root(slog::Discard, o!())
             }
 
             fn now() -> NaiveDateTime {
-                chrono::Utc::now().naive_utc()
+                Utc::now().naive_utc()
+            }
+
+            fn outcome_creator(id: EventId) -> Outcome {
+                Outcome { id, value: 0 }
             }
 
             macro_rules! row {
-                ($time:literal) => {{
+                ($time:literal, $prefix:expr) => {{
                     let time = NaiveDateTime::from_str($time).expect("valid time");
-                    let mut ann_event = AnnouncedEvent::test_unattested_instance(Event::occur_event_from_dt(time).prefix_path(path!("/time")));
+                    let mut ann_event = AnnouncedEvent::test_unattested_instance(Event::occur_event_from_dt(time).prefix_path($prefix));
                     ann_event.event.expected_outcome_time = Some(time);
                     ann_event
                 }};
-                ($time:literal, attested) => {{
+                ($time:literal, $prefix:expr, attested) => {{
                     let time = NaiveDateTime::from_str($time).expect("valid time");
-                    let mut ann_event = AnnouncedEvent::test_attested_instance(Event::occur_event_from_dt(time).prefix_path(path!("/time")));
+                    let mut ann_event = AnnouncedEvent::test_attested_instance(Event::occur_event_from_dt(time).prefix_path($prefix));
                     ann_event.event.expected_outcome_time = Some(time);
                     ann_event.attestation.as_mut().unwrap().time = NaiveDateTime::from_str($time).unwrap();
                     ann_event
@@ -43,76 +46,47 @@ macro_rules! run_time_db_tests {
                 use olivia_core::{RangeKind, ChildDesc};
                 $($init)*;
 
-                let test_data = vec![
-                    row!("2020-03-01T00:25:00"),
-                    row!("2020-03-01T00:30:00"),
-                    row!("2020-03-01T00:20:00"),
-                    {
-                        // put in a non time event which *SHOULD* be ignored
-                        let time = NaiveDateTime::from_str("2020-03-01T00:11:00").unwrap();
-                        let mut ann_event = AnnouncedEvent::test_unattested_instance(
-                            EventId::from_str("/foo/bar/baz.occur").unwrap().into(),
-                        );
-                        ann_event.event.expected_outcome_time = Some(time);
-                        ann_event
-                    },
-                    row!("2020-03-01T00:10:00", attested),
-                    row!("2020-03-01T00:05:00", attested),
-                    row!("2020-03-01T00:15:00", attested)
-                ];
+                $db.insert_event({
+                    // put in a non time event which *SHOULD* be ignored
+                    let time = NaiveDateTime::from_str("1997-03-01T00:01:00").unwrap();
+                    let mut ann_event = AnnouncedEvent::test_unattested_instance(
+                        EventId::from_str("/foo/bar/baz.occur").unwrap().into(),
+                    );
+                    ann_event.event.expected_outcome_time = Some(time);
+                    ann_event
+                }).await.unwrap();
 
-                for event in test_data.iter() {
-                    $db.insert_event(event.clone()).await.unwrap();
-                }
+                for (top,prefix) in vec![(path!("/time"), path!("/time")), (path!("/time2"), path!("/time2/nested/deeper")) ] {
+                    let test_data = vec![
+                        row!("2020-03-01T00:25:00", prefix),
+                        row!("2020-03-01T00:30:00", prefix),
+                        row!("2020-03-01T00:20:00", prefix),
+                        row!("2020-03-01T00:10:00", prefix, attested),
+                        row!("2020-03-01T00:05:00", prefix, attested),
+                        row!("2020-03-01T00:15:00", prefix, attested)
+                    ];
 
-                $db.set_node(
-                    Node {
-                        path: Path::from_str("/time").unwrap(),
-                        kind:  NodeKind::Range {
-                            range_kind: RangeKind::Time { interval: 60 },
-                        }
-                    })
-                   .await
-                   .unwrap();
-
-                let root_node = $db.get_node(PathRef::root()).await.unwrap().expect("root exists");
-                if let ChildDesc::List { list } = root_node.child_desc {
-                    assert_eq!(list.len(), 2);
-                    let time = list.iter().find(|child| &child.name == "time").expect("time child should exist");
-                    assert_eq!(time.kind, NodeKind::Range { range_kind: RangeKind::Time { interval: 60 } });
-                }
-                else {
-                    panic!("root should be list kind")
-                }
-
-                let latest_time_event = $db
-                    .latest_child_event(path!("/time"), EventKind::SingleOccurrence)
-                    .await
-                    .expect("latest_time_event isn't Err")
-                    .expect("latest_time_event isn't None");
-
-                assert_eq!(latest_time_event, test_data[1].event);
-
-                let earliest_unattested_time_event = $db
-                    .earliest_unattested_child_event(path!("/time"), EventKind::SingleOccurrence)
-                    .await
-                    .expect("earliest_unattested_time_event isn't Err")
-                    .expect("earliest_unattested_time_event isn't None");
-
-                assert_eq!(earliest_unattested_time_event, test_data[2].event);
-
-                match $db.get_node(path!("/time")).await.unwrap().expect("/time should exist").child_desc {
-                    ChildDesc::Range {
-                        range_kind,
-                        start,
-                        end,
-                    } => {
-                        assert_eq!(start, Some(Child { name: "2020-03-01T00:05:00".into(), kind: NodeKind::List }));
-                        assert_eq!(end, Some(Child { name:  "2020-03-01T00:30:00".into(), kind: NodeKind::List }));
-                        assert_eq!(range_kind, RangeKind::Time { interval: 60 });
+                    for event in test_data.iter() {
+                        $db.insert_event(event.clone()).await.unwrap();
                     }
-                    _ => panic!("should be a range"),
+
+                    let latest_time_event = $db
+                        .latest_child_event(top)
+                        .await
+                        .expect("latest_time_event isn't Err")
+                        .expect("latest_time_event isn't None");
+
+                    assert_eq!(latest_time_event, test_data[1].event, "latest_child_event");
+
+                    let earliest_unattested_time_event = $db
+                        .earliest_unattested_child_event(top)
+                        .await
+                        .expect("earliest_unattested_time_event isn't Err")
+                        .expect("earliest_unattested_time_event isn't None");
+
+                    assert_eq!(earliest_unattested_time_event, test_data[2].event, "earliest_unattested_child_event");
                 }
+
             }
 
             #[tokio::test]
@@ -122,13 +96,14 @@ macro_rules! run_time_db_tests {
                 let interval = Duration::seconds(1);
                 let initial_time = now();
 
-                let mut stream = TimeEventStream {
+                let mut stream = Box::pin(TimeEventStream {
                     db: PrefixedDb::new($event_db, Path::from_str("/time").unwrap()),
                     look_ahead,
                     interval,
                     initial_time,
                     logger: logger(),
-                }.start().boxed();
+                    event_creator: |dt| EventId::occur_from_dt(dt)
+                }.start());
                 let mut cur = initial_time.clone();
 
                 {
@@ -193,7 +168,7 @@ macro_rules! run_time_db_tests {
             #[tokio::test]
             async fn time_ticker_outcome_empty_db() {
                 $($init)*;
-                let mut stream = TimeOutcomeStream { db: PrefixedDb::new($event_db, Path::from_str("/time").unwrap()), logger: logger() }.start().boxed();
+                let mut stream = Box::pin(TimeOutcomeStream { outcome_creator, db: PrefixedDb::new($event_db, Path::from_str("/time").unwrap()), logger: logger() }.start());
                 let future = stream.next();
                 assert!(
                     tokio::time::timeout(std::time::Duration::from_millis(1), future)
@@ -213,7 +188,7 @@ macro_rules! run_time_db_tests {
                 )))
                    .await
                    .unwrap();
-                let mut stream = TimeOutcomeStream { db: PrefixedDb::new($event_db, Path::from_str("/time").unwrap()), logger: logger() }.start().boxed();
+                let mut stream = Box::pin(TimeOutcomeStream { outcome_creator, db: PrefixedDb::new($event_db, Path::from_str("/time").unwrap()), logger: logger() }.start());
                 let future = stream.next();
 
                 assert!(
@@ -236,7 +211,7 @@ macro_rules! run_time_db_tests {
                    .unwrap();
 
 
-                let mut stream = TimeOutcomeStream { db: PrefixedDb::new($event_db, Path::from_str("/time").unwrap()), logger: logger() }.start().boxed();
+                let mut stream = Box::pin(TimeOutcomeStream { outcome_creator, db: PrefixedDb::new($event_db, Path::from_str("/time").unwrap()), logger: logger() }.start());
                 let item = stream.next().await.expect("stream shouldn't stop");
                 let stamped = item.update;
                 assert!(
@@ -285,7 +260,7 @@ macro_rules! run_time_db_tests {
                        .unwrap();
                 }
 
-                let mut stream = TimeOutcomeStream { db: PrefixedDb::new($event_db, Path::from_str("/time").unwrap()), logger: logger() }.start().boxed();
+                let mut stream = Box::pin(TimeOutcomeStream { outcome_creator, db: PrefixedDb::new($event_db, Path::from_str("/time").unwrap()), logger: logger() }.start());
 
                 // test that they get emitted in order
                 let first = stream.next().await.unwrap();

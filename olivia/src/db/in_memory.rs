@@ -121,18 +121,11 @@ impl<C: Group> DbReadEvent for InMemory<C> {
         }
     }
 
-    async fn latest_child_event(
-        &self,
-        path: PathRef<'_>,
-        kind: EventKind,
-    ) -> anyhow::Result<Option<Event>> {
+    async fn latest_child_event(&self, path: PathRef<'_>) -> anyhow::Result<Option<Event>> {
         let db = self.inner.read().unwrap();
         let mut ann_events: Vec<&AnnouncedEvent<C>> = db
             .values()
-            .filter(|ann_event| {
-                ann_event.event.id.as_str().starts_with(path.as_str())
-                    && ann_event.event.id.as_str().ends_with(&kind.to_string())
-            })
+            .filter(|ann_event| ann_event.event.id.as_str().starts_with(path.as_str()))
             .collect();
         ann_events.sort_by_cached_key(|ann_event| ann_event.event.expected_outcome_time);
         Ok(ann_events.last().map(|ann_event| ann_event.event.clone()))
@@ -141,14 +134,12 @@ impl<C: Group> DbReadEvent for InMemory<C> {
     async fn earliest_unattested_child_event(
         &self,
         path: PathRef<'_>,
-        kind: EventKind,
     ) -> anyhow::Result<Option<Event>> {
         let db = self.inner.read().unwrap();
         let mut ann_events: Vec<&AnnouncedEvent<C>> = db
             .values()
             .filter(|ann_event| {
                 ann_event.event.id.as_str().starts_with(path.as_str())
-                    && ann_event.event.id.as_str().ends_with(&kind.to_string())
                     && ann_event.attestation == None
             })
             .collect();
@@ -163,8 +154,16 @@ impl<C: Group> DbWrite<C> for InMemory<C> {
         &self,
         observed_event: AnnouncedEvent<C>,
     ) -> Result<(), crate::db::Error> {
+        use std::collections::hash_map::Entry;
         let db = &mut *self.inner.write().unwrap();
-        db.insert(observed_event.event.id.clone(), observed_event);
+        match db.entry(observed_event.event.id.clone()) {
+            Entry::Occupied(_) => {
+                return Err(anyhow!("{} already exists", observed_event.event.id))
+            }
+            Entry::Vacant(v) => {
+                v.insert(observed_event);
+            }
+        }
         Ok(())
     }
     async fn complete_event(

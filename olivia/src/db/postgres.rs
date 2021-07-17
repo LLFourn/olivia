@@ -2,8 +2,8 @@ use super::NodeKind;
 use crate::db::*;
 use async_trait::async_trait;
 use olivia_core::{
-    AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, EventKind, Group, OracleKeys,
-    PathRef, RawAnnouncement, RawOracleEvent,
+    AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, Group, OracleKeys, PathRef,
+    RawAnnouncement, RawOracleEvent,
 };
 use std::iter::once;
 use tokio::sync::RwLock;
@@ -21,6 +21,38 @@ pub async fn connect_read(database_url: &str) -> anyhow::Result<tokio_postgres::
     });
 
     Ok(client)
+}
+
+#[derive(Clone, Debug)]
+struct Ltree(String);
+
+impl ToSql for Ltree {
+    fn to_sql(
+        &self,
+        ty: &Type,
+        out: &mut bytes::BytesMut,
+    ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        use bytes::BufMut;
+        // put the ltree version as the first byte
+        out.put_u8(1);
+        self.0.to_sql(ty, out)
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        ty.name() == "ltree"
+    }
+
+    to_sql_checked!();
+}
+
+impl<'a> From<PathRef<'a>> for Ltree {
+    fn from(path: PathRef<'a>) -> Self {
+        Ltree(
+            path.as_str()[1..]
+                .replace(|c: char| !c.is_ascii_alphanumeric() && c != '/', "__")
+                .replace("/", "."),
+        )
+    }
 }
 
 pub struct PgBackendWrite {
@@ -110,7 +142,7 @@ impl<C: Group> crate::db::DbReadOracle<C> for tokio_postgres::Client {
 impl crate::db::DbReadEvent for tokio_postgres::Client {
     async fn get_node(&self, path: PathRef<'_>) -> Result<Option<GetPath>, Error> {
         let row = self
-            .query_opt(r#" SELECT kind FROM tree WHERE id = $1"#, &[&path.as_str()])
+            .query_opt(r#"SELECT kind FROM tree WHERE id = $1"#, &[&path.as_str()])
             .await?;
 
         let trim = |x: String| {
@@ -182,52 +214,50 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
         };
 
         let events = self
-            .query(r#"SELECT id FROM event WHERE node = $1"#, &[&path.as_str()])
+            .query(
+                r#"SELECT id FROM event WHERE path = $1"#,
+                &[&Ltree::from(path)],
+            )
             .await?
             .into_iter()
-            .map(|row| row.get::<_,EventId>("id").event_kind())
+            .map(|row| row.get::<_, EventId>("id").event_kind())
             .collect();
 
         Ok(Some(GetPath { events, child_desc }))
     }
 
-    async fn latest_child_event(
-        &self,
-        path: PathRef<'_>,
-        kind: EventKind,
-    ) -> anyhow::Result<Option<Event>> {
+    async fn latest_child_event(&self, path: PathRef<'_>) -> anyhow::Result<Option<Event>> {
         let row = self
             .query_opt(
                 r#"SELECT event.id, expected_outcome_time FROM event
-                 INNER JOIN tree ON tree.id = event.node
-                 WHERE tree.parent = $1
-                   AND event.id LIKE ('%' || $2::text)
-                 ORDER BY expected_outcome_time DESC LIMIT 1"#,
-                &[&path.as_str(), &kind.to_string()],
+                   WHERE $1 @> path
+                   ORDER BY expected_outcome_time DESC LIMIT 1"#,
+                &[&Ltree::from(path)],
             )
             .await?;
+
+        // AND event.id LIKE ('%' || $2::text)
         Ok(row.map(|row| Event {
             id: row.get("id"),
             expected_outcome_time: row.get("expected_outcome_time"),
         }))
     }
+
     async fn earliest_unattested_child_event(
         &self,
         path: PathRef<'_>,
-        kind: EventKind,
     ) -> anyhow::Result<Option<Event>> {
         let row = self
             .query_opt(
-                r#"SELECT event.id, expected_outcome_time FROM event
-               INNER JOIN tree on tree.id = event.node
-               WHERE tree.parent = $1
-                 AND (att).outcome IS NULL
-                 AND event.id LIKE ('%' || $2::text)
-              ORDER BY expected_outcome_time ASC LIMIT 1"#,
-                &[&path.as_str(), &kind.to_string()],
+                r#"SELECT id, expected_outcome_time FROM event
+                   WHERE $1 @> path
+                     AND (att).outcome IS NULL
+                   ORDER BY expected_outcome_time ASC LIMIT 1"#,
+                &[&Ltree::from(path)],
             )
             .await?;
 
+        // AND event.id LIKE ('%' || $2::text)
         Ok(row.map(|row| Event {
             id: row.get("id"),
             expected_outcome_time: row.get("expected_outcome_time"),
@@ -252,20 +282,15 @@ impl crate::db::DbReadEvent for PgBackendWrite {
         DbReadEvent::get_node(&*self.client.read().await, path).await
     }
 
-    async fn latest_child_event(
-        &self,
-        path: PathRef<'_>,
-        kind: EventKind,
-    ) -> anyhow::Result<Option<Event>> {
-        DbReadEvent::latest_child_event(&*self.client.read().await, path, kind).await
+    async fn latest_child_event(&self, path: PathRef<'_>) -> anyhow::Result<Option<Event>> {
+        DbReadEvent::latest_child_event(&*self.client.read().await, path).await
     }
 
     async fn earliest_unattested_child_event(
         &self,
         path: PathRef<'_>,
-        kind: EventKind,
     ) -> anyhow::Result<Option<Event>> {
-        DbReadEvent::earliest_unattested_child_event(&*self.client.read().await, path, kind).await
+        DbReadEvent::earliest_unattested_child_event(&*self.client.read().await, path).await
     }
 }
 
@@ -321,13 +346,13 @@ impl<C: Group> crate::db::DbWrite<C> for PgBackendWrite {
         self.set_node_parents(&tx, node).await?;
 
         tx.execute(
-            "INSERT INTO event (id, node, expected_outcome_time, ann) VALUES ($1,$2,$3,ROW($4,$5))",
+            "INSERT INTO event (id, expected_outcome_time, ann, path) VALUES ($1,$2,ROW($3,$4), $5)",
             &[
                 &event.event.id.as_str(),
-                &node.as_str(),
                 &event.event.expected_outcome_time,
                 &event.announcement.oracle_event.as_bytes(),
                 &event.announcement.signature,
+                &Ltree::from(event.event.id.path())
             ],
         )
         .await?;
@@ -393,7 +418,7 @@ impl<C: Group> crate::db::DbWrite<C> for PgBackendWrite {
             r#"UPDATE tree SET kind = $1 WHERE id = $2"#,
             &[&kind_json, &node.path.as_str()],
         )
-          .await?;
+        .await?;
 
         tx.commit().await?;
         Ok(())
@@ -412,7 +437,7 @@ impl<C: Group> BorrowDb<C> for PgBackendWrite {
 #[allow(unused_macros)]
 macro_rules! new_backend {
     ($docker:expr) => {{
-        let container = $docker.run(images::postgres::Postgres::default());
+        let container = $docker.run(images::postgres::Postgres::default().with_version(13));
         let url = format!(
             "postgres://postgres@localhost:{}",
             container.get_host_port(5432).unwrap()

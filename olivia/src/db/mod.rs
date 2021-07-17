@@ -1,12 +1,11 @@
 use olivia_core::{
-    AnnouncedEvent, Attestation, Event, EventId, Group, Node, NodeKind, OracleKeys, GetPath,
+    AnnouncedEvent, Attestation, Event, EventId, GetPath, Group, Node, NodeKind, OracleKeys,
     PathRef,
 };
 pub mod in_memory;
 pub mod postgres;
 mod prefixed;
 use async_trait::async_trait;
-use olivia_core::EventKind;
 pub use prefixed::*;
 
 #[cfg(test)]
@@ -23,15 +22,10 @@ pub trait DbReadOracle<C: Group>: Send + Sync + DbReadEvent {
 #[async_trait]
 pub trait DbReadEvent: Send + Sync {
     async fn get_node(&self, path: PathRef<'_>) -> anyhow::Result<Option<GetPath>>;
-    async fn latest_child_event(
-        &self,
-        path: PathRef<'_>,
-        kind: EventKind,
-    ) -> anyhow::Result<Option<Event>>;
+    async fn latest_child_event(&self, path: PathRef<'_>) -> anyhow::Result<Option<Event>>;
     async fn earliest_unattested_child_event(
         &self,
         path: PathRef<'_>,
-        kind: EventKind,
     ) -> anyhow::Result<Option<Event>>;
 }
 

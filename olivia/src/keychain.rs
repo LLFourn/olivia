@@ -1,5 +1,5 @@
 use crate::seed::Seed;
-use digest::{Update, VariableOutput};
+use blake2::digest::{Update, VariableOutput};
 use olivia_core::{Event, EventId, Group, OracleKeys, RawAnnouncement, StampedOutcome};
 use std::borrow::Borrow;
 

@@ -1,5 +1,5 @@
 use crate::{config::Config, Oracle};
-use olivia_core::{Entity, StampedOutcome};
+use olivia_core::{chrono, Entity, StampedOutcome};
 use std::str::FromStr;
 
 pub async fn add(config: Config, entity: &str) -> anyhow::Result<()> {

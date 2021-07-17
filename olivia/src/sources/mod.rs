@@ -1,8 +1,9 @@
-use futures::channel::oneshot::Sender;
 use olivia_core::{Event, EventId, PathRef, PrefixPath};
+use tokio::sync::oneshot::Sender;
+use tokio_stream as stream;
 pub mod redis;
-pub mod subscriber;
-pub mod time_ticker;
+// pub mod subscriber;
+pub mod ticker;
 
 #[cfg(test)]
 mod time_tests;
@@ -48,4 +49,4 @@ impl<E: PrefixPath> PrefixPath for Update<E> {
     }
 }
 
-pub type Stream<T> = std::pin::Pin<Box<dyn futures::Stream<Item = Update<T>> + Send>>;
+pub type Stream<T> = std::pin::Pin<Box<dyn stream::Stream<Item = Update<T>> + Send>>;

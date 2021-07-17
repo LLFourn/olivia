@@ -1,4 +1,5 @@
 use alloc::string::{String, ToString};
+use chrono::NaiveDateTime;
 use core::{fmt, str::FromStr};
 
 use crate::PrefixPath;
@@ -132,6 +133,11 @@ impl Path {
     pub fn root() -> Self {
         PathRef::root().to_path()
     }
+
+    pub fn from_dt(dt: NaiveDateTime) -> Self {
+        Path(format!("/{}", dt.format("%FT%T")))
+    }
+
 }
 
 impl fmt::Display for Path {

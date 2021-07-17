@@ -2,23 +2,23 @@ secret-seed: "424242424242424242424242424242424242424242424242424242424242424242
 
 events:
   /time:
-    type: "time-ticker"
+    type: "ticker"
+    ticker-kind: "time"
     interval: 60
     look-ahead: 300
   /random:
-    type: "subscriber"
-    subscribe: "/time"
-    subscriber:
-      type: "heads-or-tails"
+    type: "ticker"
+    ticker-kind: "heads-or-tails"
+    interval: 60
+    look-ahead: 300
 
 outcomes:
   /time:
-    type: "time-ticker"
+    type: "ticker"
+    ticker-kind: "time"
   /random:
-    type: "subscriber"
-    subscribe: "/time"
-    subscriber:
-      type: "heads-or-tails"
+    type: "ticker"
+    ticker-kind: "heads-or-tails"
 
 rest-api:
   listen: "127.0.0.1:8000"

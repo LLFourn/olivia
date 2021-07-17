@@ -1,6 +1,5 @@
 use crate::seed::Seed;
-use chrono::NaiveDateTime;
-use olivia_core::Path;
+use olivia_core::{chrono::NaiveDateTime, Path};
 use std::{collections::HashMap, str::FromStr};
 
 mod config_impls;
@@ -56,36 +55,23 @@ impl Default for DbConfig {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "kebab-case", tag = "type")]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case", tag = "type", deny_unknown_fields)]
 pub enum EventSourceConfig {
     #[serde(rename_all = "kebab-case")]
-    TimeTicker {
+    Ticker {
         interval: u32,
         look_ahead: u32,
         initial_time: Option<NaiveDateTime>,
+        ticker_kind: TickerKind,
     },
     Redis(RedisConfig),
-    #[serde(rename_all = "kebab-case")]
-    Subscriber {
-        subscribe: Path,
-        subscriber: EventSubscriberConfig,
-    },
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "kebab-case", tag = "type")]
+#[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
-pub enum EventSubscriberConfig {
-    Vs,
-    HeadsOrTails,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "kebab-case", tag = "type")]
-#[serde(deny_unknown_fields)]
-pub enum OutcomeSubscriberConfig {
-    Vs,
+pub enum TickerKind {
+    Time,
     HeadsOrTails,
 }
 
@@ -93,13 +79,11 @@ pub enum OutcomeSubscriberConfig {
 #[serde(rename_all = "kebab-case", tag = "type")]
 #[serde(deny_unknown_fields)]
 pub enum OutcomeSourceConfig {
-    TimeTicker {},
-    Redis(RedisConfig),
     #[serde(rename_all = "kebab-case")]
-    Subscriber {
-        subscribe: Path,
-        subscriber: OutcomeSubscriberConfig,
+    Ticker {
+        ticker_kind: TickerKind,
     },
+    Redis(RedisConfig),
 }
 
 #[derive(Deserialize, Debug, Clone)]

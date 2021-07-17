@@ -1,33 +1,30 @@
 use super::*;
 use crate::{
-    broadcaster::Broadcaster,
     db::{self, postgres::PgBackendWrite, DbReadEvent, PrefixedDb},
     sources,
 };
-use futures::StreamExt;
-use olivia_core::{Event, Node, NodeKind, Path, PrefixPath, RangeKind, StampedOutcome};
-use sources::{time_ticker::TimeOutcomeStream, Update};
+use olivia_core::{
+    chrono, Event, EventId, EventKind, Node, NodeKind, Outcome, Path, PrefixPath, RangeKind,
+    StampedOutcome, VsMatchKind,
+};
+use sources::{ticker::TimeOutcomeStream, Update};
 use std::{fs, sync::Arc};
+use tokio_stream as stream;
+use tokio_stream::StreamMap;
 
 impl Config {
     pub fn build_event_streams(
         &self,
         db: Arc<dyn DbReadEvent>,
         logger: slog::Logger,
-        broadcaster: &mut Broadcaster<Event>,
-    ) -> anyhow::Result<Vec<sources::Stream<Event>>> {
-        let mut streams = vec![];
+    ) -> anyhow::Result<StreamMap<Path, sources::Stream<Event>>> {
+        let mut streams = StreamMap::new();
 
         for (parent, source) in self.events.clone() {
             let db = PrefixedDb::new(db.clone(), parent.clone());
-            let stream = source.to_event_stream(
-                logger.new(o!("parent" => parent.to_string())),
-                db,
-                broadcaster,
-            )?;
-            let prefixed_stream =
-                stream.map(move |update| update.prefix_path(parent.as_path_ref()));
-            streams.push(prefixed_stream.boxed())
+            let stream =
+                source.to_event_stream(logger.new(o!("parent" => parent.to_string())), db)?;
+            streams.insert(parent, stream);
         }
 
         Ok(streams)
@@ -38,9 +35,8 @@ impl Config {
         db: Arc<dyn DbReadEvent>,
         secret_seed: &Seed,
         logger: slog::Logger,
-        broadcaster: &mut Broadcaster<StampedOutcome>,
-    ) -> anyhow::Result<Vec<sources::Stream<StampedOutcome>>> {
-        let mut streams = vec![];
+    ) -> anyhow::Result<StreamMap<Path, sources::Stream<StampedOutcome>>> {
+        let mut streams = StreamMap::new();
 
         for (parent, source) in self.outcomes.clone() {
             let db = PrefixedDb::new(db.clone(), parent.clone());
@@ -48,11 +44,8 @@ impl Config {
                 &secret_seed.child(parent.as_str().as_bytes()),
                 logger.new(o!("parent" => parent.to_string())),
                 db,
-                broadcaster,
             )?;
-            let prefixed_stream =
-                stream.map(move |update| update.prefix_path(parent.as_path_ref()));
-            streams.push(prefixed_stream.boxed());
+            streams.insert(parent, stream);
         }
 
         Ok(streams)
@@ -61,15 +54,11 @@ impl Config {
     pub fn build_node_streams(
         &self,
         logger: slog::Logger,
-        broadcaster: &mut Broadcaster<Node>,
-    ) -> anyhow::Result<Vec<sources::Stream<Node>>> {
-        let mut streams = vec![];
+    ) -> anyhow::Result<StreamMap<Path, sources::Stream<Node>>> {
+        let mut streams = StreamMap::new();
         for (parent, source) in self.events.clone() {
-            let stream = source
-                .to_node_stream(logger.new(o!("parent" => parent.to_string())), broadcaster)?;
-            let prefixed_stream =
-                stream.map(move |update| update.prefix_path(parent.as_path_ref()));
-            streams.push(prefixed_stream.boxed());
+            let stream = source.to_node_stream(logger.new(o!("parent" => parent.to_string())))?;
+            streams.insert(parent, stream);
         }
         Ok(streams)
     }
@@ -144,7 +133,6 @@ impl EventSourceConfig {
         &self,
         logger: slog::Logger,
         db: PrefixedDb,
-        broadcaster: &mut Broadcaster<Event>,
     ) -> anyhow::Result<sources::Stream<Event>> {
         let config = self.clone();
         match config {
@@ -158,17 +146,17 @@ impl EventSourceConfig {
                     connection_info.addr, connection_info.db, ;
                 );
 
-                Ok(sources::redis::event_stream(
+                Ok(Box::pin(sources::redis::event_stream(
                     redis::Client::open(connection_info.clone())?,
                     lists,
                     logger.new(o!("type" => "event_source", "source_type" => "redis")),
-                )?
-                .boxed())
+                )?))
             }
-            EventSourceConfig::TimeTicker {
+            EventSourceConfig::Ticker {
                 look_ahead,
                 interval,
                 initial_time,
+                ticker_kind,
             } => {
                 let initial_time = initial_time.unwrap_or_else(|| {
                     use chrono::Timelike;
@@ -180,37 +168,35 @@ impl EventSourceConfig {
                         .naive_utc()
                 });
 
-                Ok(sources::time_ticker::TimeEventStream {
-                    db,
-                    look_ahead: chrono::Duration::seconds(look_ahead as i64),
-                    interval: chrono::Duration::seconds(interval as i64),
-                    initial_time,
-                    logger: logger
-                        .new(o!("type" => "event_source", "source_type" => "time_ticker")),
-                }
-                .start()
-                .boxed())
-            }
-            EventSourceConfig::Subscriber {
-                subscribe,
-                subscriber,
-            } => {
-                let subscriber = subscriber.to_subscriber();
-                Ok(subscriber
-                    .start(broadcaster.subscribe_to(subscribe).boxed())
-                    .boxed())
+                Ok(Box::pin(
+                    sources::ticker::TimeEventStream {
+                        db,
+                        look_ahead: chrono::Duration::seconds(look_ahead as i64),
+                        interval: chrono::Duration::seconds(interval as i64),
+                        initial_time,
+                        logger: logger.new(o!("type" => "event_source", "source_type" => "ticker")),
+                        event_creator: match ticker_kind {
+                            TickerKind::Time => |time| EventId::occur_from_dt(time),
+                            TickerKind::HeadsOrTails => |time| {
+                                EventId::from_path_and_kind(
+                                    Path::from_str("/heads_tails")
+                                        .unwrap()
+                                        .prefix_path(Path::from_dt(time).as_path_ref()),
+                                    EventKind::VsMatch(VsMatchKind::Win),
+                                )
+                            },
+                        },
+                    }
+                    .start(),
+                ))
             }
         }
     }
 
-    pub fn to_node_stream(
-        &self,
-        _logger: slog::Logger,
-        broadcaster: &mut Broadcaster<Node>,
-    ) -> anyhow::Result<sources::Stream<Node>> {
+    pub fn to_node_stream(&self, _logger: slog::Logger) -> anyhow::Result<sources::Stream<Node>> {
         use EventSourceConfig::*;
         Ok(match *self {
-            TimeTicker { interval, .. } => futures::stream::iter(vec![Update {
+            Ticker { interval, .. } => Box::pin(stream::iter(vec![Update {
                 update: Node {
                     path: Path::root(),
                     kind: NodeKind::Range {
@@ -218,19 +204,8 @@ impl EventSourceConfig {
                     },
                 },
                 processed_notifier: None,
-            }])
-            .boxed(),
-            Subscriber {
-                ref subscribe,
-                subscriber: EventSubscriberConfig::HeadsOrTails,
-            } => {
-                // simply re-emit the node changes of the namespace we are subscribed to
-                broadcaster
-                    .subscribe_to(subscribe.clone())
-                    .map(Update::new)
-                    .boxed()
-            }
-            _ => futures::stream::empty().boxed(),
+            }])),
+            _ => Box::pin(stream::empty()),
         })
     }
 }
@@ -241,7 +216,6 @@ impl OutcomeSourceConfig {
         seed: &Seed,
         logger: slog::Logger,
         db: PrefixedDb,
-        broadcaster: &mut Broadcaster<StampedOutcome>,
     ) -> anyhow::Result<sources::Stream<StampedOutcome>> {
         use OutcomeSourceConfig::*;
         match self.clone() {
@@ -254,52 +228,37 @@ impl OutcomeSourceConfig {
                     "Connecting to redis://{}/{} to receive outcomes",
                     connection_info.addr, connection_info.db;
                 );
-                Ok(sources::redis::event_stream(
+                Ok(Box::pin(sources::redis::event_stream(
                     redis::Client::open(connection_info.clone())?,
                     lists,
-                    logger.new(o!("type" => "outcome_source", "source_type" => "redis")),
-                )?
-                .boxed())
+                    logger.new(o!("source_type" => "redis")),
+                )?))
             }
-            TimeTicker {} => Ok(TimeOutcomeStream {
-                db,
-                logger: logger.new(o!("type" => "outcome_source", "source_type" => "time_ticker")),
-            }
-            .start()
-            .boxed()),
-            Subscriber {
-                subscribe,
-                subscriber,
-            } => {
-                let subscriber = subscriber.to_subscriber(seed);
-                Ok(subscriber
-                    .start(broadcaster.subscribe_to(subscribe).boxed())
-                    .boxed())
-            }
-        }
-    }
-}
-
-impl EventSubscriberConfig {
-    pub fn to_subscriber(&self) -> Box<dyn sources::subscriber::Subscriber<Event>> {
-        use EventSubscriberConfig::*;
-        match self {
-            Vs => unimplemented!(),
-            HeadsOrTails => Box::new(crate::sources::subscriber::HeadsOrTailsEvents),
-        }
-    }
-}
-
-impl OutcomeSubscriberConfig {
-    pub fn to_subscriber(
-        &self,
-        seed: &Seed,
-    ) -> Box<dyn sources::subscriber::Subscriber<StampedOutcome>> {
-        use OutcomeSubscriberConfig::*;
-        match self {
-            Vs => unimplemented!(),
-            HeadsOrTails => Box::new(crate::sources::subscriber::HeadsOrTailsOutcomes {
-                seed: seed.child(b"heads-or-tails-outcomes"),
+            Ticker { ticker_kind } => Ok(match ticker_kind {
+                TickerKind::Time => Box::pin(
+                    TimeOutcomeStream {
+                        db,
+                        logger: logger.new(o!("source_type" => "ticker", "ticker_kind" => "time")),
+                        outcome_creator: |id| Outcome { id, value: 0 },
+                    }
+                    .start(),
+                ),
+                TickerKind::HeadsOrTails => {
+                    let seed = seed.child(b"heads-or-tails-outcomes");
+                    Box::pin(
+                        TimeOutcomeStream {
+                            db,
+                            logger: logger
+                                .new(o!("source_type" => "ticker", "ticker_kind" => "heads_tails")),
+                            outcome_creator: move |id: EventId| {
+                                let event_randomness = seed.child(id.as_bytes());
+                                let value = (event_randomness.as_ref()[0] & 0x01) as u64;
+                                Outcome { id, value }
+                            },
+                        }
+                        .start(),
+                    )
+                }
             }),
         }
     }

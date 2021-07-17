@@ -20,14 +20,10 @@ impl DbReadEvent for PrefixedDb {
         unimplemented!("this shouldn't be needed");
     }
 
-    async fn latest_child_event(
-        &self,
-        path: PathRef<'_>,
-        kind: EventKind,
-    ) -> anyhow::Result<Option<Event>> {
+    async fn latest_child_event(&self, path: PathRef<'_>) -> anyhow::Result<Option<Event>> {
         let path = path.to_path().prefix_path(self.prefix.as_path_ref());
         self.inner
-            .latest_child_event(path.as_path_ref(), kind)
+            .latest_child_event(path.as_path_ref())
             .await
             .map(|x| x.map(|x| x.strip_prefix_path(self.prefix.as_path_ref())))
     }
@@ -35,11 +31,10 @@ impl DbReadEvent for PrefixedDb {
     async fn earliest_unattested_child_event(
         &self,
         path: PathRef<'_>,
-        kind: EventKind,
     ) -> anyhow::Result<Option<Event>> {
         let path = path.to_path().prefix_path(self.prefix.as_path_ref());
         self.inner
-            .earliest_unattested_child_event(path.as_path_ref(), kind)
+            .earliest_unattested_child_event(path.as_path_ref())
             .await
             .map(|x| x.map(|x| x.strip_prefix_path(self.prefix.as_path_ref())))
     }

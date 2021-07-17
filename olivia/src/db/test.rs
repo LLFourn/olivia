@@ -1,5 +1,5 @@
 use super::*;
-use olivia_core::{path, Child, ChildDesc, Group, Path, PathRef, RangeKind};
+use olivia_core::{path, Child, ChildDesc, EventKind, Group, Path, PathRef, RangeKind};
 use std::str::FromStr;
 
 pub async fn test_db<C: Group>(db: &dyn Db<C>) {
@@ -199,11 +199,7 @@ async fn test_child_event_of_node_with_event(db: &dyn Db<impl Group>) {
         .unwrap()
         .unwrap();
 
-    assert_eq!(
-        parent
-            .events,
-        [EventKind::SingleOccurrence]
-    );
+    assert_eq!(parent.events, [EventKind::SingleOccurrence]);
 }
 
 async fn test_get_non_existent_events(db: &dyn Db<impl Group>) {
@@ -252,19 +248,27 @@ async fn test_insert_and_get_public_keys<G: Group>(db: &dyn Db<G>) {
 }
 
 async fn test_set_node<G: Group>(db: &dyn Db<G>) {
-    let first = EventId::from_str("/test/time/2020-09-30T08:00:00.occur").unwrap();
-    let second = EventId::from_str("/test/time/2020-09-30T08:01:00.occur").unwrap();
-    let child_first = Child {
-        name: first.path().segment(2).unwrap().to_string(),
-        kind: NodeKind::List,
-    };
-    let child_second = Child {
-        name: second.path().segment(2).unwrap().to_string(),
-        kind: NodeKind::List,
-    };
+    let event_ids = vec![
+        EventId::from_str("/test/time/2020-09-30T08:00:00.occur").unwrap(),
+        EventId::from_str("/test/time/2020-09-30T08:02:00.occur").unwrap(),
+        EventId::from_str("/test/time/2020-09-30T08:01:00.occur").unwrap(),
+    ];
 
-    db.insert_event(AnnouncedEvent::test_unattested_instance(first.clone().into())).await.unwrap();
-    db.insert_event(AnnouncedEvent::test_unattested_instance(second.clone().into())).await.unwrap();
+    let children = event_ids
+        .iter()
+        .map(|id| Child {
+            name: id.path().segments().nth(2).unwrap().to_string(),
+            kind: NodeKind::List,
+        })
+        .collect::<Vec<_>>();
+
+    let events = event_ids
+        .iter()
+        .map(|id| AnnouncedEvent::test_unattested_instance(id.clone().into()))
+        .collect::<Vec<_>>();
+    for event in events {
+        db.insert_event(event).await.unwrap();
+    }
 
     db.set_node(Node {
         path: Path::from_str("/test/time").unwrap(),
@@ -274,15 +278,14 @@ async fn test_set_node<G: Group>(db: &dyn Db<G>) {
     })
     .await
     .unwrap();
-
     assert_eq!(
         db.get_node(path!("/test/time")).await.unwrap().unwrap(),
         GetPath {
             events: vec![],
             child_desc: ChildDesc::Range {
                 range_kind: RangeKind::Time { interval: 60 },
-                start: Some(child_first.clone()),
-                end: Some(child_second.clone())
+                start: Some(children[0].clone()),
+                end: Some(children[1].clone())
             }
         }
     );
@@ -294,13 +297,18 @@ async fn test_set_node<G: Group>(db: &dyn Db<G>) {
     .await
     .unwrap();
 
-    assert_eq!(
-        db.get_node(path!("/test/time")).await.unwrap().unwrap(),
-        GetPath {
-            events: vec![],
-            child_desc: ChildDesc::List {
-                list: vec![child_first, child_second]
-            },
+    let node = db.get_node(path!("/test/time")).await.unwrap().unwrap();
+    match node.child_desc {
+        ChildDesc::List { list } => {
+            let mut expected = event_ids
+                .iter()
+                .map(|x| x.path().last())
+                .collect::<Vec<_>>();
+            expected.sort();
+            let mut got = list.iter().map(|x| &x.name).collect::<Vec<_>>();
+            got.sort();
+            assert_eq!(expected, got);
         }
-    );
+        _ => panic!("set_node didn't work"),
+    }
 }

@@ -1,156 +1,61 @@
-use crate::{
-    broadcaster::Broadcaster, config::Config, log::OracleLog, oracle::Oracle, sources::Update,
+use crate::{config::Config, oracle::Oracle, oracle_loop::OracleLoop};
+use core::{
+    future::{self, Future},
+    pin::Pin,
 };
-use futures::{future::FutureExt, stream, stream::StreamExt};
-use olivia_core::{Event, Node, StampedOutcome};
-use std::sync::Arc;
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
     let logger = slog::Logger::root(config.loggers.to_slog_drain()?, o!());
     let db = config.database.connect_database().await?;
 
-    let mut services = vec![];
-
-    if let Some(rest_config) = &config.rest_api {
-        info!(logger, "starting http server on {}", rest_config.listen);
-        let rest_api_server = warp::serve(crate::rest_api::routes(
-            config.database.connect_database_read_group().await?,
-            logger.new(o!("type" => "http")),
-        ))
-        .run(rest_config.listen)
-        .inspect(|_| info!(logger, "HTTP API server has shut down"))
-        .boxed();
-
-        services.push(rest_api_server);
-    }
-
-    // If we have the secret seed then we are running an attesting oracle
-    match &config.secret_seed {
-        Some(secret_seed) => {
-            let mut event_broadcaster = Broadcaster::default();
-            let mut outcome_broadcaster = Broadcaster::default();
-            let mut node_broadcaster = Broadcaster::default();
-
-            let read_conn = config.database.connect_database_read().await?;
-            let event_streams = config.build_event_streams(
-                read_conn.clone(),
+    let rest_server: Pin<Box<dyn Future<Output = _>>> = match &config.rest_api {
+        Some(rest_config) => {
+            let logger = logger.new(o!("type" => "http"));
+            info!(logger, "starting http server on {}", rest_config.listen);
+            let rest_api_server = warp::serve(crate::rest_api::routes(
+                config.database.connect_database_read_group().await?,
                 logger.clone(),
-                &mut event_broadcaster,
-            )?;
-            let outcome_streams = config.build_outcome_streams(
+            ))
+            .run(rest_config.listen);
+
+            Box::pin(tokio::spawn(async move {
+                rest_api_server.await;
+                info!(logger, "http API server has shut down");
+            }))
+        }
+        None => Box::pin(future::ready(Ok(()))),
+    };
+
+    let oracle_loop: Pin<Box<dyn Future<Output = _>>> = match &config.secret_seed {
+        Some(secret_seed) => {
+            let read_conn = config.database.connect_database_read().await?;
+            let events = config.build_event_streams(read_conn.clone(), logger.clone())?;
+            let outcomes = config.build_outcome_streams(
                 read_conn,
                 &secret_seed.child(b"outcome-seed"),
                 logger.clone(),
-                &mut outcome_broadcaster,
             )?;
-            let node_streams = config.build_node_streams(logger.clone(), &mut node_broadcaster)?;
 
-            let event_broadcaster = Arc::new(event_broadcaster);
-            let outcome_broadcaster = Arc::new(outcome_broadcaster);
-            let node_broadcaster = Arc::new(node_broadcaster);
+            let nodes = config.build_node_streams(logger.clone())?;
 
             let oracle = Oracle::new(secret_seed.clone(), db.clone()).await?;
 
-            // Processing new events
-            let event_loop = stream::select_all(event_streams)
-                .for_each(
-                    // FIXME: make this an async function
-                    |Update {
-                         update: event,
-                         processed_notifier,
-                     }: Update<Event>| {
-                        let event_id = event.id.clone();
-                        let logger = logger
-                            .new(o!("type" => "new_event", "event_id" => event_id.to_string()));
-                        let event_broadcaster = event_broadcaster.clone();
-
-                        oracle
-                            .add_event(event.clone())
-                            .map(move |res| {
-                                if let Some(processed_notifier) = processed_notifier {
-                                    let _ = processed_notifier.send(res.is_err());
-                                }
-                                if res.is_ok() {
-                                    event_broadcaster.process(event.id.clone().path(), event);
-                                }
-                                logger.log_event_result(res);
-                            })
-                            .boxed()
-                    },
-                )
-                .inspect(|_| warn!(logger, "Event processing has stopped"))
-                .boxed();
-
-            // Processing outcomes
-            let outcome_loop = stream::select_all(outcome_streams)
-                .for_each(
-                    |Update {
-                         update: stamped,
-                         processed_notifier,
-                     }: Update<StampedOutcome>| {
-                        let logger = logger.new(
-                            o!("type" => "new_outcome", "event_id" => stamped.outcome.id.to_string(), "value" => stamped.outcome.outcome_string()),
-                        );
-                        let outcome_broadcaster = outcome_broadcaster.clone();
-                        oracle.complete_event(stamped.clone()).map(move |res| {
-                            if let Some(processed_notifier) = processed_notifier {
-                                let _ = processed_notifier.send(res.is_err());
-                            }
-                            if res.is_ok() {
-                                outcome_broadcaster
-                                    .process(stamped.outcome.id.clone().path(), stamped);
-                            }
-                            logger.log_outcome_result(res);
-                        })
-                    },
-                )
-                .inspect(|_| warn!(logger, "Outcome processing has stopped"))
-                .boxed();
-
-            // Processing namespace updates
-            let node_loop = stream::select_all(node_streams)
-                .for_each(
-                    |Update {
-                         update: node,
-                         processed_notifier,
-                     }: Update<Node>| {
-                        let logger =
-                            logger.new(o!("type" => "new_node", "path" => node.path.to_string()));
-                        let node_broadcaster = node_broadcaster.clone();
-
-                        db.set_node(node.clone()).map(move |res| {
-                            if let Some(processed_notifier) = processed_notifier {
-                                let _ = processed_notifier.send(res.is_err());
-                            }
-                            if res.is_ok() {
-                                node_broadcaster.process(node.path.clone().as_path_ref(), node);
-                            }
-                            match res {
-                                Ok(()) => {
-                                    info!(logger, "added");
-                                }
-                                Err(e) => error!(logger, "{}", e),
-                            }
-                        })
-                    },
-                )
-                .inspect(|_| warn!(logger, "Node processing has stopped"))
-                .boxed();
-
-            // This solves a lifetime issue
-            let mut services = services;
-
-            services.push(event_loop);
-            services.push(outcome_loop);
-            services.push(node_loop);
-
-            futures::future::join_all(services).await;
+            Box::pin(tokio::spawn(
+                OracleLoop {
+                    events,
+                    outcomes,
+                    nodes,
+                    oracle,
+                    db,
+                    logger: logger.clone(),
+                }
+                .start(),
+            ))
         }
-        None => {
-            // otherwise we are just running an api server
-            futures::future::join_all(services).await;
-        }
-    }
+        None => Box::pin(future::ready(Ok(()))),
+    };
 
+    let _ = tokio::join!(rest_server, oracle_loop);
+    info!(logger, "olivia stopping");
     Ok(())
 }

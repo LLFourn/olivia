@@ -1,5 +1,4 @@
 use crate::sources::Update;
-use futures::{channel::mpsc, stream};
 use redis::RedisResult;
 use serde::de::DeserializeOwned;
 use serde_json;
@@ -8,13 +7,16 @@ use std::{
     iter::FromIterator,
     thread,
 };
+use stream::wrappers::UnboundedReceiverStream;
+use tokio::sync::mpsc;
+use tokio_stream as stream;
 
 pub fn event_stream<StrList: IntoIterator<Item = String>, I: DeserializeOwned + Send + 'static>(
     client: redis::Client,
     lists: StrList,
     logger: slog::Logger,
 ) -> Result<impl stream::Stream<Item = Update<I>>, redis::RedisError> {
-    let (sender, receiver) = mpsc::unbounded();
+    let (sender, receiver) = mpsc::unbounded_channel();
     let mut blpop = redis::cmd("BLPOP");
     let mut conn = client.get_connection()?;
 
@@ -33,7 +35,7 @@ pub fn event_stream<StrList: IntoIterator<Item = String>, I: DeserializeOwned + 
             Ok((list_name, json)) => match serde_json::from_str::<I>(&json) {
                 Ok(item) => {
                     if sender
-                        .unbounded_send(Update {
+                        .send(Update {
                             update: item,
                             processed_notifier: None,
                         })
@@ -83,5 +85,5 @@ pub fn event_stream<StrList: IntoIterator<Item = String>, I: DeserializeOwned + 
         }
     });
 
-    Ok(receiver)
+    Ok(UnboundedReceiverStream::new(receiver))
 }

@@ -180,7 +180,7 @@ impl EventId {
 
     pub fn occur_from_dt(dt: NaiveDateTime) -> EventId {
         Self::from_path_and_kind(
-            Path(format!("/{}", dt.format("%FT%T"))),
+            Path::from_dt(dt),
             EventKind::SingleOccurrence,
         )
     }

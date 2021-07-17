@@ -1,7 +1,6 @@
 use crate::db::DbReadOracle;
-use core::{convert::TryFrom, str::FromStr};
-use futures::Future;
-use olivia_core::{http::*, EventId, Group, Path, GetPath, PathRef};
+use core::{convert::TryFrom, future::Future, str::FromStr};
+use olivia_core::{http::*, EventId, GetPath, Group, Path, PathRef};
 use serde::Serialize;
 use std::{convert::Infallible, marker::PhantomData, sync::Arc};
 use warp::{self, http, Filter};

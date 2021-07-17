@@ -2,8 +2,8 @@
 #![allow(non_snake_case)]
 pub mod db;
 
-mod broadcaster;
 pub mod oracle;
+mod oracle_loop;
 pub mod seed;
 pub use crate::oracle::Oracle;
 
