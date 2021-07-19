@@ -239,7 +239,7 @@ macro_rules! enum_try_from_int {
             ),*
         }
 
-        impl std::convert::TryFrom<$T> for $Name {
+        impl core::convert::TryFrom<$T> for $Name {
             type Error = ();
 
             fn try_from(value: $T) -> Result<$Name, ()> {

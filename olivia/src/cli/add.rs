@@ -1,11 +1,20 @@
 use crate::{config::Config, Oracle};
-use olivia_core::{StampedOutcome, chrono::{self, NaiveDateTime}, Outcome, EventId, Event};
+use olivia_core::{
+    chrono::{self, NaiveDateTime},
+    Event, EventId, Outcome, StampedOutcome,
+};
 
 #[derive(Debug, structopt::StructOpt)]
 #[structopt(rename_all = "kebab-case")]
 pub enum Entity {
-    Event { event_id: EventId, expected_outcome_time: Option<NaiveDateTime> },
-    Outcome { event_id: EventId, outcome: String }
+    Event {
+        event_id: EventId,
+        expected_outcome_time: Option<NaiveDateTime>,
+    },
+    Outcome {
+        event_id: EventId,
+        outcome: String,
+    },
 }
 
 pub async fn add(config: Config, entity: Entity) -> anyhow::Result<()> {
@@ -16,10 +25,25 @@ pub async fn add(config: Config, entity: Entity) -> anyhow::Result<()> {
     let oracle = Oracle::new(secret_seed, db.clone()).await?;
 
     match entity {
-        Entity::Event { event_id, expected_outcome_time } => oracle.add_event(Event { id: event_id, expected_outcome_time }).await?,
+        Entity::Event {
+            event_id,
+            expected_outcome_time,
+        } => {
+            oracle
+                .add_event(Event {
+                    id: event_id,
+                    expected_outcome_time,
+                })
+                .await?
+        }
         Entity::Outcome { event_id, outcome } => {
             let outcome = Outcome::try_from_id_and_outcome(event_id, &outcome)?;
-            oracle.complete_event(StampedOutcome { time: chrono::Utc::now().naive_utc(), outcome }).await?;
+            oracle
+                .complete_event(StampedOutcome {
+                    time: chrono::Utc::now().naive_utc(),
+                    outcome,
+                })
+                .await?;
         }
     }
 

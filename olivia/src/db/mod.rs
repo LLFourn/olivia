@@ -1,6 +1,6 @@
 use olivia_core::{
-    AnnouncedEvent, Attestation, Event, EventId, GetPath, Group, Node, NodeKind, OracleKeys,
-    PathRef,
+    AnnouncedEvent, Attestation, Event, EventId, EventKind, GetPath, Group, Node, NodeKind,
+    OracleKeys, PathRef,
 };
 pub mod in_memory;
 pub mod postgres;
@@ -22,11 +22,7 @@ pub trait DbReadOracle<C: Group>: Send + Sync + DbReadEvent {
 #[async_trait]
 pub trait DbReadEvent: Send + Sync {
     async fn get_node(&self, path: PathRef<'_>) -> anyhow::Result<Option<GetPath>>;
-    async fn latest_child_event(&self, path: PathRef<'_>) -> anyhow::Result<Option<Event>>;
-    async fn earliest_unattested_child_event(
-        &self,
-        path: PathRef<'_>,
-    ) -> anyhow::Result<Option<Event>>;
+    async fn query_event(&self, query: EventQuery<'_, '_>) -> anyhow::Result<Option<Event>>;
 }
 
 #[async_trait]
@@ -55,4 +51,25 @@ impl<C: Group> BorrowDb<C> for std::sync::Arc<dyn Db<C>> {
     fn borrow_db(&self) -> &dyn Db<C> {
         self.as_ref()
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum Order {
+    Earliest,
+    Latest,
+}
+
+impl Default for Order {
+    fn default() -> Self {
+        Self::Earliest
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct EventQuery<'a, 'b> {
+    pub path: Option<PathRef<'a>>,
+    pub attested: Option<bool>,
+    pub order: Order,
+    pub ends_with: Option<PathRef<'b>>,
+    pub kind: Option<EventKind>,
 }

@@ -4,9 +4,7 @@ pub use eq::*;
 use olivia_core::EventId;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
 pub enum OutcomeFilter {
-    #[serde(rename = "*")]
     All,
     Chosen(Vec<u64>),
 }

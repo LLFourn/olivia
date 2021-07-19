@@ -121,30 +121,41 @@ impl<C: Group> DbReadEvent for InMemory<C> {
         }
     }
 
-    async fn latest_child_event(&self, path: PathRef<'_>) -> anyhow::Result<Option<Event>> {
-        let db = self.inner.read().unwrap();
-        let mut ann_events: Vec<&AnnouncedEvent<C>> = db
-            .values()
-            .filter(|ann_event| ann_event.event.id.as_str().starts_with(path.as_str()))
-            .collect();
-        ann_events.sort_by_cached_key(|ann_event| ann_event.event.expected_outcome_time);
-        Ok(ann_events.last().map(|ann_event| ann_event.event.clone()))
-    }
-
-    async fn earliest_unattested_child_event(
-        &self,
-        path: PathRef<'_>,
-    ) -> anyhow::Result<Option<Event>> {
+    async fn query_event(&self, query: EventQuery<'_, '_>) -> anyhow::Result<Option<Event>> {
         let db = self.inner.read().unwrap();
         let mut ann_events: Vec<&AnnouncedEvent<C>> = db
             .values()
             .filter(|ann_event| {
-                ann_event.event.id.as_str().starts_with(path.as_str())
-                    && ann_event.attestation == None
+                let id = &ann_event.event.id;
+                let path_id = id.path().as_str();
+                let &EventQuery {
+                    path,
+                    attested,
+                    ends_with,
+                    ref kind,
+                    ..
+                } = &query;
+                path.map(|path| path_id.starts_with(path.as_str()))
+                    .unwrap_or(true)
+                    && ends_with
+                        .map(|ends_with| path_id.ends_with(ends_with.as_str()))
+                        .unwrap_or(true)
+                    && kind
+                        .as_ref()
+                        .map(|kind| id.event_kind() == *kind)
+                        .unwrap_or(true)
+                    && attested
+                        .map(|attested| attested == ann_event.attestation.is_some())
+                        .unwrap_or(true)
             })
             .collect();
+
         ann_events.sort_by_cached_key(|ann_event| ann_event.event.expected_outcome_time);
-        Ok(ann_events.first().map(|ann_event| ann_event.event.clone()))
+        let event = match query.order {
+            Order::Earliest => ann_events.first(),
+            Order::Latest => ann_events.last(),
+        };
+        Ok(event.map(|event| event.event.clone()))
     }
 }
 
@@ -229,14 +240,28 @@ crate::run_time_db_tests! {
 }
 
 #[cfg(test)]
+crate::run_node_db_tests! {
+    db => db,
+    curve => olivia_secp256k1::Secp256k1,
+    {
+        use std::sync::Arc;
+        let db = InMemory::<olivia_secp256k1::Secp256k1>::default();
+    }
+}
+
+#[cfg(test)]
+crate::run_query_db_tests! {
+    db => db,
+    curve => olivia_secp256k1::Secp256k1,
+    {
+        use std::sync::Arc;
+        let db = InMemory::<olivia_secp256k1::Secp256k1>::default();
+    }
+}
+
+#[cfg(test)]
 mod test {
     use super::*;
-
-    #[tokio::test]
-    async fn generic_test_in_memory() {
-        let db = InMemory::<olivia_secp256k1::Secp256k1>::default();
-        crate::db::test::test_db(&db).await;
-    }
 
     #[tokio::test]
     async fn test_against_oracle() {

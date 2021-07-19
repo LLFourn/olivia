@@ -40,6 +40,6 @@ pub trait PrefixPath {
 #[macro_export]
 macro_rules! path {
     ($path:literal) => {
-        $crate::Path::from_str($path).unwrap().as_path_ref()
+        $crate::PathRef::from_str_unchecked($path)
     };
 }

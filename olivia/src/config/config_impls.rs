@@ -3,10 +3,7 @@ use crate::{
     db::{self, postgres::PgBackendWrite, DbReadEvent, PrefixedDb},
     sources,
 };
-use olivia_core::{
-    chrono, Event, EventId, EventKind, Node, NodeKind, Outcome, Path, PrefixPath, RangeKind,
-    StampedOutcome, VsMatchKind,
-};
+use olivia_core::{chrono, Event, Node, NodeKind, Path, RangeKind, StampedOutcome};
 use sources::{ticker::TimeOutcomeStream, Update};
 use std::{fs, sync::Arc};
 use tokio_stream as stream;
@@ -168,27 +165,34 @@ impl EventSourceConfig {
                         .naive_utc()
                 });
 
-                Ok(Box::pin(
-                    sources::ticker::TimeEventStream {
-                        db,
-                        look_ahead: chrono::Duration::seconds(look_ahead as i64),
-                        interval: chrono::Duration::seconds(interval as i64),
-                        initial_time,
-                        logger: logger.new(o!("type" => "event_source", "source_type" => "ticker")),
-                        event_creator: match ticker_kind {
-                            TickerKind::Time => |time| EventId::occur_from_dt(time),
-                            TickerKind::HeadsOrTails => |time| {
-                                EventId::from_path_and_kind(
-                                    Path::from_str("/heads_tails")
-                                        .unwrap()
-                                        .prefix_path(Path::from_dt(time).as_path_ref()),
-                                    EventKind::VsMatch(VsMatchKind::Win),
-                                )
-                            },
-                        },
-                    }
-                    .start(),
-                ))
+                let logger = logger.new(o!("type" => "event_source", "source_type" => "ticker"));
+                let look_ahead = chrono::Duration::seconds(look_ahead as i64);
+                let interval = chrono::Duration::seconds(interval as i64);
+
+                Ok(match ticker_kind {
+                    TickerKind::Time => Box::pin(
+                        sources::ticker::TimeEventStream {
+                            db,
+                            look_ahead,
+                            interval,
+                            initial_time,
+                            logger,
+                            event_creator: sources::ticker::Time,
+                        }
+                        .start(),
+                    ),
+                    TickerKind::HeadsOrTails => Box::pin(
+                        sources::ticker::TimeEventStream {
+                            db,
+                            look_ahead,
+                            interval,
+                            initial_time,
+                            logger,
+                            event_creator: sources::ticker::HeadsOrTailsEvents,
+                        }
+                        .start(),
+                    ),
+                })
             }
             EventSourceConfig::Predicate {
                 predicate: super::Predicate::Eq,
@@ -266,7 +270,7 @@ impl OutcomeSourceConfig {
                     TimeOutcomeStream {
                         db,
                         logger: logger.new(o!("source_type" => "ticker", "ticker_kind" => "time")),
-                        outcome_creator: |id| Outcome { id, value: 0 },
+                        outcome_creator: sources::ticker::Time,
                     }
                     .start(),
                 ),
@@ -277,11 +281,7 @@ impl OutcomeSourceConfig {
                             db,
                             logger: logger
                                 .new(o!("source_type" => "ticker", "ticker_kind" => "heads_tails")),
-                            outcome_creator: move |id: EventId| {
-                                let event_randomness = seed.child(id.as_bytes());
-                                let value = (event_randomness.as_ref()[0] & 0x01) as u64;
-                                Outcome { id, value }
-                            },
+                            outcome_creator: sources::ticker::HeadsOrTailsOutcomes { seed },
                         }
                         .start(),
                     )
@@ -292,7 +292,7 @@ impl OutcomeSourceConfig {
                 on,
                 over,
             } => {
-                let mut inner = over.to_outcome_stream(seed, logger, db)?;
+                let mut inner = over.to_outcome_stream(seed, logger.clone(), db)?;
                 let pred = sources::predicates::Eq { outcome_filter: on };
                 Ok(Box::pin(async_stream::stream! {
                     loop {

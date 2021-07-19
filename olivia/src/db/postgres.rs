@@ -25,6 +25,8 @@ pub async fn connect_read(database_url: &str) -> anyhow::Result<tokio_postgres::
 
 #[derive(Clone, Debug)]
 struct Ltree(String);
+#[derive(Clone, Debug)]
+struct Lquery(String);
 
 impl ToSql for Ltree {
     fn to_sql(
@@ -45,6 +47,25 @@ impl ToSql for Ltree {
     to_sql_checked!();
 }
 
+impl ToSql for Lquery {
+    fn to_sql(
+        &self,
+        ty: &Type,
+        out: &mut bytes::BytesMut,
+    ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        use bytes::BufMut;
+        // put the ltree version as the first byte
+        out.put_u8(1);
+        self.0.to_sql(ty, out)
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        ty.name() == "lquery"
+    }
+
+    to_sql_checked!();
+}
+
 impl<'a> From<PathRef<'a>> for Ltree {
     fn from(path: PathRef<'a>) -> Self {
         Ltree(
@@ -52,6 +73,18 @@ impl<'a> From<PathRef<'a>> for Ltree {
                 .replace(|c: char| !c.is_ascii_alphanumeric() && c != '/', "__")
                 .replace("/", "."),
         )
+    }
+}
+
+impl Lquery {
+    pub fn ends_with(p: PathRef<'_>) -> Lquery {
+        let mut query = Ltree::from(p).0;
+        query.insert_str(0, "*.");
+        Lquery(query)
+    }
+
+    pub fn everything() -> Lquery {
+        Lquery("*".into())
     }
 }
 
@@ -226,38 +259,47 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
         Ok(Some(GetPath { events, child_desc }))
     }
 
-    async fn latest_child_event(&self, path: PathRef<'_>) -> anyhow::Result<Option<Event>> {
+    async fn query_event(&self, query: EventQuery<'_, '_>) -> anyhow::Result<Option<Event>> {
+        let EventQuery {
+            path,
+            attested,
+            order,
+            ends_with,
+            ref kind,
+        } = query;
         let row = self
             .query_opt(
-                r#"SELECT event.id, expected_outcome_time FROM event
+                format!(
+                    r#"SELECT event.id, expected_outcome_time FROM event
                    WHERE $1 @> path
-                   ORDER BY expected_outcome_time DESC LIMIT 1"#,
-                &[&Ltree::from(path)],
+                     AND path ~ $2
+                     {}
+                     {}
+                   ORDER BY expected_outcome_time {} LIMIT 1"#,
+                    match kind {
+                        Some(kind) => format!("AND event.id LIKE ('%{}')", kind),
+                        None => "".to_string(),
+                    },
+                    match attested {
+                        Some(true) => "AND (att).outcome IS NOT NULL",
+                        Some(false) => "AND (att).outcome IS NULL",
+                        None => "",
+                    },
+                    match order {
+                        Order::Earliest => "ASC",
+                        Order::Latest => "DESC",
+                    }
+                )
+                .as_str(),
+                &[
+                    &Ltree::from(path.unwrap_or(PathRef::root())),
+                    &ends_with
+                        .map(|ends_with| Lquery::ends_with(ends_with))
+                        .unwrap_or(Lquery::everything()),
+                ],
             )
             .await?;
 
-        // AND event.id LIKE ('%' || $2::text)
-        Ok(row.map(|row| Event {
-            id: row.get("id"),
-            expected_outcome_time: row.get("expected_outcome_time"),
-        }))
-    }
-
-    async fn earliest_unattested_child_event(
-        &self,
-        path: PathRef<'_>,
-    ) -> anyhow::Result<Option<Event>> {
-        let row = self
-            .query_opt(
-                r#"SELECT id, expected_outcome_time FROM event
-                   WHERE $1 @> path
-                     AND (att).outcome IS NULL
-                   ORDER BY expected_outcome_time ASC LIMIT 1"#,
-                &[&Ltree::from(path)],
-            )
-            .await?;
-
-        // AND event.id LIKE ('%' || $2::text)
         Ok(row.map(|row| Event {
             id: row.get("id"),
             expected_outcome_time: row.get("expected_outcome_time"),
@@ -282,15 +324,8 @@ impl crate::db::DbReadEvent for PgBackendWrite {
         DbReadEvent::get_node(&*self.client.read().await, path).await
     }
 
-    async fn latest_child_event(&self, path: PathRef<'_>) -> anyhow::Result<Option<Event>> {
-        DbReadEvent::latest_child_event(&*self.client.read().await, path).await
-    }
-
-    async fn earliest_unattested_child_event(
-        &self,
-        path: PathRef<'_>,
-    ) -> anyhow::Result<Option<Event>> {
-        DbReadEvent::earliest_unattested_child_event(&*self.client.read().await, path).await
+    async fn query_event(&self, query: EventQuery<'_, '_>) -> anyhow::Result<Option<Event>> {
+        DbReadEvent::query_event(&*self.client.read().await, query).await
     }
 }
 
@@ -484,19 +519,40 @@ crate::run_rest_api_tests! {
 }
 
 #[cfg(all(test, feature = "docker_tests"))]
-mod test {
-    use super::*;
-    use std::sync::Arc;
-    use testcontainers::{clients, images, Docker};
-
-    #[tokio::test]
-    async fn generic_test_postgres() {
+crate::run_node_db_tests! {
+    db => db,
+    curve => olivia_secp256k1::Secp256k1,
+    {
+        use testcontainers::{clients, images, Docker};
+        use std::sync::Arc;
         let docker = clients::Cli::default();
         let (url, _container) = new_backend!(docker);
         let db = PgBackendWrite::connect(&url).await.unwrap();
         db.setup().await.unwrap();
-        crate::db::test::test_db::<olivia_secp256k1::Secp256k1>(Arc::new(db).as_ref()).await;
+        let db: Arc<dyn Db<olivia_secp256k1::Secp256k1>> = Arc::new(db);
     }
+}
+
+#[cfg(all(test, feature = "docker_tests"))]
+crate::run_query_db_tests! {
+    db => db,
+    curve => olivia_secp256k1::Secp256k1,
+    {
+        use testcontainers::{clients, images, Docker};
+        use std::sync::Arc;
+        let docker = clients::Cli::default();
+        let (url, _container) = new_backend!(docker);
+        let db = PgBackendWrite::connect(&url).await.unwrap();
+        db.setup().await.unwrap();
+        let db: Arc<dyn Db<olivia_secp256k1::Secp256k1>> = Arc::new(db);
+    }
+}
+
+#[cfg(all(test, feature = "docker_tests"))]
+mod test {
+    use super::*;
+    use std::sync::Arc;
+    use testcontainers::{clients, images, Docker};
 
     #[tokio::test]
     async fn kill_postgres() {

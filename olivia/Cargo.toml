@@ -6,9 +6,6 @@ edition = "2018"
 
 [dependencies]
 warp = "0.3"
-# disable curve25519 for now
-# curve25519-dalek = { version = "3", features = ["serde"] }
-# ed25519-dalek = {version = "1", default-features = false, features = ["rand"] }
 blake2 = "0.9"
 tokio-postgres = {  version = "0.7", features = [ "with-serde_json-1", "with-chrono-0_4" ]}
 redis  = { version = "0.20", default-features = false }

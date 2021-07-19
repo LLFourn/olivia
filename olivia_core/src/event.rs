@@ -206,6 +206,8 @@ impl EventId {
         }
         .outcome_string();
 
+        assert!(!matches!(event_kind, EventKind::Predicate { .. }), "you must not predicate a already predicated event");
+
         self.replace_kind(EventKind::Predicate {
             inner: Box::new(event_kind),
             kind: PredicateKind::Eq(outcome_string),

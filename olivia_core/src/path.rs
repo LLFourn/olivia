@@ -24,6 +24,10 @@ impl std::error::Error for PathError {}
 pub struct PathRef<'a>(&'a str);
 
 impl<'a> PathRef<'a> {
+    pub const fn from_str_unchecked(string: &'a str) -> Self {
+        Self(string)
+    }
+
     pub fn parent(self) -> Option<PathRef<'a>> {
         if self == Self::root() {
             return None;

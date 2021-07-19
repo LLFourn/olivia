@@ -79,7 +79,7 @@ mod test {
     #[test]
     fn test_event_short() {
         assert_eq!(crate::event_short("/soccer/EPL/match/2020-08-14/BRE_ARS.vs"),Some( "Brentford vs Arsenal in the English Premier League on 2020-08-14 (possibly a draw)".into()));
-        assert_eq!(crate::event_short("/soccer/EPL/match/2020-08-14/BRE_ARS.win"),Some( "Whether Brentford wins in their match against Arsenal in the English Premier League on 2020-08-14".into()));
+        assert_eq!(crate::event_short("/soccer/EPL/match/2020-08-14/BRE_ARS.winner"),Some( "Whether Brentford wins in their match against Arsenal in the English Premier League on 2020-08-14".into()));
     }
 
     #[test]
