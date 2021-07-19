@@ -69,7 +69,6 @@ pub fn event_short(event_id: &str) -> Option<String> {
                 VsMatchKind::Win => format!("Whether {} beats in {} in the competition specified by {}", left, right, event_id.path().parent()?),
             }
         },
-        (_, EventKind::Digits(_)) => unimplemented!("digits are not implemented"),
     };
     Some(desc)
 }

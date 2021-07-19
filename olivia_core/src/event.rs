@@ -1,5 +1,6 @@
-use crate::{Descriptor, Path, PathError, PathRef, PrefixPath};
+use crate::{Descriptor, Outcome, OutcomeError, Path, PathError, PathRef, PrefixPath};
 use alloc::{
+    boxed::Box,
     string::{String, ToString},
     vec::Vec,
 };
@@ -10,7 +11,15 @@ use core::{convert::TryFrom, fmt, str::FromStr};
 pub enum EventKind {
     VsMatch(VsMatchKind),
     SingleOccurrence,
-    Digits(u8),
+    Predicate {
+        inner: Box<EventKind>,
+        kind: PredicateKind,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PredicateKind {
+    Eq(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -21,14 +30,14 @@ pub enum VsMatchKind {
 
 #[derive(Debug, Clone)]
 pub enum EventKindError {
-    Unknown,
+    Unknown(String),
 }
 
 impl fmt::Display for EventKindError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use EventKindError::*;
         match self {
-            Unknown => write!(f, "unknown event kind"),
+            Unknown(string) => write!(f, "'{}' is an unknown event kind", string),
         }
     }
 }
@@ -39,7 +48,6 @@ impl std::error::Error for EventKindError {}
 impl EventKind {
     pub fn n_nonces(&self) -> u8 {
         match self {
-            EventKind::Digits(n) => *n,
             _ => 1,
         }
     }
@@ -49,11 +57,13 @@ impl fmt::Display for EventKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EventKind::VsMatch(kind) => match kind {
-                VsMatchKind::Win => write!(f, "win"),
+                VsMatchKind::Win => write!(f, "winner"),
                 VsMatchKind::WinOrDraw => write!(f, "vs"),
             },
             EventKind::SingleOccurrence => write!(f, "occur"),
-            EventKind::Digits(n) => write!(f, "digits_{}", n),
+            EventKind::Predicate { inner, kind } => match kind {
+                PredicateKind::Eq(value) => write!(f, "{}={}", inner, value),
+            },
         }
     }
 }
@@ -62,15 +72,19 @@ impl FromStr for EventKind {
     type Err = EventKindError;
 
     fn from_str(event_kind: &str) -> Result<Self, Self::Err> {
-        let event_kind_segments: Vec<&str> = event_kind.split('_').collect::<Vec<_>>();
-        Ok(match &event_kind_segments[..] {
-            ["vs"] => EventKind::VsMatch(VsMatchKind::WinOrDraw),
-            ["win"] => EventKind::VsMatch(VsMatchKind::Win),
-            ["occur"] => EventKind::SingleOccurrence,
-            ["digits", n] => {
-                EventKind::Digits(u8::from_str(n).expect("we've checked this already"))
+        Ok(match event_kind {
+            "vs" => EventKind::VsMatch(VsMatchKind::WinOrDraw),
+            "winner" => EventKind::VsMatch(VsMatchKind::Win),
+            "occur" => EventKind::SingleOccurrence,
+            pred if pred.contains('=') => {
+                let (lhs, rhs) = pred.split_once('=').expect("we checked this already");
+                let inner = Self::from_str(lhs)?;
+                EventKind::Predicate {
+                    inner: Box::new(inner),
+                    kind: PredicateKind::Eq(rhs.into()),
+                }
             }
-            _ => return Err(EventKindError::Unknown),
+            _ => return Err(EventKindError::Unknown(event_kind.into())),
         })
     }
 }
@@ -122,13 +136,12 @@ impl EventId {
                 _ => 2,
             },
             EventKind::SingleOccurrence => 1,
-            EventKind::Digits(_n) => unimplemented!(),
+            EventKind::Predicate { .. } => 2,
         }
     }
 
     pub fn n_outcomes(&self) -> u64 {
         match self.event_kind() {
-            EventKind::Digits(_n) => unimplemented!(),
             _ => self.n_outcomes_for_nonce(0) as u64,
         }
     }
@@ -141,22 +154,25 @@ impl EventId {
         match self.event_kind() {
             EventKind::VsMatch(kind) => {
                 let (left, right) = self.parties().unwrap();
-                let mut outcomes = vec![format!("{}_win", left), format!("{}_win", right)];
-                if let VsMatchKind::WinOrDraw = kind {
-                    outcomes.push("draw".into());
+                match kind {
+                    VsMatchKind::Win => Descriptor::Enum {
+                        outcomes: vec![left.to_string(), right.to_string()],
+                    },
+                    VsMatchKind::WinOrDraw => Descriptor::Enum {
+                        outcomes: vec![
+                            format!("{}_win", left),
+                            format!("{}_win", right),
+                            "draw".into(),
+                        ],
+                    },
                 }
-                Descriptor::Enum { outcomes }
             }
             EventKind::SingleOccurrence => Descriptor::Enum {
                 outcomes: vec!["true".into()],
             },
-            EventKind::Digits(_) => unimplemented!(),
-            // Descriptor::DigitDecomposition {
-            //     base: 10,
-            //     is_signed: false,
-            //     n_digits: n,
-            //     unit: self.unit(),
-            // },
+            EventKind::Predicate { .. } => Descriptor::Enum {
+                outcomes: vec!["true".into(), "false".into()],
+            },
         }
     }
 
@@ -179,10 +195,21 @@ impl EventId {
     }
 
     pub fn occur_from_dt(dt: NaiveDateTime) -> EventId {
-        Self::from_path_and_kind(
-            Path::from_dt(dt),
-            EventKind::SingleOccurrence,
-        )
+        Self::from_path_and_kind(Path::from_dt(dt), EventKind::SingleOccurrence)
+    }
+
+    pub fn predicate_eq(&self, value: u64) -> EventId {
+        let event_kind = self.event_kind();
+        let outcome_string = Outcome {
+            id: self.clone(),
+            value,
+        }
+        .outcome_string();
+
+        self.replace_kind(EventKind::Predicate {
+            inner: Box::new(event_kind),
+            kind: PredicateKind::Eq(outcome_string),
+        })
     }
 }
 
@@ -190,8 +217,9 @@ impl EventId {
 pub enum EventIdError {
     NotAnEvent,
     BadFormat,
-    UnknownEventKind(String),
+    Kind(EventKindError),
     MissingEventKind,
+    PredicateInvalidOutcome(OutcomeError),
 }
 
 impl core::fmt::Display for EventIdError {
@@ -203,9 +231,14 @@ impl core::fmt::Display for EventIdError {
                 f,
                 "event id is valid path but doesn't end in '.<event-kind>'"
             ),
-            EventIdError::UnknownEventKind(event_kind) => {
-                write!(f, "{} is not a recognized event kind", event_kind)
+            EventIdError::Kind(event_kind) => {
+                write!(f, "{}", event_kind)
             }
+            EventIdError::PredicateInvalidOutcome(OutcomeError::Invalid { outcome }) => write!(
+                f,
+                "='{}' is an invalid predicate since '{}' is not a vaid outcome",
+                outcome, outcome
+            ),
         }
     }
 }
@@ -215,6 +248,12 @@ impl From<PathError> for EventIdError {
         match e {
             PathError::BadFormat => EventIdError::BadFormat,
         }
+    }
+}
+
+impl From<EventKindError> for EventIdError {
+    fn from(e: EventKindError) -> Self {
+        EventIdError::Kind(e)
     }
 }
 
@@ -242,20 +281,24 @@ impl TryFrom<Path> for EventId {
             .strip_event()
             .ok_or(EventIdError::MissingEventKind)?;
 
-        let event_kind_segments = event_kind.split("_").collect::<Vec<_>>();
+        let event_kind = EventKind::from_str(event_kind)?;
 
-        match &event_kind_segments[..] {
-            ["vs"] | ["win"] => {
+        match event_kind {
+            EventKind::VsMatch(_) => {
                 let teams: Vec<_> = path.last().split('_').collect();
                 if teams.len() != 2 || teams[0] == teams[1] {
                     return Err(EventIdError::BadFormat);
                 }
             }
-            ["digits", n] => {
-                u8::from_str(n).or(Err(EventIdError::BadFormat))?;
-            }
-            ["occur"] => (),
-            _ => return Err(EventIdError::UnknownEventKind(event_kind.into())),
+            EventKind::SingleOccurrence => (),
+            EventKind::Predicate { inner, kind } => match kind {
+                PredicateKind::Eq(value) => {
+                    let id = EventId::from_path_and_kind(path.to_path(), *inner);
+                    if let Err(e) = Outcome::try_from_id_and_outcome(id, &value) {
+                        return Err(EventIdError::PredicateInvalidOutcome(e));
+                    }
+                }
+            },
         };
 
         Ok(EventId(id_as_path))
@@ -425,6 +468,9 @@ mod test {
         assert!(EventId::from_str("/foo/bar/baz.occur").is_ok());
         assert!(EventId::from_str("/foo/23/52.occur").is_ok());
         assert!(EventId::from_str("/foo/bar/FOO_BAR.vs").is_ok());
+        assert!(EventId::from_str("/foo/bar/FOO_BAR.vs=FOO_win").is_ok());
+        assert!(EventId::from_str("/foo/bar/FOO_BAR.vs=BAZ_win").is_err());
+        assert!(EventId::from_str("/foo/bar/FOO_BAR.winner").is_ok());
         assert!(EventId::from_str("/foo/bar/FOO-BAR.vs").is_err());
         assert!(EventId::from_str("/foo.occur").is_ok());
         assert!(EventId::from_str("/test/one/two/3.occur").is_ok());

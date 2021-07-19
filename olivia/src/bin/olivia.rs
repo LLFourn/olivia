@@ -17,10 +17,9 @@ struct Opt {
 }
 
 #[derive(Debug, StructOpt)]
+#[structopt(rename_all = "kebab-case")]
 pub enum Command {
-    Add {
-        entity: String,
-    },
+    Add(cli::add::Entity),
     Run,
     Derive {
         event: String,
@@ -48,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     match opt.cmd {
-        Command::Add { entity } => cli::add::add(config, &entity).await,
+        Command::Add(entity) => cli::add::add(config, entity).await,
         Command::Run => cli::run::run(config).await,
         Command::Derive { event } => cli::derive::derive(config, EventId::from_str(&event)?),
         Command::Db(db) => match db {

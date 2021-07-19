@@ -190,6 +190,33 @@ impl EventSourceConfig {
                     .start(),
                 ))
             }
+            EventSourceConfig::Predicate {
+                predicate: super::Predicate::Eq,
+                on,
+                over,
+            } => {
+                let mut inner = over.to_event_stream(logger, db)?;
+                let pred = sources::predicates::Eq { outcome_filter: on };
+                Ok(Box::pin(async_stream::stream! {
+                    loop {
+                        use tokio_stream::StreamExt;
+                        match inner.next().await {
+                            Some(update) => {
+                                let pred_event_ids = pred.apply_to_event_id(&update.update.id);
+                                let expected_outcome_time = update.update.expected_outcome_time;
+                                yield update;
+                                for id in pred_event_ids {
+                                    yield Update::from(Event {
+                                        id,
+                                        expected_outcome_time
+                                    });
+                                }
+                            }
+                            _ => break,
+                        }
+                    }
+                }))
+            }
         }
     }
 
@@ -260,6 +287,30 @@ impl OutcomeSourceConfig {
                     )
                 }
             }),
+            Predicate {
+                predicate: super::Predicate::Eq,
+                on,
+                over,
+            } => {
+                let mut inner = over.to_outcome_stream(seed, logger, db)?;
+                let pred = sources::predicates::Eq { outcome_filter: on };
+                Ok(Box::pin(async_stream::stream! {
+                    loop {
+                        use tokio_stream::StreamExt;
+                        match inner.next().await {
+                            Some(update) => {
+                                let pred_outcomes = pred.apply_to_outcome(&update.update.outcome);
+                                let time = update.update.time;
+                                yield update;
+                                for pred_outcome in pred_outcomes {
+                                    yield Update::from(StampedOutcome { outcome: pred_outcome, time } );
+                                }
+                            }
+                            _ => break,
+                        }
+                    }
+                }))
+            }
         }
     }
 }

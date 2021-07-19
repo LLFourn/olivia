@@ -1,4 +1,4 @@
-use crate::seed::Seed;
+use crate::{seed::Seed, sources::predicates::OutcomeFilter};
 use olivia_core::{chrono::NaiveDateTime, Path};
 use std::{collections::HashMap, str::FromStr};
 
@@ -65,6 +65,12 @@ pub enum EventSourceConfig {
         ticker_kind: TickerKind,
     },
     Redis(RedisConfig),
+    #[serde(rename_all = "kebab-case")]
+    Predicate {
+        predicate: Predicate,
+        on: OutcomeFilter,
+        over: Box<EventSourceConfig>,
+    },
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -84,6 +90,18 @@ pub enum OutcomeSourceConfig {
         ticker_kind: TickerKind,
     },
     Redis(RedisConfig),
+    #[serde(rename_all = "kebab-case")]
+    Predicate {
+        predicate: Predicate,
+        on: OutcomeFilter,
+        over: Box<OutcomeSourceConfig>,
+    },
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub enum Predicate {
+    #[serde(rename = "=")]
+    Eq,
 }
 
 #[derive(Deserialize, Debug, Clone)]

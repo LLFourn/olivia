@@ -54,58 +54,59 @@ impl Outcome {
         let value = match id.event_kind() {
             EventKind::SingleOccurrence => {
                 if outcome == "true" {
-                    Ok(0)
+                    0
                 } else {
-                    Err(OutcomeError::BadFormat)
+                    return Err(OutcomeError::Invalid {
+                        outcome: outcome.to_string(),
+                    });
                 }
             }
             EventKind::VsMatch(kind) => {
                 let (left, right) = id.parties().expect("it's a vs kind");
                 match kind {
                     VsMatchKind::WinOrDraw => match outcome {
-                        "draw" => Ok(2),
+                        "draw" => WinOrDraw::Draw as u64,
                         winner => match winner.strip_suffix("_win") {
                             Some(winner) => {
                                 if winner == left {
-                                    Ok(0)
+                                    WinOrDraw::Left as u64
                                 } else if winner == right {
-                                    Ok(1)
+                                    WinOrDraw::Right as u64
                                 } else {
-                                    Err(OutcomeError::InvalidEntity {
-                                        entity: winner.to_string(),
-                                    })
+                                    return Err(OutcomeError::Invalid {
+                                        outcome: winner.to_string(),
+                                    });
                                 }
                             }
-                            None => return Err(OutcomeError::BadFormat),
+                            None => {
+                                return Err(OutcomeError::Invalid {
+                                    outcome: outcome.to_string(),
+                                })
+                            }
                         },
                     },
                     VsMatchKind::Win => {
-                        if let Some(winner) = outcome.strip_suffix("_win") {
-                            if winner == left {
-                                Ok(0)
-                            } else if winner == right {
-                                Ok(1)
-                            } else {
-                                Err(OutcomeError::InvalidEntity {
-                                    entity: winner.to_string(),
-                                })
-                            }
+                        let winner = outcome;
+                        if winner == left {
+                            Win::Left as u64
+                        } else if winner == right {
+                            Win::Right as u64
                         } else {
-                            Err(OutcomeError::BadFormat)
+                            return Err(OutcomeError::Invalid {
+                                outcome: winner.to_string(),
+                            });
                         }
                     }
                 }
             }
-            EventKind::Digits(n) => {
-                let value = u64::from_str(outcome).or(Err(OutcomeError::BadFormat))?;
-                if value.to_string().len() != n as usize {
-                    return Err(OutcomeError::BadFormat);
-                }
-                Ok(value)
+            EventKind::Predicate { .. } => {
+                bool::from_str(outcome).map_err(|_| OutcomeError::Invalid {
+                    outcome: outcome.to_string(),
+                })? as u64
             }
         };
 
-        Ok(Self { value: value?, id })
+        Ok(Self { value, id })
     }
 
     pub fn outcome_string(&self) -> String {
@@ -116,62 +117,65 @@ impl Outcome {
 
     pub fn write_outcome_string(&self, f: &mut impl fmt::Write) -> fmt::Result {
         match (self.id.event_kind(), self.value) {
-            (EventKind::SingleOccurrence, o) if o == Occur::Occurred as u64 => {
-                write!(f, "{}", "true")
+            (EventKind::SingleOccurrence, o) => {
+                match Occur::try_from(o).expect("outcome value should be less than 1") {
+                    Occur::Occurred => write!(f, "{}", "true"),
+                }
             }
-            (EventKind::VsMatch(VsMatchKind::WinOrDraw), o) if o == WinOrDraw::LeftWon as u64 => {
-                write!(f, "{}_win", self.id.parties().unwrap().0)
+            (EventKind::VsMatch(VsMatchKind::WinOrDraw), o) => {
+                match WinOrDraw::try_from(o).expect("outcome value should be less than 3") {
+                    WinOrDraw::Left => write!(f, "{}_win", self.id.parties().unwrap().0),
+                    WinOrDraw::Right => write!(f, "{}_win", self.id.parties().unwrap().1),
+                    WinOrDraw::Draw => write!(f, "draw"),
+                }
             }
-            (EventKind::VsMatch(VsMatchKind::WinOrDraw), o) if o == WinOrDraw::RightWon as u64 => {
-                write!(f, "{}_win", self.id.parties().unwrap().1)
+            (EventKind::VsMatch(VsMatchKind::Win), winner) => {
+                match Win::try_from(winner).expect("outcome should be less than 2") {
+                    Win::Left => write!(f, "{}", self.id.parties().unwrap().0),
+                    Win::Right => write!(f, "{}", self.id.parties().unwrap().1),
+                }
             }
-            (EventKind::VsMatch(VsMatchKind::WinOrDraw), o) if o == WinOrDraw::Draw as u64 => {
-                write!(f, "draw")
+            (EventKind::Predicate { .. }, truth) => {
+                assert!(truth < 2);
+                write!(f, "{}", truth != 0)
             }
-            (EventKind::VsMatch(VsMatchKind::Win), winner) if winner < 2 => match winner {
-                0 => write!(f, "{}_win", self.id.parties().unwrap().0),
-                1 => write!(f, "{}_win", self.id.parties().unwrap().1),
-                _ => unreachable!("already checked < 2"),
-            },
-            (EventKind::Digits(..), value) => write!(f, "{}", value),
-            _ => unreachable!("enum pairs must match if Outcome is valid"),
         }
     }
 
     pub fn attestation_indexes(&self) -> Vec<u32> {
         match self.id.event_kind() {
-            EventKind::Digits(_n) => unimplemented!(),
             _ => vec![self.value.try_into().unwrap()],
+        }
+    }
+
+    pub fn predicate_eq(&self, assert_value: u64) -> Outcome {
+        Outcome {
+            id: self.id.predicate_eq(assert_value),
+            value: (assert_value == self.value) as u64,
         }
     }
 }
 
 impl fmt::Display for Outcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}=", self.id)?;
+        write!(f, "{}!", self.id)?;
         self.write_outcome_string(f)
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutcomeError {
-    OccurredNotTrue { got: String },
-    InvalidEntity { entity: String },
-    BadFormat,
+    Invalid { outcome: String },
 }
 
 impl core::fmt::Display for OutcomeError {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
-            OutcomeError::OccurredNotTrue { got } => {
-                write!(f, "outcome for occur event was not ‘true’ got ‘{}’", got)
-            }
-            OutcomeError::InvalidEntity { entity } => write!(
+            OutcomeError::Invalid { outcome: entity } => write!(
                 f,
                 "entity ‘{}’ refers to something not part of the event",
                 entity
             ),
-            OutcomeError::BadFormat => write!(f, "badly formatted outcome"),
         }
     }
 }
@@ -190,21 +194,6 @@ impl TryFrom<WireEventOutcome> for StampedOutcome {
 
 #[cfg(feature = "std")]
 impl std::error::Error for OutcomeError {}
-
-pub enum Win {
-    PositedDidNotWin = 0,
-    PositedWon = 1,
-}
-
-pub enum WinOrDraw {
-    LeftWon = 0,
-    RightWon = 1,
-    Draw = 2,
-}
-
-pub enum Occur {
-    Occurred = 0,
-}
 
 impl PrefixPath for Outcome {
     fn prefix_path(mut self, path: crate::PathRef<'_>) -> Self {
@@ -227,5 +216,98 @@ impl PrefixPath for StampedOutcome {
     fn strip_prefix_path(mut self, path: crate::PathRef<'_>) -> Self {
         self.outcome = self.outcome.strip_prefix_path(path);
         self
+    }
+}
+
+// Oh ffs I shouldn't have to do this myself
+macro_rules! enum_try_from_int {
+    (
+        #[repr($T: ident)]
+        $( #[$meta: meta] )*
+        $vis: vis enum $Name: ident {
+            $(
+                $Variant: ident = $value: expr
+            ),*
+            $( , )?
+        }
+    ) => {
+        #[repr($T)]
+        $( #[$meta] )*
+        $vis enum $Name {
+            $(
+                $Variant = $value
+            ),*
+        }
+
+        impl std::convert::TryFrom<$T> for $Name {
+            type Error = ();
+
+            fn try_from(value: $T) -> Result<$Name, ()> {
+                match value {
+                    $(
+                        $value => Ok($Name::$Variant),
+                    )*
+                    _ => Err(())
+                }
+            }
+        }
+    }
+}
+
+enum_try_from_int! {
+    #[repr(u64)]
+    pub enum Win {
+        Left = 0,
+        Right = 1,
+    }
+}
+
+enum_try_from_int! {
+    #[repr(u64)]
+    pub enum WinOrDraw {
+        Left = 0,
+        Right = 1,
+        Draw = 2,
+    }
+}
+
+enum_try_from_int! {
+    #[repr(u64)]
+    pub enum Occur {
+        Occurred = 0,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn predicate_outcome() {
+        let outcome = Outcome {
+            id: EventId::from_str("/foo/bar/FOO_BAR.vs").unwrap(),
+            value: WinOrDraw::Draw as u64,
+        };
+        assert_eq!(
+            outcome.predicate_eq(WinOrDraw::Left as u64),
+            Outcome {
+                id: EventId::from_str("/foo/bar/FOO_BAR.vs=FOO_win").unwrap(),
+                value: false as u64
+            }
+        );
+        assert_eq!(
+            outcome.predicate_eq(WinOrDraw::Right as u64),
+            Outcome {
+                id: EventId::from_str("/foo/bar/FOO_BAR.vs=BAR_win").unwrap(),
+                value: false as u64
+            }
+        );
+        assert_eq!(
+            outcome.predicate_eq(WinOrDraw::Draw as u64),
+            Outcome {
+                id: EventId::from_str("/foo/bar/FOO_BAR.vs=draw").unwrap(),
+                value: true as u64
+            }
+        );
     }
 }

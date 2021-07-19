@@ -1,8 +1,8 @@
 use olivia_core::{Event, EventId, PathRef, PrefixPath};
 use tokio::sync::oneshot::Sender;
 use tokio_stream as stream;
+pub mod predicates;
 pub mod redis;
-// pub mod subscriber;
 pub mod ticker;
 
 #[cfg(test)]

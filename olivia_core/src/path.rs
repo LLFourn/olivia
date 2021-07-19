@@ -107,8 +107,7 @@ impl FromStr for Path {
     type Err = PathError;
 
     fn from_str(string: &str) -> Result<Self, PathError> {
-        if !string.starts_with('/') || (string.ends_with('/') && string != "/")
-        {
+        if !string.starts_with('/') || (string.ends_with('/') && string != "/") {
             // sanity check -- the URL path is the evet ID so if we roundtrip it, it should come out
             // the same
             return Err(PathError::BadFormat);
@@ -137,7 +136,6 @@ impl Path {
     pub fn from_dt(dt: NaiveDateTime) -> Self {
         Path(format!("/{}", dt.format("%FT%T")))
     }
-
 }
 
 impl fmt::Display for Path {

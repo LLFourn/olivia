@@ -218,7 +218,7 @@ async fn test_get_non_existent_events(db: &dyn Db<impl Group>) {
 
 async fn test_multiple_events_on_one_node(db: &dyn Db<impl Group>) {
     let first = EventId::from_str("/test/db/RED_BLUE.vs").unwrap();
-    let second = EventId::from_str("/test/db/RED_BLUE.win").unwrap();
+    let second = EventId::from_str("/test/db/RED_BLUE.winner").unwrap();
 
     db.insert_event(AnnouncedEvent::test_attested_instance(first.clone().into()))
         .await

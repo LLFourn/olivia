@@ -1,24 +1,27 @@
 use crate::{config::Config, Oracle};
-use olivia_core::{chrono, Entity, StampedOutcome};
-use std::str::FromStr;
+use olivia_core::{StampedOutcome, chrono::{self, NaiveDateTime}, Outcome, EventId, Event};
 
-pub async fn add(config: Config, entity: &str) -> anyhow::Result<()> {
+#[derive(Debug, structopt::StructOpt)]
+#[structopt(rename_all = "kebab-case")]
+pub enum Entity {
+    Event { event_id: EventId, expected_outcome_time: Option<NaiveDateTime> },
+    Outcome { event_id: EventId, outcome: String }
+}
+
+pub async fn add(config: Config, entity: Entity) -> anyhow::Result<()> {
     let secret_seed = config.secret_seed.ok_or(anyhow::anyhow!(
         "Cannot use the add command when oracle is in read-only mode"
     ))?;
-    let rt = tokio::runtime::Runtime::new()?;
     let db = config.database.connect_database().await?;
-    let oracle = rt.block_on(Oracle::new(secret_seed, db.clone()))?;
+    let oracle = Oracle::new(secret_seed, db.clone()).await?;
 
-    match Entity::from_str(entity)? {
-        Entity::Event(event) => Ok(rt.block_on(oracle.add_event(event))?),
-        Entity::Outcome(outcome) => {
-            let event_outcome = StampedOutcome {
-                time: chrono::Utc::now().naive_utc(),
-                outcome,
-            };
-            rt.block_on(oracle.complete_event(event_outcome))?;
-            Ok(())
+    match entity {
+        Entity::Event { event_id, expected_outcome_time } => oracle.add_event(Event { id: event_id, expected_outcome_time }).await?,
+        Entity::Outcome { event_id, outcome } => {
+            let outcome = Outcome::try_from_id_and_outcome(event_id, &outcome)?;
+            oracle.complete_event(StampedOutcome { time: chrono::Utc::now().naive_utc(), outcome }).await?;
         }
     }
+
+    Ok(())
 }

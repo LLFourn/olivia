@@ -2,7 +2,6 @@
 mod announcement;
 mod attestation;
 mod descriptor;
-mod entity;
 mod event;
 mod group;
 pub mod http;
@@ -15,7 +14,6 @@ mod path;
 pub use announcement::*;
 pub use attestation::*;
 pub use descriptor::*;
-pub use entity::*;
 pub use event::*;
 pub use group::*;
 pub use node::*;
