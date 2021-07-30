@@ -1,6 +1,9 @@
 use crate::{keychain::KeyChain, seed::Seed};
 use anyhow::anyhow;
-use olivia_core::{AnnouncedEvent, Attestation, Event, Group, OracleKeys, StampedOutcome};
+use olivia_core::{
+    attest, AnnouncedEvent, Attestation, AttestationSchemes, Event, Group, OracleKeys,
+    StampedOutcome,
+};
 use std::sync::Arc;
 
 #[derive(thiserror::Error, Debug)]
@@ -29,6 +32,8 @@ pub enum OutcomeResult {
     DbReadErr(crate::db::Error),
     #[error("unable to write to database: {0}")]
     DbWriteErr(crate::db::Error),
+    #[error("the announcement for this event was no longer valid when read from database")]
+    AnnouncementWasBogus,
 }
 
 pub struct Oracle<C: Group> {
@@ -100,13 +105,38 @@ impl<C: Group> Oracle<C> {
                     })
                 }
             }
-            Ok(Some(AnnouncedEvent { event, .. })) => {
-                let scalars = self.keychain.scalars_for_event_outcome(&stamped);
-                let attest = Attestation::new(outcome_val_str, stamped.time, scalars);
-                self.db
-                    .complete_event(&event.id, attest)
-                    .await
-                    .map_err(OutcomeResult::DbWriteErr)
+            Ok(Some(AnnouncedEvent {
+                event,
+                announcement,
+                ..
+            })) => {
+                if let Some(oracle_event) = announcement.verify_against_id(
+                    &stamped.outcome.id,
+                    &self.keychain.oracle_public_keys().announcement_key,
+                ) {
+                    let att_schemes =
+                        AttestationSchemes {
+                            olivia_v1: oracle_event.schemes.olivia_v1.as_ref().map(|_| {
+                                attest::OliviaV1 {
+                                    scalars: self.keychain.scalars_for_event_outcome(&stamped),
+                                }
+                            }),
+                            ecdsa_v1: oracle_event.schemes.ecdsa_v1.as_ref().map(|_| {
+                                attest::EcdsaV1 {
+                                    signature: self.keychain.ecdsa_sign_outcome(&stamped.outcome),
+                                }
+                            }),
+                        };
+
+                    let attestation = Attestation::new(outcome_val_str, stamped.time, att_schemes);
+
+                    self.db
+                        .complete_event(&event.id, attestation)
+                        .await
+                        .map_err(OutcomeResult::DbWriteErr)
+                } else {
+                    Err(OutcomeResult::AnnouncementWasBogus)
+                }
             }
             Err(e) => Err(OutcomeResult::DbReadErr(e)),
         }
@@ -160,6 +190,10 @@ pub mod test {
             .expect("event should still be there");
 
         let attestation = attested_event.attestation.expect("should be attested to");
-        assert!(attestation.verify_attestation(&oracle_event, &public_keys.attestation_key));
+        dbg!(&attestation, &oracle_event);
+        assert_eq!(
+            attestation.verify_attestation(&oracle_event, &public_keys),
+            Ok(())
+        );
     }
 }

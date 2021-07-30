@@ -3,6 +3,7 @@ use crate::Group;
 pub type OracleId = alloc::string::String;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
+#[serde(bound = "C: Group")]
 pub struct OracleInfo<C: Group> {
     pub id: OracleId,
     pub oracle_keys: OracleKeys<C>,

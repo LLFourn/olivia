@@ -2,8 +2,8 @@ use super::NodeKind;
 use crate::db::*;
 use async_trait::async_trait;
 use olivia_core::{
-    AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, Group, OracleKeys, PathRef,
-    RawAnnouncement, RawOracleEvent,
+    attest, AnnouncedEvent, Attestation, AttestationSchemes, Child, ChildDesc, Event, EventId,
+    Group, OracleKeys, PathRef, RawAnnouncement, RawOracleEvent,
 };
 use std::iter::once;
 use tokio::sync::RwLock;
@@ -128,7 +128,8 @@ impl<C: Group> crate::db::DbReadOracle<C> for tokio_postgres::Client {
                       (ann).oracle_event,
                       (ann).signature,
                       (att).outcome,
-                      (att).scalars,
+                      (att).olivia_v1_scalars,
+                      (att).ecdsa_v1_signature,
                       (att).time
                FROM event
                  WHERE event.id = $1
@@ -142,7 +143,14 @@ impl<C: Group> crate::db::DbReadOracle<C> for tokio_postgres::Client {
             Some(row) => {
                 let attestation = row.try_get("outcome").ok().map(|outcome| Attestation {
                     outcome,
-                    scalars: row.get("scalars"),
+                    schemes: AttestationSchemes {
+                        olivia_v1: row
+                            .get::<_, Option<_>>("olivia_v1_scalars")
+                            .map(|scalars| attest::OliviaV1 { scalars }),
+                        ecdsa_v1: row
+                            .get::<_, Option<_>>("ecdsa_v1_signature")
+                            .map(|signature| attest::EcdsaV1 { signature }),
+                    },
                     time: row.get("time"),
                 });
                 Ok(Some(AnnouncedEvent {
@@ -376,7 +384,7 @@ impl PgBackendWrite {
 impl<C: Group> crate::db::DbWrite<C> for PgBackendWrite {
     async fn insert_event(&self, event: AnnouncedEvent<C>) -> Result<(), Error> {
         let mut client = self.client.write().await;
-        let tx = client.transaction().await?;
+        let mut tx = client.transaction().await?;
         let node = event.event.id.path();
         self.set_node_parents(&tx, node).await?;
 
@@ -392,17 +400,8 @@ impl<C: Group> crate::db::DbWrite<C> for PgBackendWrite {
         )
         .await?;
 
-        if let Some(Attestation {
-            outcome,
-            scalars,
-            time,
-        }) = event.attestation
-        {
-            tx.execute(
-                "UPDATE event SET att.outcome = $2, att.time = $3, att.scalars = $4 WHERE id = $1",
-                &[&event.event.id.as_str(), &outcome, &time, &scalars],
-            )
-            .await?;
+        if let Some(attestation) = event.attestation {
+            _complete_event(&event.event.id, attestation, &mut tx).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -413,20 +412,7 @@ impl<C: Group> crate::db::DbWrite<C> for PgBackendWrite {
         event_id: &EventId,
         attestation: Attestation<C>,
     ) -> Result<(), Error> {
-        self.client
-            .read()
-            .await
-            .execute(
-                "UPDATE event SET att.outcome = $2, att.time = $3, att.scalars = $4 WHERE id = $1",
-                &[
-                    &event_id.as_str(),
-                    &attestation.outcome,
-                    &attestation.time,
-                    &attestation.scalars,
-                ],
-            )
-            .await?;
-
+        _complete_event(event_id, attestation, &mut *self.client.write().await).await?;
         Ok(())
     }
 
@@ -458,6 +444,27 @@ impl<C: Group> crate::db::DbWrite<C> for PgBackendWrite {
         tx.commit().await?;
         Ok(())
     }
+}
+
+async fn _complete_event<Client: tokio_postgres::GenericClient, C: Group>(
+    event_id: &EventId,
+    attestation: Attestation<C>,
+    client: &mut Client,
+) -> Result<(), tokio_postgres::Error> {
+    let Attestation {
+        outcome,
+        schemes: AttestationSchemes {
+            olivia_v1,
+            ecdsa_v1,
+        },
+        time,
+    } = attestation;
+    client.execute(
+        "UPDATE event SET att.outcome = $2, att.time = $3, att.olivia_v1_scalars= $4, att.ecdsa_v1_signature = $5 WHERE id = $1",
+        &[&event_id.as_str(), &outcome, &time, &olivia_v1.map(|x| x.scalars), &ecdsa_v1.map(|x| x.signature)],
+    )
+          .await?;
+    Ok(())
 }
 
 impl<C: Group> Db<C> for PgBackendWrite {}

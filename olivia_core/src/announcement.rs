@@ -4,6 +4,7 @@ use chrono::NaiveDateTime;
 use core::{convert::TryFrom, marker::PhantomData};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(bound = "C: Group")]
 pub struct RawAnnouncement<C: Group> {
     pub oracle_event: RawOracleEvent<C>,
     pub signature: C::Signature,
@@ -58,7 +59,7 @@ enum RawOracleEventEncoding {
 }
 
 impl RawOracleEventEncoding {
-    fn decode<C: Group>(&self) -> Option<OracleEvent<C>> {
+    fn decode<'a, C: Group>(&'a self) -> Option<OracleEvent<C>> {
         use RawOracleEventEncoding::*;
         match self {
             Json(string) => serde_json::from_str(string).ok(),
@@ -74,29 +75,57 @@ impl RawOracleEventEncoding {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[serde(bound = "C: Group")]
 pub struct OracleEventWithDescriptor<C: Group> {
     pub id: EventId,
     pub expected_outcome_time: Option<NaiveDateTime>,
     pub descriptor: Descriptor,
-    pub nonces: Vec<C::PublicNonce>,
+    pub schemes: AnnouncementSchemes<C>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[serde(bound = "C: Group")]
+pub struct AnnouncementSchemes<C: Group> {
+    pub olivia_v1: Option<announce::OliviaV1<C>>,
+    pub ecdsa_v1: Option<announce::EcdsaV1>,
+}
+
+pub mod announce {
+    use super::*;
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "kebab-case")]
+    pub struct OliviaV1<C: Group> {
+        pub nonces: Vec<C::PublicNonce>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "kebab-case")]
+    pub struct EcdsaV1 {}
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(
     try_from = "OracleEventWithDescriptor<C>",
-    into = "OracleEventWithDescriptor<C>"
+    into = "OracleEventWithDescriptor<C>",
+    bound = "C: Group"
 )]
 pub struct OracleEvent<C: Group> {
     pub event: Event,
-    pub nonces: Vec<C::PublicNonce>,
+    pub schemes: AnnouncementSchemes<C>,
 }
 
 impl<C: Group> TryFrom<OracleEventWithDescriptor<C>> for OracleEvent<C> {
     type Error = String;
 
     fn try_from(oracle_event: OracleEventWithDescriptor<C>) -> Result<Self, Self::Error> {
-        if oracle_event.nonces.len() < oracle_event.descriptor.n_nonces() {
-            return Err("oracle event doesn't have enough nonces for descriptor".into());
+        let schemes = &oracle_event.schemes;
+
+        if let Some(olivia_v1) = &schemes.olivia_v1 {
+            if olivia_v1.nonces.len() < oracle_event.descriptor.n_nonces() {
+                return Err("oracle event doesn't have enough nonces for descriptor".into());
+            }
         }
 
         if oracle_event.id.descriptor() == oracle_event.descriptor {
@@ -105,7 +134,7 @@ impl<C: Group> TryFrom<OracleEventWithDescriptor<C>> for OracleEvent<C> {
                     id: oracle_event.id,
                     expected_outcome_time: oracle_event.expected_outcome_time,
                 },
-                nonces: oracle_event.nonces,
+                schemes: oracle_event.schemes,
             })
         } else {
             Err("descriptor doesn't match event id".into())
@@ -120,7 +149,7 @@ impl<C: Group> From<OracleEvent<C>> for OracleEventWithDescriptor<C> {
             id: oracle_event.event.id,
             expected_outcome_time: oracle_event.event.expected_outcome_time,
             descriptor,
-            nonces: oracle_event.nonces,
+            schemes: oracle_event.schemes,
         }
     }
 }
@@ -133,16 +162,18 @@ impl<C: Group> OracleEvent<C> {
         }
     }
 
-    pub fn anticipate_attestations(
+    pub fn anticipate_attestations_olivia_v1(
         &self,
         public_key: &C::PublicKey,
         nonce_index: usize,
-    ) -> Vec<C::AnticipatedAttestation> {
-        C::anticipate_attestations(
-            public_key,
-            &self.nonces[nonce_index],
-            self.event.id.n_outcomes_for_nonce(nonce_index),
-        )
+    ) -> Option<Vec<C::AnticipatedAttestation>> {
+        self.schemes.olivia_v1.as_ref().map(|olivia_v1| {
+            C::anticipate_attestations(
+                public_key,
+                &olivia_v1.nonces[nonce_index],
+                self.event.id.n_outcomes_for_nonce(nonce_index),
+            )
+        })
     }
 }
 
@@ -169,8 +200,8 @@ impl<C: Group> RawAnnouncement<C> {
         Some(oracle_event)
     }
 
-    pub fn create(event: Event, keypair: &C::KeyPair, nonces: Vec<C::PublicNonce>) -> Self {
-        let oracle_event = OracleEvent::<C> { event, nonces };
+    pub fn create(event: Event, keypair: &C::KeyPair, schemes: AnnouncementSchemes<C>) -> Self {
+        let oracle_event = OracleEvent::<C> { event, schemes };
 
         let encoded_oracle_event = oracle_event.encode_json();
         let signature = encoded_oracle_event.sign(keypair);
@@ -184,14 +215,20 @@ impl<C: Group> RawAnnouncement<C> {
         Self::create(
             event.clone(),
             &C::test_keypair(),
-            (0..event.id.event_kind().n_nonces())
-                .map(|_| C::test_nonce_keypair().into())
-                .collect(),
+            AnnouncementSchemes {
+                olivia_v1: Some(announce::OliviaV1 {
+                    nonces: (0..event.id.event_kind().n_nonces())
+                        .map(|_| C::test_nonce_keypair().into())
+                        .collect(),
+                }),
+                ecdsa_v1: Some(announce::EcdsaV1 {}),
+            },
         )
     }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(bound = "C: Group")]
 pub struct AnnouncedEvent<C: Group> {
     pub event: Event,
     pub announcement: RawAnnouncement<C>,

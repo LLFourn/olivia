@@ -35,7 +35,15 @@ pub trait GroupObject:
 }
 
 pub trait Group:
-    Clone + Default + PartialEq + serde::Serialize + 'static + Send + Sync + Debug
+    Clone
+    + Default
+    + PartialEq
+    + serde::de::DeserializeOwned
+    + serde::Serialize
+    + 'static
+    + Send
+    + Sync
+    + Debug
 {
     type AttestScalar: GroupObject;
     type PublicKey: GroupObject;
@@ -44,6 +52,8 @@ pub trait Group:
     type AnticipatedAttestation;
     type NonceKeyPair: Into<Self::PublicNonce> + Clone + Debug;
     type KeyPair: Into<Self::PublicKey> + Clone;
+    type EcdsaSignature: GroupObject;
+
     const KEY_MATERIAL_LEN: usize;
 
     fn name() -> &'static str;
@@ -76,7 +86,8 @@ pub trait Group:
     fn sign_announcement(keypair: &Self::KeyPair, announcement: &[u8]) -> Self::Signature;
     fn keypair_from_secret_bytes(bytes: &[u8]) -> Self::KeyPair;
     fn nonce_keypair_from_secret_bytes(bytes: &[u8]) -> Self::NonceKeyPair;
-
+    fn ecdsa_sign(keypair: &Self::KeyPair, message: &[u8]) -> Self::EcdsaSignature;
+    fn ecdsa_verify(keypair: &Self::PublicKey, message: &[u8], sig: &Self::EcdsaSignature) -> bool;
     fn test_keypair() -> Self::KeyPair;
     fn test_nonce_keypair() -> Self::NonceKeyPair;
     fn test_oracle_keys() -> OracleKeys<Self>;

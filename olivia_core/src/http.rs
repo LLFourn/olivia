@@ -1,12 +1,14 @@
 use crate::{AnnouncedEvent, Attestation, GetPath, Group, OracleKeys, RawAnnouncement};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(bound = "C: Group")]
 pub struct EventResponse<C: Group> {
     pub announcement: RawAnnouncement<C>,
     pub attestation: Option<Attestation<C>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(bound = "C: Group")]
 pub struct RootResponse<C: Group> {
     #[serde(flatten)]
     pub public_keys: OracleKeys<C>,

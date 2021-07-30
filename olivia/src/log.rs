@@ -32,6 +32,7 @@ impl OracleLog for slog::Logger {
                 EventNotExist => warn!(self, "event doesn't exist"),
                 DbReadErr(e) => crit!(self, "database read"; "error" => format!("{}", e)),
                 DbWriteErr(e) => crit!(self, "database write"; "error" => format!("{}", e)),
+                AnnouncementWasBogus => crit!(self, "bogus announcement"),
             },
         }
     }

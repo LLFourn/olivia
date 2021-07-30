@@ -1,6 +1,9 @@
 use crate::seed::Seed;
 use blake2::digest::{Update, VariableOutput};
-use olivia_core::{Event, EventId, Group, OracleKeys, RawAnnouncement, StampedOutcome};
+use olivia_core::{
+    announce, AnnouncementSchemes, Event, EventId, Group, OracleKeys, Outcome, RawAnnouncement,
+    StampedOutcome,
+};
 use std::borrow::Borrow;
 
 pub struct KeyChain<C: Group> {
@@ -88,6 +91,15 @@ impl<C: Group> KeyChain<C> {
             .into_iter()
             .map(|nonce_kp| nonce_kp.into())
             .collect::<Vec<_>>();
-        RawAnnouncement::create(event, &self.announcement_keypair, nonces)
+
+        let schemes = AnnouncementSchemes {
+            olivia_v1: Some(announce::OliviaV1 { nonces }),
+            ecdsa_v1: Some(announce::EcdsaV1 {}),
+        };
+        RawAnnouncement::create(event, &self.announcement_keypair, schemes)
+    }
+
+    pub fn ecdsa_sign_outcome(&self, outcome: &Outcome) -> C::EcdsaSignature {
+        C::ecdsa_sign(&self.announcement_keypair, outcome.to_string().as_bytes())
     }
 }

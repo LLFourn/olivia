@@ -8,7 +8,8 @@ CREATE TYPE announcement AS (
 CREATE TYPE attestation AS (
        outcome text,
        time timestamp,
-       scalars bytea[]
+       olivia_v1_scalars bytea[],
+       ecdsa_v1_signature bytea
 );
 
 CREATE TABLE meta (
@@ -29,7 +30,7 @@ CREATE TABLE event (
        att attestation,
        path ltree
        CONSTRAINT attest_valid
-       CHECK ( ((att).outcome IS NULL) OR ((att).time IS NOT NULL AND (att).scalars IS NOT NULL))
+       CHECK ((att).outcome IS NULL OR (att).time IS NOT NULL)
 );
 
 CREATE INDEX idx_expected_outcome_time ON event (expected_outcome_time DESC);
