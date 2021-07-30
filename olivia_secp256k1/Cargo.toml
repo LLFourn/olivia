@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 olivia_core = { path = "../olivia_core" }
 schnorr_fun = { version = "0.6", features = ["serde" ] }
-ecdsa_fun = { version = "0.6", default-features= true, features = ["serde"] }
+ecdsa_fun = { version = "0.6", default-features = false, features = ["serde"] }
 serde  = { version = "1", default-features = false }
 lazy_static = "1"
 sha2 = "0.9"
