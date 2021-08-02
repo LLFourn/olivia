@@ -27,7 +27,7 @@ impl<C: Group> OracleInfo<C> {
                 olivia_v1: Some(C::test_keypair().into()),
                 ecdsa_v1: Some(C::test_keypair().into()),
                 announcement: C::test_keypair().into(),
-                group: C::default()
+                group: C::default(),
             },
         }
     }

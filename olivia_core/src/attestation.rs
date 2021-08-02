@@ -9,7 +9,7 @@ pub struct Attestation<C: Group> {
     pub time: chrono::NaiveDateTime,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 #[serde(bound = "C: Group")]
 pub struct AttestationSchemes<C: Group> {

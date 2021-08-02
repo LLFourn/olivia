@@ -84,7 +84,7 @@ pub struct OracleEventWithDescriptor<C: Group> {
     pub schemes: AnnouncementSchemes<C>,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 #[serde(bound = "C: Group")]
 pub struct AnnouncementSchemes<C: Group> {
