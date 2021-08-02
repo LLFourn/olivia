@@ -1,9 +1,8 @@
 #[macro_use]
 extern crate alloc;
-use alloc::string::String;
-use alloc::vec::Vec;
-use olivia_core::{EventId, EventKind, Path, PredicateKind, VsMatchKind, Outcome};
+use alloc::{string::String, vec::Vec};
 use core::str::FromStr;
+use olivia_core::{EventId, EventKind, Outcome, Path, PredicateKind, VsMatchKind};
 
 use wasm_bindgen::prelude::*;
 
@@ -18,47 +17,54 @@ struct Heventid(EventId);
 
 impl core::fmt::Display for Houtcome {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<b class='oracle-outcome'>{}</b>", self.0.outcome_string())
+        write!(
+            f,
+            "<b class='oracle-outcome'>{}</b>",
+            self.0.outcome_string()
+        )
     }
 }
 
 impl core::fmt::Display for Heventid {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<a class='oracle-event-id' href='{}'>{}</a>",self.0, self.0)
+        write!(
+            f,
+            "<a class='oracle-event-id' href='{}'>{}</a>",
+            self.0, self.0
+        )
     }
 }
-
-
 
 #[wasm_bindgen]
 pub fn path_short(path: &str) -> Option<String> {
     let path = Path::from_str(path).ok()?;
     let segments = path.as_path_ref().segments().collect::<Vec<_>>();
-    let desc =  match &segments[..] {
-        [competition, "match", tail @ ..] => {
-            match tail {
-                [] => format!("Matches in the {}", lookup_competition(competition)),
-                [date] => format!("Matches in the {} set to be played on {}", lookup_competition(competition), date),
-                [date, teams] => {
-                    let mut teams = teams.split('_');
-                    let left = lookup_team(competition,teams.next()?);
-                    let right = lookup_team(competition, teams.next()?);
-                    let competition = lookup_competition(competition);
-                    format!("{} vs {} in the {} on {}", left, right, competition, date)
-                }
-                _ => return None
+    let desc = match &segments[..] {
+        [competition, "match", tail @ ..] => match tail {
+            [] => format!("Matches in the {}", lookup_competition(competition)),
+            [date] => format!(
+                "Matches in the {} set to be played on {}",
+                lookup_competition(competition),
+                date
+            ),
+            [date, teams] => {
+                let mut teams = teams.split('_');
+                let left = lookup_team(competition, teams.next()?);
+                let right = lookup_team(competition, teams.next()?);
+                let competition = lookup_competition(competition);
+                format!("{} vs {} in the {} on {}", left, right, competition, date)
             }
+            _ => return None,
         },
         ["random"] => "Events with a random outcome chosen by the oracle".into(),
-        ["time" ] => "Events that mark the passage of time".into(),
+        ["time"] => "Events that mark the passage of time".into(),
         ["time", time, ..] => format!("Events that indicate when {} has passed", time),
-        ["random", time, .. ] => format!("Events whose outcome will be randomly chosen at {}", time),
-        _ => return None
+        ["random", time, ..] => format!("Events whose outcome will be randomly chosen at {}", time),
+        _ => return None,
     };
 
-    return Some(desc)
+    return Some(desc);
 }
-
 
 #[wasm_bindgen]
 pub fn path_html(path: &str) -> Option<String> {
@@ -131,7 +137,8 @@ pub fn event_html(id: &str) -> Option<String> {
         (_, EventKind::Predicate { inner, kind: PredicateKind::Eq(value) }) => {
             let ref_event_id = id.replace_kind(*inner);
             let inner_html = event_html(ref_event_id.as_str());
-            Some(format!("This event asserts that the outcome of {} will be {}.", Heventid(ref_event_id), Houtcome(Outcome::try_from_id_and_outcome(id, &value).ok()?))
+            let outcome = dbg!(Outcome::try_from_id_and_outcome(ref_event_id.clone(), &value).ok())?;
+            Some(format!("This event asserts that the outcome of {} will be {}.", Heventid(ref_event_id), Houtcome(outcome))
                  + &match inner_html {
                      Some(inner_html) => format!(" That event is described as: <blockquote>{}</blockquote>", inner_html),
                      None => "".to_string()
@@ -141,52 +148,57 @@ pub fn event_html(id: &str) -> Option<String> {
     }
 }
 
-
 #[wasm_bindgen]
 pub fn long_path_name(path: &str) -> Option<String> {
     let path = Path::from_str(path).ok()?;
     let segments = path.as_path_ref().segments().collect::<Vec<_>>();
     Some(match &segments[..] {
-        [ "EPL" ] => "English Premier League".into(),
+        ["EPL"] => "English Premier League".into(),
         [competition, "match", _date, teams] => {
-            let (left, right) =  { let mut t = teams.split('_'); (t.next()?, t.next()?)};
-            format!("{} vs {}", lookup_team(competition, left), lookup_team(competition, right))
-        },
-        _ => segments.get(segments.len() - 1)?.to_string()
+            let (left, right) = {
+                let mut t = teams.split('_');
+                (t.next()?, t.next()?)
+            };
+            format!(
+                "{} vs {}",
+                lookup_team(competition, left),
+                lookup_team(competition, right)
+            )
+        }
+        _ => segments.get(segments.len() - 1)?.to_string(),
     })
 }
 
 fn lookup_competition(name: &str) -> &str {
     match name {
         "EPL" => "the English Premier League",
-        _ => name
+        _ => name,
     }
 }
-
-
 
 fn lookup_team<'a>(competition: &str, name: &'a str) -> &'a str {
-    match (competition,name) {
-        ("EPL","BRE") => "Brentford",
-        ("EPL","ARS") => "Arsenal",
-        ("EPL","MUN") => "Manchested United",
-        ("EPL","LEE") => "Leeds United",
-        ("EPL","BUR") => "Burnley",
-        ("EPL","BHA") => "Brighton and Hove Albion",
-        ("EPL","CHE") => "Chelsea",
-        ("EPL","CRY") => "Crystal Palace",
-        ("EPL","EVE") => "Everton",
-        ("EPL","SOU") => "Southampton",
-        ("EPL","LEI") => "Leicester City",
-        ("EPL","WOL") => "Wolverhampton Wanderers",
-        ("EPL","WAT") => "Watford",
-        ("EPL","AVL") => "Aston Villa",
-        ("EPL","NOR") => "Norwich City",
-        ("EPL","LIV") => "Liverpool",
-        ("EPL","NEW") => "Newcastle United",
-        ("EPL","WHU") => "West Ham United",
-        ("EPL","TOT") => "Tottenham Hotspur",
-        ("EPL","MCI") => "Manchester City",
-        _ => name
+    match (competition, name) {
+        ("EPL", "BRE") => "Brentford",
+        ("EPL", "ARS") => "Arsenal",
+        ("EPL", "MUN") => "Manchested United",
+        ("EPL", "LEE") => "Leeds United",
+        ("EPL", "BUR") => "Burnley",
+        ("EPL", "BHA") => "Brighton and Hove Albion",
+        ("EPL", "CHE") => "Chelsea",
+        ("EPL", "CRY") => "Crystal Palace",
+        ("EPL", "EVE") => "Everton",
+        ("EPL", "SOU") => "Southampton",
+        ("EPL", "LEI") => "Leicester City",
+        ("EPL", "WOL") => "Wolverhampton Wanderers",
+        ("EPL", "WAT") => "Watford",
+        ("EPL", "AVL") => "Aston Villa",
+        ("EPL", "NOR") => "Norwich City",
+        ("EPL", "LIV") => "Liverpool",
+        ("EPL", "NEW") => "Newcastle United",
+        ("EPL", "WHU") => "West Ham United",
+        ("EPL", "TOT") => "Tottenham Hotspur",
+        ("EPL", "MCI") => "Manchester City",
+        _ => name,
     }
 }
+
