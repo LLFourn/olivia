@@ -138,7 +138,7 @@ macro_rules! run_rest_api_tests {
 
                 assert!(body
                         .announcement
-                        .verify_against_id(&event_id, &public_keys.announcement_key)
+                        .verify_against_id(&event_id, &public_keys.announcement)
                         .is_some())
             }
         }

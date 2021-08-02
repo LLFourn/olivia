@@ -8,9 +8,8 @@ pub struct EventResponse<C: Group> {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-#[serde(bound = "C: Group")]
+#[serde(bound = "C: Group", rename_all = "kebab-case")]
 pub struct RootResponse<C: Group> {
-    #[serde(flatten)]
     pub public_keys: OracleKeys<C>,
     #[serde(flatten)]
     pub node: GetPath,

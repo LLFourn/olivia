@@ -40,6 +40,8 @@ pub enum AttestationInvalid {
     Outcome,
     #[error("outcome is missing")]
     Missing,
+    #[error("oracle's attestation key isn't known")]
+    MissingKey,
 }
 
 impl<C: crate::Group> Attestation<C> {
@@ -57,7 +59,7 @@ impl<C: crate::Group> Attestation<C> {
         }
     }
 
-    pub fn verify_attestation(
+    pub fn verify_olivia_v1_attestation(
         &self,
         oracle_event: &OracleEvent<C>,
         oracle_keys: &OracleKeys<C>,
@@ -68,6 +70,11 @@ impl<C: crate::Group> Attestation<C> {
                 Err(_) => return Err(AttestationInvalid::Outcome),
             };
 
+        let attestation_key = match &oracle_keys.olivia_v1 {
+            Some(key) => key,
+            None => return Err(AttestationInvalid::MissingKey),
+        };
+
         match (&oracle_event.schemes.olivia_v1, &self.schemes.olivia_v1) {
             (Some(ann_olivia_v1), Some(att_olivia_v1)) => {
                 if ann_olivia_v1.nonces.len() != att_olivia_v1.scalars.len() {
@@ -76,7 +83,7 @@ impl<C: crate::Group> Attestation<C> {
 
                 for (frag_index, index) in outcome.attestation_indexes().iter().enumerate() {
                     if !C::verify_attest_scalar(
-                        &oracle_keys.attestation_key,
+                        attestation_key,
                         &ann_olivia_v1.nonces[frag_index],
                         *index as u32,
                         &att_olivia_v1.scalars[frag_index],
@@ -89,10 +96,29 @@ impl<C: crate::Group> Attestation<C> {
             _ => {}
         }
 
+        Ok(())
+    }
+
+    pub fn verify_ecdsa_v1_attestation(
+        &self,
+        oracle_event: &OracleEvent<C>,
+        oracle_keys: &OracleKeys<C>,
+    ) -> Result<(), AttestationInvalid> {
+        let outcome =
+            match Outcome::try_from_id_and_outcome(oracle_event.event.id.clone(), &self.outcome) {
+                Ok(outcome) => outcome,
+                Err(_) => return Err(AttestationInvalid::Outcome),
+            };
+
+        let attestation_key = match &oracle_keys.ecdsa_v1 {
+            Some(key) => key,
+            None => return Err(AttestationInvalid::MissingKey),
+        };
+
         match (&oracle_event.schemes.ecdsa_v1, &self.schemes.ecdsa_v1) {
             (Some(_), Some(attest::EcdsaV1 { signature })) => {
                 if !C::ecdsa_verify(
-                    &oracle_keys.announcement_key,
+                    attestation_key,
                     outcome.attestation_string().as_ref(),
                     signature,
                 ) {

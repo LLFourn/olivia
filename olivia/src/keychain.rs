@@ -8,7 +8,8 @@ use std::borrow::Borrow;
 
 pub struct KeyChain<C: Group> {
     announcement_keypair: C::KeyPair,
-    attestation_keypair: C::KeyPair,
+    olivia_v1_keypair: C::KeyPair,
+    ecdsa_v1_keypair: C::KeyPair,
     event_seed: Seed,
 }
 
@@ -20,22 +21,31 @@ impl<C: Group> KeyChain<C> {
             let hash = seed.to_blake2b_var(C::KEY_MATERIAL_LEN);
             C::keypair_from_secret_bytes(hash.finalize_boxed().borrow())
         };
-        let attestation_keypair = {
-            let seed = seed.child(b"attestation-key");
+        let olivia_v1_keypair = {
+            let seed = seed.child(b"olivia-v1-key");
             let hash = seed.to_blake2b_var(C::KEY_MATERIAL_LEN);
             C::keypair_from_secret_bytes(hash.finalize_boxed().borrow())
         };
+        let ecdsa_v1_keypair = {
+            let seed = seed.child(b"ecdsa-v1-key");
+            let hash = seed.to_blake2b_var(C::KEY_MATERIAL_LEN);
+            C::keypair_from_secret_bytes(hash.finalize_boxed().borrow())
+        };
+
         Self {
             event_seed: seed.child(b"oracle-events"),
             announcement_keypair,
-            attestation_keypair,
+            olivia_v1_keypair,
+            ecdsa_v1_keypair,
         }
     }
 
     pub fn oracle_public_keys(&self) -> OracleKeys<C> {
         OracleKeys {
-            attestation_key: self.attestation_keypair.clone().into(),
-            announcement_key: self.announcement_keypair.clone().into(),
+            olivia_v1: Some(self.olivia_v1_keypair.clone().into()),
+            ecdsa_v1: Some(self.ecdsa_v1_keypair.clone().into()),
+            announcement: self.announcement_keypair.clone().into(),
+            group: C::default(),
         }
     }
 
@@ -52,10 +62,14 @@ impl<C: Group> KeyChain<C> {
             .collect()
     }
 
-    pub fn scalars_for_event_outcome(&self, stamped: &StampedOutcome) -> Vec<C::AttestScalar> {
+    pub fn olivia_v1_scalars_for_event_outcome(
+        &self,
+        stamped: &StampedOutcome,
+    ) -> Vec<C::AttestScalar> {
         let event_id = &stamped.outcome.id;
         let event_seed = self.event_seed.child(event_id.as_bytes());
         let hash = event_seed.to_blake2b_var(C::KEY_MATERIAL_LEN);
+        let attest_keypair = &self.olivia_v1_keypair;
         hash.clone().finalize_boxed();
         stamped
             .outcome
@@ -68,14 +82,10 @@ impl<C: Group> KeyChain<C> {
                     hash.update(&[i as u8]);
                     C::nonce_keypair_from_secret_bytes(hash.finalize_boxed().borrow())
                 };
-                let scalar = C::reveal_attest_scalar(
-                    &self.attestation_keypair,
-                    nonce_keypair.clone(),
-                    *index,
-                );
+                let scalar = C::reveal_attest_scalar(attest_keypair, nonce_keypair.clone(), *index);
                 // Always verify the attestation before publishing it
                 assert!(C::verify_attest_scalar(
-                    &self.attestation_keypair.clone().into(),
+                    &attest_keypair.clone().into(),
                     &nonce_keypair.clone().into(),
                     *index,
                     &scalar

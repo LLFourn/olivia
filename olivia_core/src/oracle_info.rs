@@ -10,9 +10,13 @@ pub struct OracleInfo<C: Group> {
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[serde(bound = "C: Group")]
 pub struct OracleKeys<C: Group> {
-    pub attestation_key: C::PublicKey,
-    pub announcement_key: C::PublicKey,
+    pub olivia_v1: Option<C::PublicKey>,
+    pub ecdsa_v1: Option<C::PublicKey>,
+    pub announcement: C::PublicKey,
+    pub group: C,
 }
 
 impl<C: Group> OracleInfo<C> {
@@ -20,8 +24,10 @@ impl<C: Group> OracleInfo<C> {
         OracleInfo {
             id: "oracle.test".into(),
             oracle_keys: OracleKeys {
-                attestation_key: C::test_keypair().into(),
-                announcement_key: C::test_keypair().into(),
+                olivia_v1: Some(C::test_keypair().into()),
+                ecdsa_v1: Some(C::test_keypair().into()),
+                announcement: C::test_keypair().into(),
+                group: C::default()
             },
         }
     }

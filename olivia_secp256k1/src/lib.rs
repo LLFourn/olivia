@@ -245,8 +245,10 @@ impl olivia_core::Group for Secp256k1 {
 
     fn test_oracle_keys() -> OracleKeys<Self> {
         OracleKeys {
-            announcement_key: PublicKey(XOnly::from_bytes([13u8;32]).unwrap()),
-            attestation_key: PublicKey(XOnly::from_bytes([14u8;32]).unwrap()),
+            announcement: PublicKey(XOnly::from_bytes([13u8;32]).unwrap()),
+            ecdsa_v1: Some(PublicKey(XOnly::from_bytes([14u8;32]).unwrap())),
+            olivia_v1: Some(PublicKey(XOnly::from_bytes([16u8;32]).unwrap())),
+            group: Secp256k1,
         }
     }
 

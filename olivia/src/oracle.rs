@@ -112,13 +112,15 @@ impl<C: Group> Oracle<C> {
             })) => {
                 if let Some(oracle_event) = announcement.verify_against_id(
                     &stamped.outcome.id,
-                    &self.keychain.oracle_public_keys().announcement_key,
+                    &self.keychain.oracle_public_keys().announcement,
                 ) {
                     let att_schemes =
                         AttestationSchemes {
                             olivia_v1: oracle_event.schemes.olivia_v1.as_ref().map(|_| {
                                 attest::OliviaV1 {
-                                    scalars: self.keychain.scalars_for_event_outcome(&stamped),
+                                    scalars: self
+                                        .keychain
+                                        .olivia_v1_scalars_for_event_outcome(&stamped),
                                 }
                             }),
                             ecdsa_v1: oracle_event.schemes.ecdsa_v1.as_ref().map(|_| {
@@ -170,7 +172,7 @@ pub mod test {
 
         let oracle_event = event
             .announcement
-            .verify_against_id(&event_id, &public_keys.announcement_key)
+            .verify_against_id(&event_id, &public_keys.announcement)
             .expect("announcement signature should be valid");
 
         let outcome: StampedOutcome = WireEventOutcome {
@@ -192,7 +194,7 @@ pub mod test {
         let attestation = attested_event.attestation.expect("should be attested to");
         dbg!(&attestation, &oracle_event);
         assert_eq!(
-            attestation.verify_attestation(&oracle_event, &public_keys),
+            attestation.verify_olivia_v1_attestation(&oracle_event, &public_keys),
             Ok(())
         );
     }
