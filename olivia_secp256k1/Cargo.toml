@@ -16,5 +16,5 @@ anyhow = {  version = "1", features = ["std"], optional = true }
 
 
 [features]
-libsecp_compat = ["schnorr_fun/libsecp_compat"]
+libsecp_compat = ["schnorr_fun/libsecp_compat", "ecdsa_fun/libsecp_compat"]
 postgres-types = ["olivia_core/postgres-types", "anyhow"]
