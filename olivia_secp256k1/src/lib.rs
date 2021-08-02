@@ -4,6 +4,7 @@ use schnorr_fun::{
     fun::{g, marker::*, nonce::Deterministic, s, Point, Scalar, XOnly, G},
     Message, Schnorr,
 };
+pub use ecdsa_fun;
 pub use serde;
 #[doc(hidden)]
 pub use schnorr_fun::fun::hex;
