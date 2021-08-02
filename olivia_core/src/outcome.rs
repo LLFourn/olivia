@@ -154,11 +154,18 @@ impl Outcome {
             value: (assert_value == self.value) as u64,
         }
     }
+
+    pub fn attestation_string(&self) -> Vec<u8> {
+        let mut att_string = self.id.as_bytes().to_vec();
+        att_string.push('!' as u8);
+        att_string.append(&mut self.value.to_be_bytes().to_vec());
+        att_string
+    }
 }
 
 impl fmt::Display for Outcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}!", self.id)?;
+        write!(f, "{}:", self.id)?;
         self.write_outcome_string(f)
     }
 }

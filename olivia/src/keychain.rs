@@ -100,6 +100,6 @@ impl<C: Group> KeyChain<C> {
     }
 
     pub fn ecdsa_sign_outcome(&self, outcome: &Outcome) -> C::EcdsaSignature {
-        C::ecdsa_sign(&self.announcement_keypair, outcome.to_string().as_bytes())
+        C::ecdsa_sign(&self.announcement_keypair, &outcome.attestation_string())
     }
 }

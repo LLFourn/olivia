@@ -72,7 +72,7 @@ macro_rules! run_time_db_tests {
                     let _ = update.processed_notifier.unwrap().send(false);
                 }
                 assert!(
-                    now() < initial_time + Duration::milliseconds(100),
+                    now() < initial_time + Duration::milliseconds(200),
                     "we shouldn't have waited for anything yet"
                 );
 

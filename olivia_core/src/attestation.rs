@@ -91,8 +91,11 @@ impl<C: crate::Group> Attestation<C> {
 
         match (&oracle_event.schemes.ecdsa_v1, &self.schemes.ecdsa_v1) {
             (Some(_), Some(attest::EcdsaV1 { signature })) => {
-                let outcome = outcome.to_string();
-                if !C::ecdsa_verify(&oracle_keys.announcement_key, outcome.as_bytes(), signature) {
+                if !C::ecdsa_verify(
+                    &oracle_keys.announcement_key,
+                    outcome.attestation_string().as_ref(),
+                    signature,
+                ) {
                     return Err(AttestationInvalid::EcdsaV1);
                 }
             }
