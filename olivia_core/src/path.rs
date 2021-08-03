@@ -1,4 +1,3 @@
-use alloc::string::{String, ToString};
 use chrono::NaiveDateTime;
 use core::{fmt, str::FromStr};
 
@@ -17,7 +16,6 @@ impl core::fmt::Display for PathError {
     }
 }
 
-#[cfg(feature = "std")]
 impl std::error::Error for PathError {}
 
 #[derive(Clone, Copy, Debug, PartialEq)]

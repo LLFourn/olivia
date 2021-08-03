@@ -1,6 +1,6 @@
 use crate::Group;
 
-pub type OracleId = alloc::string::String;
+pub type OracleId = String;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
 #[serde(bound = "C: Group")]

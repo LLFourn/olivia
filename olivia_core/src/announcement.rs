@@ -1,5 +1,4 @@
 use crate::{Attestation, Descriptor, Event, EventId, Group};
-use alloc::{string::String, vec::Vec};
 use chrono::NaiveDateTime;
 use core::{convert::TryFrom, marker::PhantomData};
 

@@ -1,9 +1,4 @@
 use crate::{Descriptor, Outcome, OutcomeError, Path, PathError, PathRef, PrefixPath};
-use alloc::{
-    boxed::Box,
-    string::{String, ToString},
-    vec::Vec,
-};
 use chrono::NaiveDateTime;
 use core::{convert::TryFrom, fmt, str::FromStr};
 
@@ -42,7 +37,6 @@ impl fmt::Display for EventKindError {
     }
 }
 
-#[cfg(feature = "std")]
 impl std::error::Error for EventKindError {}
 
 impl EventKind {
@@ -262,7 +256,6 @@ impl From<EventKindError> for EventIdError {
     }
 }
 
-#[cfg(feature = "std")]
 impl std::error::Error for EventIdError {}
 
 impl FromStr for EventId {

@@ -1,5 +1,4 @@
-use crate::{alloc::string::ToString, EventId, Group, OracleEvent, OracleKeys, Outcome};
-use alloc::{string::String, vec::Vec};
+use crate::{EventId, Group, OracleEvent, OracleKeys, Outcome};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(bound = "C: Group")]

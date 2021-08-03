@@ -23,7 +23,7 @@ structopt = "0.3"
 thiserror = "1.0"
 serde_yaml = "0.8"
 rand = "0.8"
-olivia_core = { path = "../olivia_core", features = ["std", "postgres-types"] }
+olivia_core = { path = "../olivia_core", features = ["postgres-types"] }
 olivia_secp256k1 = { path = "../olivia_secp256k1", features = ["postgres-types"] }
 generic-array = { version = "0.14", features = ["more_lengths"] }
 anyhow = "1"

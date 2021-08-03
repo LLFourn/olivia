@@ -1,8 +1,4 @@
 use crate::{EventId, EventKind, PrefixPath, VsMatchKind};
-use alloc::{
-    string::{String, ToString},
-    vec::Vec,
-};
 use chrono::NaiveDateTime;
 use core::{
     convert::{TryFrom, TryInto},
@@ -199,7 +195,6 @@ impl TryFrom<WireEventOutcome> for StampedOutcome {
     }
 }
 
-#[cfg(feature = "std")]
 impl std::error::Error for OutcomeError {}
 
 impl PrefixPath for Outcome {

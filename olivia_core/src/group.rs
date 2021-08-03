@@ -1,7 +1,5 @@
 use core::fmt::Debug;
 
-use alloc::vec::Vec;
-
 use crate::OracleKeys;
 
 #[cfg(not(feature = "postgres-types"))]

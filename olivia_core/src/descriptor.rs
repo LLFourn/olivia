@@ -1,5 +1,3 @@
-use alloc::{string::String, vec::Vec};
-
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Descriptor {

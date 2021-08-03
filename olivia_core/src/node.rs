@@ -1,5 +1,4 @@
 use crate::{EventKind, Path, PrefixPath};
-use alloc::{string::String, vec::Vec};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case", tag = "kind")]
