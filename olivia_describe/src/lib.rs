@@ -41,9 +41,9 @@ pub fn path_short(path: &str) -> Option<String> {
     let segments = path.as_path_ref().segments().collect::<Vec<_>>();
     let desc = match &segments[..] {
         [competition, "match", tail @ ..] => match tail {
-            [] => format!("Matches in the {}", lookup_competition(competition)),
+            [] => format!("{} matches", lookup_competition(competition)),
             [date] => format!(
-                "Matches in the {} set to be played on {}",
+                "{} matches set to be played on {}",
                 lookup_competition(competition),
                 date
             ),
@@ -52,7 +52,7 @@ pub fn path_short(path: &str) -> Option<String> {
                 let left = lookup_team(competition, teams.next()?);
                 let right = lookup_team(competition, teams.next()?);
                 let competition = lookup_competition(competition);
-                format!("{} vs {} in the {} on {}", left, right, competition, date)
+                format!("{} match {} vs {} on {}", competition, left, right, date)
             }
             _ => return None,
         },
@@ -86,36 +86,68 @@ pub fn event_short(event_id: &str) -> Option<String> {
 }
 
 pub fn event_short_id(event_id: &EventId) -> String {
+    // the concept here is that each  description should make sense if "the" is prefixed to it.
     let segments = event_id.path().segments().collect::<Vec<_>>();
     let kind = event_id.event_kind();
     let desc = match (&segments[..], kind) {
         ([competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
-            let (left,right) = event_id.parties().unwrap();
+            let (left, right) = event_id.parties().unwrap();
             let left_long = lookup_team(competition, left);
             let right_long = lookup_team(competition, right);
             let competition = lookup_competition(competition);
-            match vs_kind  {
-                VsMatchKind::WinOrDraw => format!("result of {} match {} vs {} on {}", competition, left_long, right_long, date),
-                VsMatchKind::Win => format!("winner of {} match {} vs {} on {}", competition, left_long, right_long, date),
+            match vs_kind {
+                VsMatchKind::WinOrDraw => format!(
+                    "result of {} match {} vs {} on {}",
+                    competition, left_long, right_long, date
+                ),
+                VsMatchKind::Win => format!(
+                    "winner of {} match {} vs {} on {}",
+                    competition, left_long, right_long, date
+                ),
             }
-        },
-        (["time", datetime], EventKind::SingleOccurrence) => format!("time {} has passed", datetime),
-        (["random", datetime, ..], _) => format!("randomly selected outcome from {} possibilities at {}", event_id.n_outcomes(), datetime),
+        }
+        (["time", datetime], EventKind::SingleOccurrence) => {
+            format!("time {} has passed", datetime)
+        }
+        (["random", datetime, ..], _) => format!(
+            "randomly selected outcome from {} possibilities at {}",
+            event_id.n_outcomes(),
+            datetime
+        ),
         (_, EventKind::SingleOccurrence) => format!("{} has transpired", event_id.path()),
         ([..], EventKind::VsMatch(vs_kind)) => {
-            let (left,right) = event_id.parties().unwrap();
+            let (left, right) = event_id.parties().unwrap();
             match vs_kind {
-                VsMatchKind::WinOrDraw => format!("result of {} vs {} in {}", left, right, event_id.path().parent().unwrap()),
-                VsMatchKind::Win => format!("winner of {} vs {} in {}", left, right, event_id.path().parent().unwrap()),
+                VsMatchKind::WinOrDraw => format!(
+                    "result of {} vs {} in {}",
+                    left,
+                    right,
+                    event_id.path().parent().unwrap()
+                ),
+                VsMatchKind::Win => format!(
+                    "winner of {} vs {} in {}",
+                    left,
+                    right,
+                    event_id.path().parent().unwrap()
+                ),
             }
-        },
-        ([..], EventKind::Predicate { inner, kind: PredicateKind::Eq(value) }) => {
+        }
+        (
+            [..],
+            EventKind::Predicate {
+                inner,
+                kind: PredicateKind::Eq(value),
+            },
+        ) => {
             let inner_id = EventId::from_path_and_kind(event_id.path().to_path(), *inner);
-            format!("assertion that the {} will be {}", event_short_id(&inner_id), value)
+            format!(
+                "assertion that the {} will be {}",
+                event_short_id(&inner_id),
+                value
+            )
         }
     };
     desc
-
 }
 
 #[wasm_bindgen]
@@ -158,7 +190,7 @@ pub fn event_html(id: &str) -> Option<String> {
 
 pub struct OutcomeDesc {
     pub positive: String,
-    pub negative: String
+    pub negative: String,
 }
 impl OutcomeDesc {
     pub fn negate(self) -> Self {
@@ -182,41 +214,57 @@ pub fn _describe_outcome(id: EventId, outcome: &str) -> OutcomeDesc {
 
             if outcome == "draw" {
                 return OutcomeDesc {
-                    positive: format!("{} and {} draw in their {} match on {}", left_long, right_long, competition, date),
-                    negative: format!("{} and {} do not draw in their {} match on {}", left_long, right_long, competition, date),
-                }
+                    positive: format!(
+                        "{} and {} draw in their {} match on {}",
+                        left_long, right_long, competition, date
+                    ),
+                    negative: format!(
+                        "{} and {} do not draw in their {} match on {}",
+                        left_long, right_long, competition, date
+                    ),
+                };
             }
 
-            let winner =  match vs_kind {
+            let winner = match vs_kind {
                 VsMatchKind::Win => outcome,
                 VsMatchKind::WinOrDraw => outcome.strip_suffix("_win").unwrap().into(),
             };
 
             let (winner, loser) = if winner == left {
                 (left_long, right_long)
-            }
-            else {
+            } else {
                 (right_long, left_long)
             };
 
             OutcomeDesc {
-                positive: format!("{} beats {} in their {} match on {}", winner, loser, competition, date),
-                negative: format!("{} does not beat {} in their {} match on {}", winner, loser, competition, date),
+                positive: format!(
+                    "{} beats {} in their {} match on {}",
+                    winner, loser, competition, date
+                ),
+                negative: format!(
+                    "{} does not beat {} in their {} match on {}",
+                    winner, loser, competition, date
+                ),
             }
-        },
-        (_, EventKind::Predicate { inner, kind: PredicateKind::Eq(value) }) => {
+        }
+        (
+            _,
+            EventKind::Predicate {
+                inner,
+                kind: PredicateKind::Eq(value),
+            },
+        ) => {
             let inner_event_id = id.replace_kind(*inner);
             if outcome == "true" {
                 _describe_outcome(inner_event_id, &value)
-            }
-            else {
+            } else {
                 _describe_outcome(inner_event_id, &value).negate()
             }
         }
         _ => OutcomeDesc {
             positive: format!("the {} is {}", event_short_id(&id), outcome),
             negative: format!("the {} is not {}", event_short_id(&id), outcome),
-        }
+        },
     }
 }
 
@@ -281,7 +329,6 @@ fn lookup_team<'a>(competition: &str, name: &'a str) -> &'a str {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -291,13 +338,33 @@ mod test {
         let event_id = "/EPL/match/2021-08-13/BRE_ARS.vs";
         let predicated = "/EPL/match/2021-08-13/BRE_ARS.vs=ARS_win";
         let predicated_draw = "/EPL/match/2021-08-13/BRE_ARS.vs=draw";
-        assert_eq!(describe_outcome(&event_id, "BRE_win").unwrap(), "Brentford beats Arsenal in their English Premier League match on 2021-08-13");
-        assert_eq!(describe_outcome(&event_id, "ARS_win").unwrap(), "Arsenal beats Brentford in their English Premier League match on 2021-08-13");
-        assert_eq!(describe_outcome(&event_id, "draw").unwrap(), "Brentford and Arsenal draw in their English Premier League match on 2021-08-13");
-        assert_eq!(describe_outcome(&predicated, "true").unwrap(), "Arsenal beats Brentford in their English Premier League match on 2021-08-13");
-        assert_eq!(describe_outcome(&predicated, "false").unwrap(), "Arsenal does not beat Brentford in their English Premier League match on 2021-08-13");
-        assert_eq!(describe_outcome(&predicated_draw, "true").unwrap(), "Brentford and Arsenal draw in their English Premier League match on 2021-08-13");
-        assert_eq!(describe_outcome(&predicated_draw, "false").unwrap(), "Brentford and Arsenal do not draw in their English Premier League match on 2021-08-13");
-
+        assert_eq!(
+            describe_outcome(&event_id, "BRE_win").unwrap(),
+            "Brentford beats Arsenal in their English Premier League match on 2021-08-13"
+        );
+        assert_eq!(
+            describe_outcome(&event_id, "ARS_win").unwrap(),
+            "Arsenal beats Brentford in their English Premier League match on 2021-08-13"
+        );
+        assert_eq!(
+            describe_outcome(&event_id, "draw").unwrap(),
+            "Brentford and Arsenal draw in their English Premier League match on 2021-08-13"
+        );
+        assert_eq!(
+            describe_outcome(&predicated, "true").unwrap(),
+            "Arsenal beats Brentford in their English Premier League match on 2021-08-13"
+        );
+        assert_eq!(
+            describe_outcome(&predicated, "false").unwrap(),
+            "Arsenal does not beat Brentford in their English Premier League match on 2021-08-13"
+        );
+        assert_eq!(
+            describe_outcome(&predicated_draw, "true").unwrap(),
+            "Brentford and Arsenal draw in their English Premier League match on 2021-08-13"
+        );
+        assert_eq!(
+            describe_outcome(&predicated_draw, "false").unwrap(),
+            "Brentford and Arsenal do not draw in their English Premier League match on 2021-08-13"
+        );
     }
 }
