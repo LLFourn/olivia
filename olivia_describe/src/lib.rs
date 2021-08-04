@@ -145,9 +145,8 @@ pub fn event_id_short(event_id: &EventId) -> String {
         ) => {
             let inner_id = EventId::from_path_and_kind(event_id.path().to_path(), *inner);
             format!(
-                "assertion that the {} will be {}",
-                event_id_short(&inner_id),
-                value
+                "assertion that {}",
+                outcome(&inner_id, &value).positive,
             )
         }
     };
