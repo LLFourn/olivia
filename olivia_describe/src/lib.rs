@@ -95,8 +95,8 @@ pub fn event_short_id(event_id: &EventId) -> String {
             let right_long = lookup_team(competition, right);
             let competition = lookup_competition(competition);
             match vs_kind  {
-                VsMatchKind::WinOrDraw => format!("result of {} vs {} in the {} on {}", left_long, right_long, competition, date),
-                VsMatchKind::Win => format!("winner of {} vs {} in the {} on {}", left_long, right_long, competition, date),
+                VsMatchKind::WinOrDraw => format!("result of {} match {} vs {} on {}", competition, left_long, right_long, date),
+                VsMatchKind::Win => format!("winner of {} match {} vs {} on {}", competition, left_long, right_long, date),
             }
         },
         (["time", datetime], EventKind::SingleOccurrence) => format!("time {} has passed", datetime),
@@ -132,13 +132,13 @@ pub fn event_html(id: &str) -> Option<String> {
             let competition = lookup_competition(competition);
 
             Some(match vs_kind {
-                VsMatchKind::WinOrDraw => format!("{} vs {} in {} on {}.", left_long, right_long, competition, date) +
+                VsMatchKind::WinOrDraw => format!("{} match {} vs {} on {}.",competition, left_long, right_long,  date) +
                     &format!(" If {} wins the oracle will attest {}.", left_long, Houtcome(Outcome { value: 0, id: id.clone() })) +
                     &format!(" If {} wins the oracle will attest {}.", right_long, Houtcome(Outcome { value: 1, id: id.clone() })) +
                     &format!(" Otherwise the oracle will attest {}.", Houtcome(Outcome { value: 2, id: id.clone() })),
-                VsMatchKind::Win => format!("The winner from {} vs {} in the {} on {}.", left_long, right_long, competition, date) +
+                VsMatchKind::Win => format!("The winner from {} match {} vs {} on {}.", competition, left_long, right_long, date) +
                     &format!("If {} wins then the oracle will attest {}.", left_long, Houtcome(Outcome { value: 0, id: id.clone() })) +
-                    &format!("If {} wins then the oracle will attest <b>{}</b>.", right_long, Houtcome(Outcome { value: 1, id: id.clone() }))
+                    &format!("If {} wins then the oracle will attest {}.", right_long, Houtcome(Outcome { value: 1, id: id.clone() }))
             })
 
         },
