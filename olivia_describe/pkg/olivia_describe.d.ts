@@ -4,30 +4,30 @@
 * @param {string} path
 * @returns {string | undefined}
 */
-export function path_short(path: string): string | undefined;
+export function path_short_str(path: string): string | undefined;
 /**
 * @param {string} path
 * @returns {string | undefined}
 */
-export function path_html(path: string): string | undefined;
+export function path_html_str(path: string): string | undefined;
 /**
 * @param {string} event_id
 * @returns {string | undefined}
 */
-export function event_short(event_id: string): string | undefined;
+export function event_id_short_str(event_id: string): string | undefined;
 /**
 * @param {string} id
 * @returns {string | undefined}
 */
-export function event_html(id: string): string | undefined;
+export function event_html_str(id: string): string | undefined;
 /**
 * @param {string} id
 * @param {string} outcome
 * @returns {string | undefined}
 */
-export function describe_outcome(id: string, outcome: string): string | undefined;
+export function outcome_str(id: string, outcome: string): string | undefined;
 /**
 * @param {string} path
 * @returns {string | undefined}
 */
-export function long_path_name(path: string): string | undefined;
+export function long_path_name_str(path: string): string | undefined;

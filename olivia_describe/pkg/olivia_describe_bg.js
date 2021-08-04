@@ -86,12 +86,12 @@ function getStringFromWasm0(ptr, len) {
 * @param {string} path
 * @returns {string | undefined}
 */
-export function path_short(path) {
+export function path_short_str(path) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         var ptr0 = passStringToWasm0(path, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         var len0 = WASM_VECTOR_LEN;
-        wasm.path_short(retptr, ptr0, len0);
+        wasm.path_short_str(retptr, ptr0, len0);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
         var r1 = getInt32Memory0()[retptr / 4 + 1];
         let v1;
@@ -109,12 +109,12 @@ export function path_short(path) {
 * @param {string} path
 * @returns {string | undefined}
 */
-export function path_html(path) {
+export function path_html_str(path) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         var ptr0 = passStringToWasm0(path, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         var len0 = WASM_VECTOR_LEN;
-        wasm.path_html(retptr, ptr0, len0);
+        wasm.path_html_str(retptr, ptr0, len0);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
         var r1 = getInt32Memory0()[retptr / 4 + 1];
         let v1;
@@ -132,12 +132,12 @@ export function path_html(path) {
 * @param {string} event_id
 * @returns {string | undefined}
 */
-export function event_short(event_id) {
+export function event_id_short_str(event_id) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         var ptr0 = passStringToWasm0(event_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         var len0 = WASM_VECTOR_LEN;
-        wasm.event_short(retptr, ptr0, len0);
+        wasm.event_id_short_str(retptr, ptr0, len0);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
         var r1 = getInt32Memory0()[retptr / 4 + 1];
         let v1;
@@ -155,12 +155,12 @@ export function event_short(event_id) {
 * @param {string} id
 * @returns {string | undefined}
 */
-export function event_html(id) {
+export function event_html_str(id) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         var ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         var len0 = WASM_VECTOR_LEN;
-        wasm.event_html(retptr, ptr0, len0);
+        wasm.event_html_str(retptr, ptr0, len0);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
         var r1 = getInt32Memory0()[retptr / 4 + 1];
         let v1;
@@ -179,14 +179,14 @@ export function event_html(id) {
 * @param {string} outcome
 * @returns {string | undefined}
 */
-export function describe_outcome(id, outcome) {
+export function outcome_str(id, outcome) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         var ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         var len0 = WASM_VECTOR_LEN;
         var ptr1 = passStringToWasm0(outcome, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         var len1 = WASM_VECTOR_LEN;
-        wasm.describe_outcome(retptr, ptr0, len0, ptr1, len1);
+        wasm.outcome_str(retptr, ptr0, len0, ptr1, len1);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
         var r1 = getInt32Memory0()[retptr / 4 + 1];
         let v2;
@@ -204,12 +204,12 @@ export function describe_outcome(id, outcome) {
 * @param {string} path
 * @returns {string | undefined}
 */
-export function long_path_name(path) {
+export function long_path_name_str(path) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         var ptr0 = passStringToWasm0(path, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         var len0 = WASM_VECTOR_LEN;
-        wasm.long_path_name(retptr, ptr0, len0);
+        wasm.long_path_name_str(retptr, ptr0, len0);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
         var r1 = getInt32Memory0()[retptr / 4 + 1];
         let v1;

@@ -2,7 +2,7 @@
 extern crate alloc;
 use alloc::{string::String, vec::Vec};
 use core::str::FromStr;
-use olivia_core::{EventId, EventKind, Outcome, Path, PredicateKind, VsMatchKind};
+use olivia_core::{EventId, EventKind, Outcome, Path, PathRef, PredicateKind, VsMatchKind};
 
 use wasm_bindgen::prelude::*;
 
@@ -36,9 +36,13 @@ impl core::fmt::Display for Heventid {
 }
 
 #[wasm_bindgen]
-pub fn path_short(path: &str) -> Option<String> {
+pub fn path_short_str(path: &str) -> Option<String> {
     let path = Path::from_str(path).ok()?;
-    let segments = path.as_path_ref().segments().collect::<Vec<_>>();
+    path_short(path.as_path_ref())
+}
+
+pub fn path_short(path: PathRef<'_>) -> Option<String> {
+    let segments = path.segments().collect::<Vec<_>>();
     let desc = match &segments[..] {
         [competition, "match", tail @ ..] => match tail {
             [] => format!("{} matches", lookup_competition(competition)),
@@ -67,12 +71,12 @@ pub fn path_short(path: &str) -> Option<String> {
 }
 
 #[wasm_bindgen]
-pub fn path_html(path: &str) -> Option<String> {
+pub fn path_html_str(path: &str) -> Option<String> {
     let path = Path::from_str(path).ok()?;
     let segments = path.as_path_ref().segments().collect::<Vec<_>>();
     let desc = match &segments[..] {
         ["random"] => include_str!("html/random.html").into(),
-        _ => return path_short(path.as_str()).map(|s| s + "."),
+        _ => return path_short(path.as_path_ref()).map(|s| s + "."),
     };
 
     Some(desc)
@@ -80,12 +84,12 @@ pub fn path_html(path: &str) -> Option<String> {
 
 #[wasm_bindgen]
 #[rustfmt::skip]
-pub fn event_short(event_id: &str) -> Option<String> {
+pub fn event_id_short_str(event_id: &str) -> Option<String> {
     let event_id = EventId::from_str(event_id).ok()?;
-    Some(event_short_id(&event_id))
+    Some(event_id_short(&event_id))
 }
 
-pub fn event_short_id(event_id: &EventId) -> String {
+pub fn event_id_short(event_id: &EventId) -> String {
     // the concept here is that each  description should make sense if "the" is prefixed to it.
     let segments = event_id.path().segments().collect::<Vec<_>>();
     let kind = event_id.event_kind();
@@ -142,7 +146,7 @@ pub fn event_short_id(event_id: &EventId) -> String {
             let inner_id = EventId::from_path_and_kind(event_id.path().to_path(), *inner);
             format!(
                 "assertion that the {} will be {}",
-                event_short_id(&inner_id),
+                event_id_short(&inner_id),
                 value
             )
         }
@@ -151,8 +155,12 @@ pub fn event_short_id(event_id: &EventId) -> String {
 }
 
 #[wasm_bindgen]
-pub fn event_html(id: &str) -> Option<String> {
+pub fn event_html_str(id: &str) -> Option<String> {
     let id = EventId::from_str(id).ok()?;
+    event_html(&id)
+}
+
+pub fn event_html(id: &EventId) -> Option<String> {
     let segments = id.path().segments().collect::<Vec<_>>();
     let kind = id.event_kind();
     match (&segments[..], kind) {
@@ -176,7 +184,7 @@ pub fn event_html(id: &str) -> Option<String> {
         },
         (_, EventKind::Predicate { inner, kind: PredicateKind::Eq(value) }) => {
             let inner_event_id = id.replace_kind(*inner);
-            let inner_html = event_html(inner_event_id.as_str());
+            let inner_html = event_html(&inner_event_id);
             let outcome = Outcome::try_from_id_and_outcome(inner_event_id.clone(), &value).ok()?;
             Some(format!("This event asserts that the outcome of {} will be {}.", Heventid(inner_event_id), Houtcome(outcome))
                  + &match inner_html {
@@ -184,7 +192,7 @@ pub fn event_html(id: &str) -> Option<String> {
                      None => "".to_string()
                  })
         },
-        _ => event_short(id.as_str()).map(|s| s + ".")
+        _ => Some(event_id_short(&id) +  ".")
     }
 }
 
@@ -201,7 +209,7 @@ impl OutcomeDesc {
     }
 }
 
-pub fn _describe_outcome(id: EventId, outcome: &str) -> OutcomeDesc {
+pub fn outcome(id: &EventId, outcome: &str) -> OutcomeDesc {
     let segments = id.path().segments().collect::<Vec<_>>();
     let kind = id.event_kind();
 
@@ -256,27 +264,27 @@ pub fn _describe_outcome(id: EventId, outcome: &str) -> OutcomeDesc {
         ) => {
             let inner_event_id = id.replace_kind(*inner);
             if outcome == "true" {
-                _describe_outcome(inner_event_id, &value)
+                crate::outcome(&inner_event_id, &value)
             } else {
-                _describe_outcome(inner_event_id, &value).negate()
+                crate::outcome(&inner_event_id, &value).negate()
             }
         }
         _ => OutcomeDesc {
-            positive: format!("the {} is {}", event_short_id(&id), outcome),
-            negative: format!("the {} is not {}", event_short_id(&id), outcome),
+            positive: format!("the {} is {}", event_id_short(id), outcome),
+            negative: format!("the {} is not {}", event_id_short(id), outcome),
         },
     }
 }
 
 #[wasm_bindgen]
-pub fn describe_outcome(id: &str, outcome: &str) -> Option<String> {
+pub fn outcome_str(id: &str, outcome: &str) -> Option<String> {
     let id = EventId::from_str(id).ok()?;
     let _ = Outcome::try_from_id_and_outcome(id.clone(), outcome).ok()?;
-    Some(_describe_outcome(id, outcome).positive)
+    Some(crate::outcome(&id, outcome).positive)
 }
 
 #[wasm_bindgen]
-pub fn long_path_name(path: &str) -> Option<String> {
+pub fn long_path_name_str(path: &str) -> Option<String> {
     let path = Path::from_str(path).ok()?;
     let segments = path.as_path_ref().segments().collect::<Vec<_>>();
     Some(match &segments[..] {
@@ -339,31 +347,31 @@ mod test {
         let predicated = "/EPL/match/2021-08-13/BRE_ARS.vs=ARS_win";
         let predicated_draw = "/EPL/match/2021-08-13/BRE_ARS.vs=draw";
         assert_eq!(
-            describe_outcome(&event_id, "BRE_win").unwrap(),
+            outcome_str(&event_id, "BRE_win").unwrap(),
             "Brentford beats Arsenal in their English Premier League match on 2021-08-13"
         );
         assert_eq!(
-            describe_outcome(&event_id, "ARS_win").unwrap(),
+            outcome_str(&event_id, "ARS_win").unwrap(),
             "Arsenal beats Brentford in their English Premier League match on 2021-08-13"
         );
         assert_eq!(
-            describe_outcome(&event_id, "draw").unwrap(),
+            outcome_str(&event_id, "draw").unwrap(),
             "Brentford and Arsenal draw in their English Premier League match on 2021-08-13"
         );
         assert_eq!(
-            describe_outcome(&predicated, "true").unwrap(),
+            outcome_str(&predicated, "true").unwrap(),
             "Arsenal beats Brentford in their English Premier League match on 2021-08-13"
         );
         assert_eq!(
-            describe_outcome(&predicated, "false").unwrap(),
+            outcome_str(&predicated, "false").unwrap(),
             "Arsenal does not beat Brentford in their English Premier League match on 2021-08-13"
         );
         assert_eq!(
-            describe_outcome(&predicated_draw, "true").unwrap(),
+            outcome_str(&predicated_draw, "true").unwrap(),
             "Brentford and Arsenal draw in their English Premier League match on 2021-08-13"
         );
         assert_eq!(
-            describe_outcome(&predicated_draw, "false").unwrap(),
+            outcome_str(&predicated_draw, "false").unwrap(),
             "Brentford and Arsenal do not draw in their English Premier League match on 2021-08-13"
         );
     }
