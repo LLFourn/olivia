@@ -21,6 +21,12 @@ export function event_short(event_id: string): string | undefined;
 */
 export function event_html(id: string): string | undefined;
 /**
+* @param {string} id
+* @param {string} outcome
+* @returns {string | undefined}
+*/
+export function describe_outcome(id: string, outcome: string): string | undefined;
+/**
 * @param {string} path
 * @returns {string | undefined}
 */
