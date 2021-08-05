@@ -20,4 +20,4 @@ olivia_core = { path = "../olivia_core" }
 wasm-bindgen-test = "0.3.0"
 
 [features]
-default = ["wee_alloc"]
+default = []
