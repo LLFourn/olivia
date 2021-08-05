@@ -144,10 +144,9 @@ pub fn event_id_short(event_id: &EventId) -> String {
             },
         ) => {
             let inner_id = EventId::from_path_and_kind(event_id.path().to_path(), *inner);
-            format!(
-                "assertion that {}",
-                outcome(&inner_id, &value).positive,
-            )
+            let outcome = Outcome::try_from_id_and_outcome(inner_id, &value)
+                .expect("this will be valid since predicate is valid");
+            format!("assertion that {}", crate::outcome(&outcome).positive,)
         }
     };
     desc
@@ -208,9 +207,11 @@ impl OutcomeDesc {
     }
 }
 
-pub fn outcome(id: &EventId, outcome: &str) -> OutcomeDesc {
+pub fn outcome(outcome: &Outcome) -> OutcomeDesc {
+    let id = &outcome.id;
     let segments = id.path().segments().collect::<Vec<_>>();
     let kind = id.event_kind();
+    let outcome_str = outcome.outcome_string();
 
     match (&segments[..], kind) {
         ([competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
@@ -219,7 +220,7 @@ pub fn outcome(id: &EventId, outcome: &str) -> OutcomeDesc {
             let right_long = lookup_team(competition, right);
             let competition = lookup_competition(competition);
 
-            if outcome == "draw" {
+            if outcome_str == "draw" {
                 return OutcomeDesc {
                     positive: format!(
                         "{} and {} draw in their {} match on {}",
@@ -233,8 +234,8 @@ pub fn outcome(id: &EventId, outcome: &str) -> OutcomeDesc {
             }
 
             let winner = match vs_kind {
-                VsMatchKind::Win => outcome,
-                VsMatchKind::WinOrDraw => outcome.strip_suffix("_win").unwrap().into(),
+                VsMatchKind::Win => outcome_str,
+                VsMatchKind::WinOrDraw => outcome_str.strip_suffix("_win").unwrap().into(),
             };
 
             let (winner, loser) = if winner == left {
@@ -262,10 +263,12 @@ pub fn outcome(id: &EventId, outcome: &str) -> OutcomeDesc {
             },
         ) => {
             let inner_event_id = id.replace_kind(*inner);
-            if outcome == "true" {
-                crate::outcome(&inner_event_id, &value)
+            let inner_outcome = Outcome::try_from_id_and_outcome(inner_event_id, &value)
+                .expect("predicate is valid");
+            if outcome_str == "true" {
+                crate::outcome(&inner_outcome)
             } else {
-                crate::outcome(&inner_event_id, &value).negate()
+                crate::outcome(&inner_outcome).negate()
             }
         }
         _ => OutcomeDesc {
@@ -278,8 +281,8 @@ pub fn outcome(id: &EventId, outcome: &str) -> OutcomeDesc {
 #[wasm_bindgen]
 pub fn outcome_str(id: &str, outcome: &str) -> Option<String> {
     let id = EventId::from_str(id).ok()?;
-    let _ = Outcome::try_from_id_and_outcome(id.clone(), outcome).ok()?;
-    Some(crate::outcome(&id, outcome).positive)
+    let outcome = Outcome::try_from_id_and_outcome(id.clone(), outcome).ok()?;
+    Some(crate::outcome(&outcome).positive)
 }
 
 #[wasm_bindgen]
