@@ -272,8 +272,12 @@ pub fn outcome(outcome: &Outcome) -> OutcomeDesc {
             }
         }
         _ => OutcomeDesc {
-            positive: format!("the {} is {}", event_id_short(id), outcome),
-            negative: format!("the {} is not {}", event_id_short(id), outcome),
+            positive: format!("the {} is {}", event_id_short(id), outcome.outcome_string()),
+            negative: format!(
+                "the {} is not {}",
+                event_id_short(id),
+                outcome.outcome_string()
+            ),
         },
     }
 }
