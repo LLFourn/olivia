@@ -114,7 +114,7 @@ pub fn event_id_short(event_id: &EventId) -> String {
             format!("time {} has passed", datetime)
         }
         (["random", datetime, ..], _) => format!(
-            "randomly selected outcome from {} possibilities at {}",
+            "oracle's randomly selected outcome from {} possibilities at {}",
             event_id.n_outcomes(),
             datetime
         ),
