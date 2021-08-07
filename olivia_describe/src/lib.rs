@@ -4,6 +4,7 @@ use alloc::{string::String, vec::Vec};
 use core::str::FromStr;
 use olivia_core::{EventId, EventKind, Outcome, Path, PathRef, PredicateKind, VsMatchKind};
 
+#[cfg(feature = "wasm-bindgen")]
 use wasm_bindgen::prelude::*;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -35,7 +36,7 @@ impl core::fmt::Display for Heventid {
     }
 }
 
-#[wasm_bindgen]
+#[cfg_attr(feature = "wasm-bindgen", wasm_bindgen)]
 pub fn path_short_str(path: &str) -> Option<String> {
     let path = Path::from_str(path).ok()?;
     path_short(path.as_path_ref())
@@ -70,7 +71,7 @@ pub fn path_short(path: PathRef<'_>) -> Option<String> {
     return Some(desc);
 }
 
-#[wasm_bindgen]
+#[cfg_attr(feature = "wasm-bindgen", wasm_bindgen)]
 pub fn path_html_str(path: &str) -> Option<String> {
     let path = Path::from_str(path).ok()?;
     let segments = path.as_path_ref().segments().collect::<Vec<_>>();
@@ -82,7 +83,7 @@ pub fn path_html_str(path: &str) -> Option<String> {
     Some(desc)
 }
 
-#[wasm_bindgen]
+#[cfg_attr(feature = "wasm-bindgen", wasm_bindgen)]
 #[rustfmt::skip]
 pub fn event_id_short_str(event_id: &str) -> Option<String> {
     let event_id = EventId::from_str(event_id).ok()?;
@@ -152,7 +153,8 @@ pub fn event_id_short(event_id: &EventId) -> String {
     desc
 }
 
-#[wasm_bindgen]
+
+#[cfg_attr(feature = "wasm-bindgen", wasm_bindgen)]
 pub fn event_html_str(id: &str) -> Option<String> {
     let id = EventId::from_str(id).ok()?;
     event_html(&id)
@@ -282,14 +284,14 @@ pub fn outcome(outcome: &Outcome) -> OutcomeDesc {
     }
 }
 
-#[wasm_bindgen]
+#[cfg_attr(feature = "wasm-bindgen", wasm_bindgen)]
 pub fn outcome_str(id: &str, outcome: &str) -> Option<String> {
     let id = EventId::from_str(id).ok()?;
     let outcome = Outcome::try_from_id_and_outcome(id.clone(), outcome).ok()?;
     Some(crate::outcome(&outcome).positive)
 }
 
-#[wasm_bindgen]
+#[cfg_attr(feature = "wasm-bindgen", wasm_bindgen)]
 pub fn long_path_name_str(path: &str) -> Option<String> {
     let path = Path::from_str(path).ok()?;
     let segments = path.as_path_ref().segments().collect::<Vec<_>>();
