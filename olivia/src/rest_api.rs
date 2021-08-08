@@ -1,35 +1,14 @@
 use crate::db::DbReadOracle;
-use core::{convert::TryFrom, future::Future, str::FromStr};
+use core::{convert::TryFrom, str::FromStr};
 use olivia_core::{http::*, EventId, GetPath, Group, Path, PathRef};
 use serde::Serialize;
-use std::{convert::Infallible, marker::PhantomData, sync::Arc};
+use std::{convert::Infallible, sync::Arc};
 use warp::{self, http, Filter};
 
 #[derive(Clone, Debug)]
 pub enum ApiReply<T> {
     Ok(T),
     Err(ErrorMessage),
-}
-
-impl<T> ApiReply<T> {
-    pub async fn map<U, F: FnOnce(T) -> Fut, Fut: Future<Output = U>>(self, op: F) -> ApiReply<U> {
-        use ApiReply::*;
-        match self {
-            Ok(t) => Ok(op(t).await),
-            Err(e) => Err(e),
-        }
-    }
-
-    pub async fn and_then<U, F: FnOnce(T) -> Fut, Fut: Future<Output = ApiReply<U>>>(
-        self,
-        op: F,
-    ) -> ApiReply<U> {
-        use ApiReply::*;
-        match self {
-            Ok(t) => op(t).await,
-            Err(e) => Err(e),
-        }
-    }
 }
 
 impl<T: Send + Serialize> warp::Reply for ApiReply<T> {
@@ -82,138 +61,162 @@ impl ErrorMessage {
     }
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct Filters<C> {
-    curve: PhantomData<C>,
+fn with_db<C: Group>(
+    db: Arc<dyn DbReadOracle<C>>,
+) -> impl Filter<Extract = (Arc<dyn DbReadOracle<C>>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || db.clone())
 }
 
-impl<C: Group> Filters<C> {
-    pub fn with_db(
-        &self,
-        db: Arc<dyn DbReadOracle<C>>,
-    ) -> impl Filter<Extract = (Arc<dyn DbReadOracle<C>>,), Error = std::convert::Infallible> + Clone
-    {
-        warp::any().map(move || db.clone())
-    }
+async fn get_event<C: Group>(
+    tail: warp::filters::path::Tail,
+    db: Arc<dyn DbReadOracle<C>>,
+) -> Result<ApiReply<EventResponse<C>>, warp::reject::Rejection> {
+    let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
+    let path = format!("/{}", tail);
+    let path = match Path::from_str(&path) {
+        Ok(path) => path,
+        Err(_) => {
+            return Ok(ApiReply::Err(
+                ErrorMessage::bad_request()
+                    .with_message(format!("'{}' is not a valid event path", path)),
+            ))
+        }
+    };
 
-    pub fn get_event(
-        &self,
-        db: Arc<dyn DbReadOracle<C>>,
-    ) -> impl Filter<Extract = (ApiReply<EventResponse<C>>,), Error = warp::reject::Rejection> + Clone
-    {
-        warp::path::tail()
-            .and_then(
-                async move |tail: warp::filters::path::Tail| -> Result<ApiReply<EventId>, warp::reject::Rejection> {
-                    let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
-                    let path = format!("/{}", tail);
-                    let path = match Path::from_str(&path) {
-                        Ok(path) => path,
-                        Err(_) => return Ok(ApiReply::Err(ErrorMessage::bad_request().with_message(format!("'{}' is not a valid event path", path))))
-                    };
+    // if we've got a valid path but it doesn't look like an event we should reject
+    let _ = path.as_path_ref().strip_event().ok_or(warp::reject())?;
 
-                    // if we've got a valid bath but it doesn't look like an event we should reject
-                    let _ = path.as_path_ref().strip_event().ok_or(warp::reject())?;
+    let reply = match EventId::try_from(path.clone()) {
+        Ok(event_id) => {
+            let res = db.get_announced_event(&event_id).await;
+            match res {
+                Ok(Some(event)) => ApiReply::Ok(event.into()),
+                Ok(None) => ApiReply::Err(ErrorMessage::not_found()),
+                Err(_e) => ApiReply::Err(ErrorMessage::internal_server_error()),
+            }
+        }
+        Err(e) => ApiReply::Err(
+            ErrorMessage::bad_request()
+                .with_message(format!("'{}' is not a valid event id: {}", path, e)),
+        ),
+    };
 
-                    let reply = match EventId::try_from(path.clone()) {
-                        Ok(event_id) => ApiReply::Ok(event_id),
-                        Err(e) =>  ApiReply::Err(
-                            ErrorMessage::bad_request().with_message(format!("'{}' is not a valid event id: {}", path, e)),
-                        ),
-                    };
+    Ok(reply)
+}
 
-                    Ok(reply)
+pub async fn get_root<C: Group>(db: Arc<dyn DbReadOracle<C>>) -> ApiReply<RootResponse<C>> {
+    let public_keys = db.get_public_keys().await;
+    match public_keys {
+        Ok(Some(public_keys)) => match db.get_node(PathRef::root()).await {
+            Ok(Some(node)) => ApiReply::Ok(RootResponse {
+                public_keys,
+                node: GetPath {
+                    events: node.events,
+                    child_desc: node.child_desc,
                 },
-            )
-            .and(self.with_db(db))
-            .and_then(
-                async move |event_id: ApiReply<EventId>, db: Arc<dyn DbReadOracle<C>>| {
-                    let reply = event_id
-                        .and_then(async move |event_id| {
-                            let res = db.get_announced_event(&event_id).await;
-                            match res {
-                                Ok(Some(event)) => ApiReply::Ok(event.into()),
-                                Ok(None) => ApiReply::Err(ErrorMessage::not_found()),
-                                Err(_e) => ApiReply::Err(ErrorMessage::internal_server_error()),
-                            }
-                        })
-                        .await;
-
-                    Ok::<_, Infallible>(reply)
-                },
-            )
+            }),
+            Err(_) | Ok(None) => ApiReply::Err(ErrorMessage::internal_server_error()),
+        },
+        Err(_) | Ok(None) => ApiReply::Err(ErrorMessage::internal_server_error()),
     }
+}
 
-    pub fn get_path(
-        &self,
-        db: Arc<dyn DbReadOracle<C>>,
-    ) -> impl Filter<Extract = (ApiReply<PathResponse>,), Error = Infallible> + Clone {
-        warp::path::tail().and(self.with_db(db)).and_then(
-            async move |tail: warp::filters::path::Tail, db: Arc<dyn DbReadOracle<C>>| {
-                let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
-                let path = match Path::from_str(&format!("/{}", tail)) {
-                    Ok(path) => path,
-                    Err(_) => {
-                        return Ok(ApiReply::Err(
-                            ErrorMessage::bad_request()
-                                .with_message(format!("'/{}' is not a valid event path", tail)),
-                        ))
-                    }
-                };
-                let node = db.get_node(path.as_path_ref()).await;
-                let reply = match node {
-                    Ok(Some(node)) => ApiReply::Ok(PathResponse {
-                        node: GetPath {
-                            events: node.events,
-                            child_desc: node.child_desc,
-                        },
-                    }),
-                    Ok(None) => ApiReply::Err(ErrorMessage::not_found()),
-                    Err(_e) => ApiReply::Err(ErrorMessage::internal_server_error()),
-                };
-                Ok::<_, Infallible>(reply)
+async fn get_path<C: Group>(
+    tail: warp::filters::path::Tail,
+    db: Arc<dyn DbReadOracle<C>>,
+) -> ApiReply<PathResponse> {
+    let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
+    let path = match Path::from_str(&format!("/{}", tail)) {
+        Ok(path) => path,
+        Err(_) => {
+            return ApiReply::Err(
+                ErrorMessage::bad_request()
+                    .with_message(format!("'/{}' is not a valid event path", tail)),
+            )
+        }
+    };
+    let node = db.get_node(path.as_path_ref()).await;
+    match node {
+        Ok(Some(node)) => ApiReply::Ok(PathResponse {
+            node: GetPath {
+                events: node.events,
+                child_desc: node.child_desc,
             },
-        )
-    }
-
-    pub fn get_root(
-        &self,
-        db: Arc<dyn DbReadOracle<C>>,
-    ) -> impl Filter<Extract = (ApiReply<RootResponse<C>>,), Error = Infallible> + Clone {
-        self.with_db(db.clone())
-            .and_then(async move |db: Arc<dyn DbReadOracle<C>>| {
-                let public_keys = db.get_public_keys().await;
-                let res = db.get_node(PathRef::root()).await;
-
-                let reply = if let Ok(Some(public_keys)) = public_keys {
-                    if let Ok(Some(node)) = res {
-                        ApiReply::Ok(RootResponse {
-                            public_keys,
-                            node: GetPath {
-                                events: node.events,
-                                child_desc: node.child_desc,
-                            },
-                        })
-                    } else {
-                        ApiReply::Err(ErrorMessage::internal_server_error())
-                    }
-                } else {
-                    ApiReply::Err(ErrorMessage::internal_server_error())
-                };
-
-                Ok::<_, Infallible>(reply)
-            })
+        }),
+        Ok(None) => ApiReply::Err(ErrorMessage::not_found()),
+        Err(_e) => {
+            dbg!(_e);
+            ApiReply::Err(ErrorMessage::internal_server_error())
+        }
     }
 }
+
+// impl<C: Group> Filters<C> {
+
+//
+//     pub async fn get_root(db: Arc<dyn DbReadOracle<C>>) -> ApiReply<RootResponse<C>> {
+//         let public_keys = db.get_public_keys().await;
+//         let res = db.get_node(PathRef::root()).await;
+
+//         let reply = if let Ok(Some(public_keys)) = public_keys {
+//             if let Ok(Some(node)) = res {
+//                 ApiReply::Ok(RootResponse {
+//                     public_keys,
+//                     node: GetPath {
+//                         events: node.events,
+//                         child_desc: node.child_desc,
+//                     },
+//                 })
+//             } else {
+//                 ApiReply::Err(ErrorMessage::internal_server_error())
+//             }
+//         } else {
+//             ApiReply::Err(ErrorMessage::internal_server_error())
+//         };
+
+//         reply
+//     }
+//     pub async fn get_root(db: Arc<dyn DbReadOracle<C>>) -> ApiReply<RootResponse<C>> {
+//         let public_keys = db.get_public_keys().await;
+//         let res = db.get_node(PathRef::root()).await;
+
+//         let reply = if let Ok(Some(public_keys)) = public_keys {
+//             if let Ok(Some(node)) = res {
+//                 ApiReply::Ok(RootResponse {
+//                     public_keys,
+//                     node: GetPath {
+//                         events: node.events,
+//                         child_desc: node.child_desc,
+//                     },
+//                 })
+//             } else {
+//                 ApiReply::Err(ErrorMessage::internal_server_error())
+//             }
+//         } else {
+//             ApiReply::Err(ErrorMessage::internal_server_error())
+//         };
+
+//         reply
+//     }
+// }
 
 pub fn routes<C: Group>(
     db: Arc<dyn DbReadOracle<C>>,
     _logger: slog::Logger,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::reject::Rejection> + Clone {
-    let filters = Filters::<C>::default();
-    let event = warp::get().and(filters.get_event(db.clone()));
-    let root = warp::path::end().and(filters.get_root(db.clone()));
+    let event = warp::get()
+        .and(warp::path::tail())
+        .and(with_db(db.clone()))
+        .and_then(get_event);
+    let root = warp::get()
+        .and(warp::path::end())
+        .and(with_db(db.clone()))
+        .and_then(|db| async { Ok::<_, Infallible>(get_root(db).await) });
+    let path = warp::get()
+        .and(warp::path::tail())
+        .and(with_db(db.clone()))
+        .and_then(|tail, db| async { Ok::<_, Infallible>(get_path(tail, db).await) });
 
-    let path = warp::get().and(filters.get_path(db.clone()));
     let cors = warp::cors()
         .allow_any_origin()
         .allow_methods(vec!["OPTIONS", "GET", "POST", "DELETE", "PUT"])

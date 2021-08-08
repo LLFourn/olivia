@@ -35,3 +35,4 @@ testcontainers = { version = "0.12"}
 
 [features]
 docker_tests = []
+nightly = ["olivia_secp256k1/nightly"]

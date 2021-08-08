@@ -6,8 +6,8 @@ edition = "2018"
 
 [dependencies]
 olivia_core = { path = "../olivia_core" }
-schnorr_fun = { git = "https://github.com/LLFourn/secp256kfun.git", rev = "2a361f26c82552099bfecffe5955cda83c226a9b", features = ["serde" ] }
-ecdsa_fun = { git = "https://github.com/LLFourn/secp256kfun.git", rev =  "2a361f26c82552099bfecffe5955cda83c226a9b", default-features = false, features = ["serde"] }
+schnorr_fun = { git = "https://github.com/LLFourn/secp256kfun.git", rev = "2a361f26c82552099bfecffe5955cda83c226a9b", default-features = false, features = ["serde", "alloc"] }
+ecdsa_fun = { git = "https://github.com/LLFourn/secp256kfun.git", rev =  "2a361f26c82552099bfecffe5955cda83c226a9b", default-features = false, features = ["serde", "alloc"] }
 serde  = { version = "1", default-features = false }
 lazy_static = "1"
 sha2 = "0.9"
@@ -16,5 +16,6 @@ anyhow = {  version = "1", features = ["std"], optional = true }
 
 
 [features]
+nightly = ["schnorr_fun/nightly", "ecdsa_fun/nightly"]
 libsecp_compat = ["schnorr_fun/libsecp_compat", "ecdsa_fun/libsecp_compat"]
 postgres-types = ["olivia_core/postgres-types", "anyhow"]
