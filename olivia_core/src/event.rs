@@ -210,6 +210,15 @@ impl EventId {
             kind: PredicateKind::Eq(outcome_string),
         })
     }
+
+    /// Return a shortened id with only the end of the id included.
+    pub fn short_id(&self) -> String {
+        format!(
+            "{}.{}",
+            self.path().segments().last().unwrap(),
+            self.event_kind()
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -503,6 +512,22 @@ mod test {
                 .unwrap()
                 .as_str(),
             "/"
+        );
+    }
+
+    #[test]
+    fn event_id_short_id() {
+        assert_eq!(
+            EventId::from_str("/foo/bar/FOO_BAR.vs=FOO_win")
+                .unwrap()
+                .short_id(),
+            "FOO_BAR.vs=FOO_win"
+        );
+        assert_eq!(
+            EventId::from_str("/foo/bar/FOO_BAR.winner")
+                .unwrap()
+                .short_id(),
+            "FOO_BAR.winner"
         );
     }
 }
