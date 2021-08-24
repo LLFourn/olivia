@@ -40,3 +40,5 @@ CREATE INDEX idx_lookup_node_by_parent ON tree USING HASH (parent);
 CREATE INDEX min_max_node_id ON tree (parent, id);
 -- TODO: We need an index which makes looking up the earliest unattested event faster
 CREATE INDEX idx_path_gist ON event USING GIST (path);
+
+INSERT INTO meta (key, value) VALUES ('version', '{"version" : 0 }'::jsonb);

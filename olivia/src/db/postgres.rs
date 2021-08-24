@@ -94,6 +94,11 @@ pub struct PgBackendWrite {
     database_url: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Version {
+    version: u32,
+}
+
 impl PgBackendWrite {
     pub async fn connect(database_url: &str) -> anyhow::Result<Self> {
         let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
@@ -110,6 +115,11 @@ impl PgBackendWrite {
             client: RwLock::new(client),
             database_url: database_url.into(),
         })
+    }
+
+    pub async fn version(&self) -> anyhow::Result<Version> {
+        let row = self.client.read().await.query_one(r#"SELECT value FROM meta WHERE key = 'version'"#, &[]).await?;
+        Ok(serde_json::from_value(row.get::<_, serde_json::Value>("value"))?)
     }
 
     pub async fn setup(&self) -> anyhow::Result<()> {
@@ -596,5 +606,15 @@ mod test {
             db,
         ))
         .await
+    }
+
+    #[tokio::test]
+    async fn get_schema_version() {
+        let docker = clients::Cli::default();
+        let (url, _container) = new_backend!(docker);
+        let db = PgBackendWrite::connect(&url).await.unwrap();
+        db.setup().await.unwrap();
+        let version = db.version().await.unwrap();
+        assert_eq!(version.version, 0);
     }
 }
