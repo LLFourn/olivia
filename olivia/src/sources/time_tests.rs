@@ -26,6 +26,7 @@ macro_rules! run_time_db_tests {
                 $($init)*;
                 let look_ahead = Duration::seconds(2);
                 let interval = Duration::seconds(1);
+                let fudge = Duration::milliseconds(300);
                 let initial_time = now();
 
                 let mut stream = Box::pin(TimeEventStream {
@@ -72,7 +73,7 @@ macro_rules! run_time_db_tests {
                     let _ = update.processed_notifier.unwrap().send(false);
                 }
                 assert!(
-                    now() < initial_time + Duration::milliseconds(200),
+                    now() < initial_time + fudge,
                     "we shouldn't have waited for anything yet"
                 );
 
@@ -92,7 +93,7 @@ macro_rules! run_time_db_tests {
                     "we should have waited for 1 second"
                 );
                 assert!(
-                    now() < initial_time + Duration::milliseconds(1200),
+                    now() < initial_time + Duration::milliseconds(1000) + fudge,
                     "shouldn't have waited too much"
                 );
             }
