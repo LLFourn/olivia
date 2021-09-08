@@ -74,7 +74,7 @@ To complete the event you do something similar:
 
 ``` sh
 # if MIL wins
-redis-cli lpush NBA:events '{"id" : "/NBA/match/2021-06-20/MIL_BKN.winner", "outcome": "MIL"}'
+redis-cli lpush NBA:outcomes '{"id" : "/NBA/match/2021-06-20/MIL_BKN.winner", "outcome": "MIL"}'
 ```
 
 Exactly what constitutes a valid "outcome" depends on the even type (in this case `winner`).
