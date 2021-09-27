@@ -111,15 +111,6 @@ pub fn event_id_short(event_id: &EventId) -> String {
                 ),
             }
         }
-        (["time", datetime], EventKind::SingleOccurrence) => {
-            format!("time {} has passed", datetime)
-        }
-        (["random", datetime, ..], _) => format!(
-            "oracle's randomly selected outcome from {} possibilities at {}",
-            event_id.n_outcomes(),
-            datetime
-        ),
-        (_, EventKind::SingleOccurrence) => format!("{} has transpired", event_id.path()),
         ([..], EventKind::VsMatch(vs_kind)) => {
             let (left, right) = event_id.parties().unwrap();
             match vs_kind {
@@ -137,6 +128,35 @@ pub fn event_id_short(event_id: &EventId) -> String {
                 ),
             }
         }
+        (["time", datetime], EventKind::SingleOccurrence) => {
+            format!("time {} has passed", datetime)
+        }
+        (["random", datetime, ..], _) => format!(
+            "oracle's randomly selected outcome from {} possibilities at {}",
+            event_id.n_outcomes(),
+            datetime
+        ),
+        (_, EventKind::SingleOccurrence) => format!("{} has transpired", event_id.path()),
+        (
+            ["x", exchange, sym, time, instrument @ ..],
+            EventKind::Price {
+                n_digits: _n_digits,
+            },
+        ) => {
+            format!(
+                "{} price of {} at {} on {}",
+                instrument.join(" "),
+                sym,
+                time,
+                exchange
+            )
+        }
+        (
+            [..],
+            EventKind::Price {
+                n_digits: _n_digits,
+            },
+        ) => format!("price of {}", event_id.path()),
         (
             [..],
             EventKind::Predicate {
@@ -152,7 +172,6 @@ pub fn event_id_short(event_id: &EventId) -> String {
     };
     desc
 }
-
 
 #[cfg_attr(feature = "wasm-bindgen", wasm_bindgen)]
 pub fn event_html_str(id: &str) -> Option<String> {
@@ -274,7 +293,11 @@ pub fn outcome(outcome: &Outcome) -> OutcomeDesc {
             }
         }
         _ => OutcomeDesc {
-            positive: format!("the {} is \"{}\"", event_id_short(id), outcome.outcome_string()),
+            positive: format!(
+                "the {} is \"{}\"",
+                event_id_short(id),
+                outcome.outcome_string()
+            ),
             negative: format!(
                 "the {} is not \"{}\"",
                 event_id_short(id),

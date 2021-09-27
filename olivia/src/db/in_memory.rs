@@ -266,6 +266,7 @@ mod test {
     #[tokio::test]
     async fn test_against_oracle() {
         let db = Arc::<InMemory<olivia_secp256k1::Secp256k1>>::default();
-        crate::oracle::test::test_oracle_event_lifecycle(db).await
+        crate::oracle::test::test_oracle_event_lifecycle(db.clone()).await;
+        crate::oracle::test::test_price_oracle_event_lifecycle(db.clone()).await;
     }
 }

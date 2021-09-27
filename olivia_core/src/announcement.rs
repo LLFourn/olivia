@@ -122,7 +122,7 @@ impl<C: Group> TryFrom<OracleEventWithDescriptor<C>> for OracleEvent<C> {
         let schemes = &oracle_event.schemes;
 
         if let Some(olivia_v1) = &schemes.olivia_v1 {
-            if olivia_v1.nonces.len() < oracle_event.descriptor.n_nonces() {
+            if olivia_v1.nonces.len() < oracle_event.id.n_nonces() as usize {
                 return Err("oracle event doesn't have enough nonces for descriptor".into());
             }
         }
@@ -211,15 +211,17 @@ impl<C: Group> RawAnnouncement<C> {
     }
 
     pub fn test_instance(event: Event) -> Self {
+        let nonces: Vec<_> = (0..event.id.event_kind().n_nonces())
+            .map(|_| C::test_nonce_keypair().into())
+            .collect();
         Self::create(
             event.clone(),
             &C::test_keypair(),
             AnnouncementSchemes {
-                olivia_v1: Some(announce::OliviaV1 {
-                    nonces: (0..event.id.event_kind().n_nonces())
-                        .map(|_| C::test_nonce_keypair().into())
-                        .collect(),
-                }),
+                olivia_v1: match nonces.is_empty() {
+                    true => None,
+                    false => Some(announce::OliviaV1 { nonces }),
+                },
                 ecdsa_v1: Some(announce::EcdsaV1 {}),
             },
         )

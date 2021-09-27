@@ -118,8 +118,15 @@ impl PgBackendWrite {
     }
 
     pub async fn version(&self) -> anyhow::Result<Version> {
-        let row = self.client.read().await.query_one(r#"SELECT value FROM meta WHERE key = 'version'"#, &[]).await?;
-        Ok(serde_json::from_value(row.get::<_, serde_json::Value>("value"))?)
+        let row = self
+            .client
+            .read()
+            .await
+            .query_one(r#"SELECT value FROM meta WHERE key = 'version'"#, &[])
+            .await?;
+        Ok(serde_json::from_value(
+            row.get::<_, serde_json::Value>("value"),
+        )?)
     }
 
     pub async fn setup(&self) -> anyhow::Result<()> {
@@ -602,10 +609,13 @@ mod test {
         let (url, _container) = new_backend!(docker);
         let db = PgBackendWrite::connect(&url).await.unwrap();
         db.setup().await.unwrap();
-        crate::oracle::test::test_oracle_event_lifecycle::<olivia_secp256k1::Secp256k1>(Arc::new(
-            db,
-        ))
-        .await
+        let db = Arc::new(db);
+        crate::oracle::test::test_oracle_event_lifecycle::<olivia_secp256k1::Secp256k1>(db.clone())
+            .await;
+        crate::oracle::test::test_price_oracle_event_lifecycle::<olivia_secp256k1::Secp256k1>(
+            db.clone(),
+        )
+        .await;
     }
 
     #[tokio::test]

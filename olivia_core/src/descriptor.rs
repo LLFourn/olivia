@@ -5,23 +5,10 @@ pub enum Descriptor {
         outcomes: Vec<String>,
     },
     DigitDecomposition {
-        base: usize,
         is_signed: bool,
         n_digits: u8,
         unit: Option<String>,
     },
-}
-
-impl Descriptor {
-    pub fn n_nonces(&self) -> usize {
-        use Descriptor::*;
-        match self {
-            Enum { .. } => 1,
-            DigitDecomposition {
-                n_digits,
-                is_signed,
-                ..
-            } => (*n_digits as usize) + (*is_signed as usize),
-        }
-    }
+    /// If the DLC spec doesn't support this
+    MissingDescriptor,
 }

@@ -10,6 +10,11 @@ pub enum EventKind {
         inner: Box<EventKind>,
         kind: PredicateKind,
     },
+    Price {
+        /// the number of nonces the oracle will use if using nonce based attestation.
+        /// Can't be more than 64.
+        n_digits: u8,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -23,25 +28,20 @@ pub enum VsMatchKind {
     Win,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum EventKindError {
+    #[error("{0} is an unknown event kind")]
     Unknown(String),
+    #[error("the argument to the event kind was badly formatted")]
+    ArgsBadFormat,
+    #[error("the expecting any arguments for this event kind")]
+    UnexpectedArgs,
 }
-
-impl fmt::Display for EventKindError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use EventKindError::*;
-        match self {
-            Unknown(string) => write!(f, "'{}' is an unknown event kind", string),
-        }
-    }
-}
-
-impl std::error::Error for EventKindError {}
 
 impl EventKind {
     pub fn n_nonces(&self) -> u8 {
         match self {
+            &EventKind::Price { n_digits } => n_digits,
             _ => 1,
         }
     }
@@ -58,6 +58,13 @@ impl fmt::Display for EventKind {
             EventKind::Predicate { inner, kind } => match kind {
                 PredicateKind::Eq(value) => write!(f, "{}={}", inner, value),
             },
+            EventKind::Price { n_digits } => {
+                write!(f, "price")?;
+                if *n_digits > 0 {
+                    write!(f, "[{}]", n_digits)?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -66,11 +73,59 @@ impl FromStr for EventKind {
     type Err = EventKindError;
 
     fn from_str(event_kind: &str) -> Result<Self, Self::Err> {
-        Ok(match event_kind {
-            "vs" => EventKind::VsMatch(VsMatchKind::WinOrDraw),
-            "winner" => EventKind::VsMatch(VsMatchKind::Win),
-            "occur" => EventKind::SingleOccurrence,
-            pred if pred.contains('=') => {
+        fn check_no_args(args: Option<&str>) -> Result<(), EventKindError> {
+            if args.is_some() {
+                Err(EventKindError::UnexpectedArgs)
+            } else {
+                Ok(())
+            }
+        }
+        let (event_kind, args) = match event_kind.find('[') {
+            Some(opener) => {
+                if event_kind.ends_with(']') {
+                    (
+                        &event_kind[..opener],
+                        Some(&event_kind[opener + 1..(event_kind.len() - 1)]),
+                    )
+                } else {
+                    return Err(EventKindError::ArgsBadFormat);
+                }
+            }
+            None => (event_kind, None),
+        };
+
+        Ok(match (event_kind, args) {
+            ("vs", args) => {
+                check_no_args(args)?;
+                EventKind::VsMatch(VsMatchKind::WinOrDraw)
+            }
+            ("winner", args) => {
+                check_no_args(args)?;
+                EventKind::VsMatch(VsMatchKind::Win)
+            }
+            ("occur", args) => {
+                check_no_args(args)?;
+                EventKind::SingleOccurrence
+            }
+            ("price", args) => {
+                let n_digits = args
+                    .map(|args| {
+                        u8::from_str(args)
+                            .map_err(|_| EventKindError::ArgsBadFormat)
+                            .and_then(|n_digits| {
+                                if n_digits == 0 || n_digits > 64 {
+                                    Err(EventKindError::ArgsBadFormat)
+                                } else {
+                                    Ok(n_digits)
+                                }
+                            })
+                    })
+                    .transpose()?
+                    .unwrap_or(0);
+                EventKind::Price { n_digits }
+            }
+            (pred, args) if pred.contains('=') => {
+                check_no_args(args)?;
                 let (lhs, rhs) = pred.split_once('=').expect("we checked this already");
                 let inner = Self::from_str(lhs)?;
                 EventKind::Predicate {
@@ -131,11 +186,13 @@ impl EventId {
             },
             EventKind::SingleOccurrence => 1,
             EventKind::Predicate { .. } => 2,
+            EventKind::Price { .. } => 2,
         }
     }
 
     pub fn n_outcomes(&self) -> u64 {
         match self.event_kind() {
+            EventKind::Price { .. } => u64::MAX,
             _ => self.n_outcomes_for_nonce(0) as u64,
         }
     }
@@ -163,6 +220,14 @@ impl EventId {
             }
             EventKind::SingleOccurrence => Descriptor::Enum {
                 outcomes: vec!["true".into()],
+            },
+            EventKind::Price { n_digits } => match n_digits {
+                0 => Descriptor::MissingDescriptor,
+                n_digits => Descriptor::DigitDecomposition {
+                    is_signed: false,
+                    n_digits,
+                    unit: None,
+                },
             },
             EventKind::Predicate { .. } => Descriptor::Enum {
                 outcomes: vec!["true".into(), "false".into()],
@@ -306,6 +371,7 @@ impl TryFrom<Path> for EventId {
                     }
                 }
             },
+            _ => { /*everything is fine */ }
         };
 
         Ok(EventId(id_as_path))
@@ -481,6 +547,25 @@ mod test {
         assert!(EventId::from_str("/foo/bar/FOO-BAR.vs").is_err());
         assert!(EventId::from_str("/foo.occur").is_ok());
         assert!(EventId::from_str("/test/one/two/3.occur").is_ok());
+        assert!(EventId::from_str("/foo/bar.price[5]").is_ok());
+        assert!(EventId::from_str("/foo/bar.price[65]").is_err());
+        assert!(EventId::from_str("/foo/bar.price[0]").is_err());
+    }
+
+    #[test]
+    fn test_n_nonces() {
+        assert_eq!(EventId::from_str("/foo/bar.occur").unwrap().n_nonces(), 1);
+        assert_eq!(
+            EventId::from_str("/foo/bar.price[5]").unwrap().n_nonces(),
+            5
+        );
+        assert_eq!(
+            EventId::from_str("/foo/bar.price[64]").unwrap().n_nonces(),
+            64
+        );
+        // price without a nonce specifer just assumes that we are not doing nonce based
+        // attestations
+        assert_eq!(EventId::from_str("/foo/bar.price").unwrap().n_nonces(), 0);
     }
 
     #[test]
