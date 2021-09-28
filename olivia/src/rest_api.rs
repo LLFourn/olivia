@@ -145,7 +145,6 @@ async fn get_path<C: Group>(
         }),
         Ok(None) => ApiReply::Err(ErrorMessage::not_found()),
         Err(_e) => {
-            dbg!(_e);
             ApiReply::Err(ErrorMessage::internal_server_error())
         }
     }

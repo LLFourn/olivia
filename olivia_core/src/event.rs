@@ -111,7 +111,6 @@ impl FromStr for EventKind {
                 EventKind::SingleOccurrence
             }
             ("price", args) => {
-                dbg!(&args);
                 let n_digits = match &args[..] {
                     [("n", n_digits)] => u8::from_str(n_digits)
                         .map_err(|_| EventKindError::ArgsBadFormat)
