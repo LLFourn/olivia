@@ -42,10 +42,46 @@ pub fn path_short_str(path: &str) -> Option<String> {
     path_short(path.as_path_ref())
 }
 
+#[allow(unused)]
+struct DateTime {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+}
+
+impl DateTime {
+    pub fn parse(dt: &str) -> Option<Self> {
+        let (ymd, hms) = dt.split_once('T')?;
+        if let [y, m, d] = ymd.split('-').collect::<Vec<_>>().as_slice() {
+            let year = u16::from_str(y).ok()?;
+            let month = u8::from_str(m).ok()?;
+            let day = u8::from_str(d).ok()?;
+            if let [h, m, s] = hms.split(':').collect::<Vec<_>>().as_slice() {
+                let hour = u8::from_str(h).ok()?;
+                let minute = u8::from_str(m).ok()?;
+                let second = u8::from_str(s).ok()?;
+                return Some(Self {
+                    year,
+                    month,
+                    day,
+                    hour,
+                    minute,
+                    second,
+                });
+            }
+        }
+        None
+    }
+}
+
 pub fn path_short(path: PathRef<'_>) -> Option<String> {
     let segments = path.segments().collect::<Vec<_>>();
     let desc = match &segments[..] {
-        [competition, "match", tail @ ..] => match tail {
+        ["s"] => format!("sports and Esports competitions"),
+        ["s", competition, "match", tail @ ..] => match tail {
             [] => format!("{} matches", lookup_competition(competition)),
             [date] => format!(
                 "{} matches set to be played on {}",
@@ -61,10 +97,16 @@ pub fn path_short(path: PathRef<'_>) -> Option<String> {
             }
             _ => return None,
         },
-        ["random"] => "Events with a random outcome chosen by the oracle".into(),
-        ["time"] => "Events that mark the passage of time".into(),
-        ["time", time, ..] => format!("Events that indicate when {} has passed", time),
-        ["random", time, ..] => format!("Events whose outcome will be randomly chosen at {}", time),
+        ["random"] => "events with a random outcome chosen by the oracle".into(),
+        ["time"] => "events that mark the passage of time".into(),
+        ["time", time, ..] => format!("events that indicate when {} has passed", time),
+        ["random", time, ..] => format!("events whose outcome will be randomly chosen at {}", time),
+        ["x"] => "exchange rates and prices".to_string(),
+        ["x", exchange] => format!("exchange rates and prices on {}", exchange),
+        ["x", exchange, instrument @ .., time] if DateTime::parse(time).is_some() => {
+            format!("{} on {} at {}", instrument.join(" "), exchange, time)
+        }
+        ["x", exchange, instrument @ ..] => format!("{} on {}", instrument.join(" "), exchange),
         _ => return None,
     };
 
@@ -95,7 +137,7 @@ pub fn event_id_short(event_id: &EventId) -> String {
     let segments = event_id.path().segments().collect::<Vec<_>>();
     let kind = event_id.event_kind();
     let desc = match (&segments[..], kind) {
-        ([competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
+        (["s", competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
             let (left, right) = event_id.parties().unwrap();
             let left_long = lookup_team(competition, left);
             let right_long = lookup_team(competition, right);
@@ -138,17 +180,16 @@ pub fn event_id_short(event_id: &EventId) -> String {
         ),
         (_, EventKind::SingleOccurrence) => format!("{} has transpired", event_id.path()),
         (
-            ["x", exchange, sym, time, instrument @ ..],
+            ["x", exchange, instrument @ .., time],
             EventKind::Price {
                 n_digits: _n_digits,
             },
         ) => {
             format!(
-                "{} price of {} at {} on {}",
+                "price of {} on {} at {}",
                 instrument.join(" "),
-                sym,
+                exchange,
                 time,
-                exchange
             )
         }
         (
@@ -235,7 +276,7 @@ pub fn outcome(outcome: &Outcome) -> OutcomeDesc {
     let outcome_str = outcome.outcome_string();
 
     match (&segments[..], kind) {
-        ([competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
+        (["s", competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
             let (left, right) = id.parties().unwrap();
             let left_long = lookup_team(competition, left);
             let right_long = lookup_team(competition, right);
@@ -374,9 +415,9 @@ mod test {
 
     #[test]
     fn test_describe_outcome_for_competition_match() {
-        let event_id = "/EPL/match/2021-08-13/BRE_ARS.vs";
-        let predicated = "/EPL/match/2021-08-13/BRE_ARS.vs=ARS_win";
-        let predicated_draw = "/EPL/match/2021-08-13/BRE_ARS.vs=draw";
+        let event_id = "/s/EPL/match/2021-08-13/BRE_ARS.vs";
+        let predicated = "/s/EPL/match/2021-08-13/BRE_ARS.vs=ARS_win";
+        let predicated_draw = "/s/EPL/match/2021-08-13/BRE_ARS.vs=draw";
         assert_eq!(
             outcome_str(&event_id, "BRE_win").unwrap(),
             "Brentford beats Arsenal in their English Premier League match on 2021-08-13"
@@ -405,5 +446,29 @@ mod test {
             outcome_str(&predicated_draw, "false").unwrap(),
             "Brentford and Arsenal do not draw in their English Premier League match on 2021-08-13"
         );
+    }
+
+    #[test]
+    fn test_x_path() {
+        assert_eq!(
+            path_short_str("/x/BitMEX"),
+            Some("exchange rates and prices on BitMEX".into())
+        );
+        assert_eq!(
+            path_short_str("/x/BitMEX/BXBT"),
+            Some("BXBT on BitMEX".into())
+        );
+        assert_eq!(
+            path_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00"),
+            Some("BXBT on BitMEX at 2021-10-05T5:00:00".into())
+        );
+    }
+
+    #[test]
+    fn test_price_event_short() {
+        assert_eq!(
+            event_id_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00.price"),
+            Some("price of BXBT on BitMEX at 2021-10-05T5:00:00".into())
+        )
     }
 }
