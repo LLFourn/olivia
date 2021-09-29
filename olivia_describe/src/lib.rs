@@ -205,7 +205,7 @@ pub fn event_id_short(event_id: &EventId) -> String {
                 kind: PredicateKind::Eq(value),
             },
         ) => {
-            let inner_id = EventId::from_path_and_kind(event_id.path().to_path(), *inner);
+            let inner_id = event_id.replace_kind(*inner);
             let outcome = Outcome::try_from_id_and_outcome(inner_id, &value)
                 .expect("this will be valid since predicate is valid");
             format!("assertion that {}", crate::outcome(&outcome).positive,)
@@ -225,7 +225,7 @@ pub fn event_html(id: &EventId) -> Option<String> {
     let kind = id.event_kind();
     match (&segments[..], kind) {
         (["random", datetime, ..], _) => Some(format!("This event has no real world meaning. The outcome will randomly be selected from the <b>{}</b> possibilities at <b>{}</b>.", id.n_outcomes(), datetime)),
-        ([competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
+        (["s", competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
             let (left,right) = id.parties()?;
             let left_long = lookup_team(competition, left);
             let right_long = lookup_team(competition, right);
@@ -236,21 +236,24 @@ pub fn event_html(id: &EventId) -> Option<String> {
                     &format!(" If {} wins the oracle will attest {}.", left_long, Houtcome(Outcome { value: 0, id: id.clone() })) +
                     &format!(" If {} wins the oracle will attest {}.", right_long, Houtcome(Outcome { value: 1, id: id.clone() })) +
                     &format!(" Otherwise the oracle will attest {}.", Houtcome(Outcome { value: 2, id: id.clone() })),
-                VsMatchKind::Win => format!("The winner from {} match {} vs {} on {}.", competition, left_long, right_long, date) +
+                VsMatchKind::Win => format!("The winner of {} match {} vs {} on {}.", competition, left_long, right_long, date) +
                     &format!("If {} wins then the oracle will attest {}.", left_long, Houtcome(Outcome { value: 0, id: id.clone() })) +
                     &format!("If {} wins then the oracle will attest {}.", right_long, Houtcome(Outcome { value: 1, id: id.clone() }))
             })
 
         },
         (_, EventKind::Predicate { inner, kind: PredicateKind::Eq(value) }) => {
-            let inner_event_id = id.replace_kind(*inner);
-            let inner_html = event_html(&inner_event_id);
-            let outcome = Outcome::try_from_id_and_outcome(inner_event_id.clone(), &value).ok()?;
-            Some(format!("This event asserts that the outcome of {} will be {}.", Heventid(inner_event_id), Houtcome(outcome))
-                 + &match inner_html {
-                     Some(inner_html) => format!(" That event is described as: <blockquote>{}</blockquote>", inner_html),
-                     None => "".to_string()
-                 })
+            let inner_id = id.replace_kind(*inner);
+            let outcome = Outcome::try_from_id_and_outcome(inner_id.clone (), &value)
+                .expect("this will be valid since predicate is valid");
+            Some(
+                format!("whether {}.", crate::outcome(&outcome).positive) +
+                    &format!("The oracle will attest to {} if the outcome of {} is {}. Otherwise {}.",
+                             Houtcome(Outcome { id: id.clone(), value: true as u64 }),
+                             Heventid(inner_id),
+                             Houtcome(outcome),
+                             Houtcome(Outcome { id: id.clone(), value: false as u64 }))
+            )
         },
         _ => Some(event_id_short(&id) +  ".")
     }
