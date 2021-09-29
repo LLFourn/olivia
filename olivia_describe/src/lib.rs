@@ -360,8 +360,9 @@ pub fn long_path_name_str(path: &str) -> Option<String> {
     let path = Path::from_str(path).ok()?;
     let segments = path.as_path_ref().segments().collect::<Vec<_>>();
     Some(match &segments[..] {
-        ["EPL"] => "English Premier League".into(),
-        [competition, "match", _date, teams] => {
+        ["s"] => "Sports and Esports".into(),
+        ["s", "EPL"] => "English Premier League".into(),
+        ["s", competition, "match", _date, teams] => {
             let (left, right) = {
                 let mut t = teams.split('_');
                 (t.next()?, t.next()?)
@@ -372,6 +373,7 @@ pub fn long_path_name_str(path: &str) -> Option<String> {
                 lookup_team(competition, right)
             )
         }
+        ["x"] => "Exchange rates".into(),
         _ => segments.get(segments.len() - 1)?.to_string(),
     })
 }
