@@ -21,6 +21,7 @@ struct Opt {
 pub enum Command {
     Add(cli::add::Entity),
     Run,
+    CheckConfig,
     Derive {
         event: String,
     },
@@ -53,5 +54,6 @@ async fn main() -> anyhow::Result<()> {
         Command::Db(db) => match db {
             Db::Init => cli::db_cmd::init(config).await,
         },
+        Command::CheckConfig => Ok(())
     }
 }
