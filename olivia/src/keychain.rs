@@ -103,7 +103,10 @@ impl<C: Group> KeyChain<C> {
             .collect::<Vec<_>>();
 
         let schemes = AnnouncementSchemes {
-            olivia_v1: Some(announce::OliviaV1 { nonces }),
+            olivia_v1: match nonces.is_empty() {
+                true => None,
+                false => Some(announce::OliviaV1 { nonces }),
+            },
             ecdsa_v1: Some(announce::EcdsaV1 {}),
         };
         RawAnnouncement::create(event, &self.announcement_keypair, schemes)

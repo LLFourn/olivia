@@ -1,10 +1,10 @@
 use olivia_core::{Event, EventId, PathRef, PrefixPath};
 use tokio::sync::oneshot::Sender;
 use tokio_stream as stream;
+pub mod complete_related;
 pub mod predicates;
 pub mod redis;
 pub mod ticker;
-
 #[cfg(test)]
 mod time_tests;
 

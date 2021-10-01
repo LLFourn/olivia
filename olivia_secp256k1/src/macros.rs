@@ -24,9 +24,11 @@ macro_rules! impl_fromsql {
         fn from_bytes$(<$($tpl:ident  $(: $tcl:ident)?),*>)?($input:ident : [u8;$len:literal]) ->  Option<$type:path> $block:block
     ) => {
         #[cfg(feature = "postgres-types")]
-        impl<'a> olivia_core::postgres_types::FromSql<'a> for $type
-        {
-            fn from_sql(ty: &olivia_core::postgres_types::Type, raw: &'a [u8]) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        impl<'a> olivia_core::postgres_types::FromSql<'a> for $type {
+            fn from_sql(
+                ty: &olivia_core::postgres_types::Type,
+                raw: &'a [u8],
+            ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
                 let raw: &[u8] = olivia_core::postgres_types::FromSql::from_sql(ty, raw)?;
                 if raw.len() != $len {
                     return Err(anyhow::anyhow!(
@@ -34,7 +36,8 @@ macro_rules! impl_fromsql {
                         $name,
                         $len,
                         raw.len()
-                    ).into());
+                    )
+                    .into());
                 }
                 let mut $input = [0u8; $len];
                 $input.copy_from_slice(raw);
@@ -49,8 +52,6 @@ macro_rules! impl_fromsql {
                 <&[u8]>::accepts(ty)
             }
         }
-
-
     };
 }
 

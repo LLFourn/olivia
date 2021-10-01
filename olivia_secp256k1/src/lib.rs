@@ -1,14 +1,14 @@
 #![allow(non_snake_case)]
+pub use ecdsa_fun;
+use olivia_core::{GroupObject, OracleKeys};
+#[doc(hidden)]
+pub use schnorr_fun::fun::hex;
 pub use schnorr_fun::{self, fun, KeyPair};
 use schnorr_fun::{
     fun::{g, marker::*, nonce::Deterministic, s, Point, Scalar, XOnly, G},
     Message, Schnorr,
 };
-pub use ecdsa_fun;
 pub use serde;
-#[doc(hidden)]
-pub use schnorr_fun::fun::hex;
-use olivia_core::{GroupObject, OracleKeys};
 use sha2::{Digest, Sha256};
 mod macros;
 
@@ -94,7 +94,6 @@ crate::impl_display_debug_serialize_tosql! {
     }
 }
 
-
 crate::impl_fromstr_deserialize_fromsql! {
     name => "ecdsa signature",
     fn from_bytes(bytes: [u8;64]) ->  Option<EcdsaSignature> {
@@ -102,9 +101,7 @@ crate::impl_fromstr_deserialize_fromsql! {
     }
 }
 
-
-impl GroupObject for EcdsaSignature {  }
-
+impl GroupObject for EcdsaSignature {}
 
 lazy_static::lazy_static! {
     pub static ref SCHNORR: Schnorr<Sha256, Deterministic<Sha256>> = Schnorr::new(Deterministic::<Sha256>::default());
@@ -246,19 +243,19 @@ impl olivia_core::Group for Secp256k1 {
 
     fn test_oracle_keys() -> OracleKeys<Self> {
         OracleKeys {
-            announcement: PublicKey(XOnly::from_bytes([13u8;32]).unwrap()),
-            ecdsa_v1: Some(PublicKey(XOnly::from_bytes([14u8;32]).unwrap())),
-            olivia_v1: Some(PublicKey(XOnly::from_bytes([16u8;32]).unwrap())),
+            announcement: PublicKey(XOnly::from_bytes([13u8; 32]).unwrap()),
+            ecdsa_v1: Some(PublicKey(XOnly::from_bytes([14u8; 32]).unwrap())),
+            olivia_v1: Some(PublicKey(XOnly::from_bytes([16u8; 32]).unwrap())),
             group: Secp256k1,
         }
     }
 
-
     fn keypair_from_secret_bytes(bytes: &[u8]) -> Self::KeyPair {
         SCHNORR.new_keypair(
-            Scalar::from_slice_mod_order(bytes).expect("will be 32 bytes long")
+            Scalar::from_slice_mod_order(bytes)
+                .expect("will be 32 bytes long")
                 .mark::<NonZero>()
-                .expect("will not be zero")
+                .expect("will not be zero"),
         )
     }
 
@@ -284,7 +281,11 @@ impl olivia_core::Group for Secp256k1 {
         EcdsaSignature(ECDSA.sign(keypair.secret_key(), &message_hash))
     }
 
-    fn ecdsa_verify(public_key: &Self::PublicKey, message: &[u8], sig: &Self::EcdsaSignature) -> bool {
+    fn ecdsa_verify(
+        public_key: &Self::PublicKey,
+        message: &[u8],
+        sig: &Self::EcdsaSignature,
+    ) -> bool {
         let message_hash = {
             let mut message_hash = [0u8; 32];
             let hash = Sha256::default().chain(message);
@@ -293,7 +294,6 @@ impl olivia_core::Group for Secp256k1 {
         };
         ECDSA.verify(&public_key.0.to_point(), &message_hash, &sig.0)
     }
-
 }
 
 olivia_core::impl_deserialize_curve!(Secp256k1);

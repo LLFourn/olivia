@@ -42,10 +42,46 @@ pub fn path_short_str(path: &str) -> Option<String> {
     path_short(path.as_path_ref())
 }
 
+#[allow(unused)]
+struct DateTime {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+}
+
+impl DateTime {
+    pub fn parse(dt: &str) -> Option<Self> {
+        let (ymd, hms) = dt.split_once('T')?;
+        if let [y, m, d] = ymd.split('-').collect::<Vec<_>>().as_slice() {
+            let year = u16::from_str(y).ok()?;
+            let month = u8::from_str(m).ok()?;
+            let day = u8::from_str(d).ok()?;
+            if let [h, m, s] = hms.split(':').collect::<Vec<_>>().as_slice() {
+                let hour = u8::from_str(h).ok()?;
+                let minute = u8::from_str(m).ok()?;
+                let second = u8::from_str(s).ok()?;
+                return Some(Self {
+                    year,
+                    month,
+                    day,
+                    hour,
+                    minute,
+                    second,
+                });
+            }
+        }
+        None
+    }
+}
+
 pub fn path_short(path: PathRef<'_>) -> Option<String> {
     let segments = path.segments().collect::<Vec<_>>();
     let desc = match &segments[..] {
-        [competition, "match", tail @ ..] => match tail {
+        ["s"] => format!("sport and Esport competitions"),
+        ["s", competition, "match", tail @ ..] => match tail {
             [] => format!("{} matches", lookup_competition(competition)),
             [date] => format!(
                 "{} matches set to be played on {}",
@@ -61,10 +97,16 @@ pub fn path_short(path: PathRef<'_>) -> Option<String> {
             }
             _ => return None,
         },
-        ["random"] => "Events with a random outcome chosen by the oracle".into(),
-        ["time"] => "Events that mark the passage of time".into(),
-        ["time", time, ..] => format!("Events that indicate when {} has passed", time),
-        ["random", time, ..] => format!("Events whose outcome will be randomly chosen at {}", time),
+        ["random"] => "events with a random outcome chosen by the oracle".into(),
+        ["time"] => "events that mark the passage of time".into(),
+        ["time", time, ..] => format!("events that indicate when {} has passed", time),
+        ["random", time, ..] => format!("events whose outcome will be randomly chosen at {}", time),
+        ["x"] => "exchange rates and prices".to_string(),
+        ["x", exchange] => format!("exchange rates and prices on {}", exchange),
+        ["x", exchange, instrument @ .., time] if DateTime::parse(time).is_some() => {
+            format!("{} on {} at {}", instrument.join(" "), exchange, time)
+        }
+        ["x", exchange, instrument @ ..] => format!("{} on {}", instrument.join(" "), exchange),
         _ => return None,
     };
 
@@ -95,7 +137,7 @@ pub fn event_id_short(event_id: &EventId) -> String {
     let segments = event_id.path().segments().collect::<Vec<_>>();
     let kind = event_id.event_kind();
     let desc = match (&segments[..], kind) {
-        ([competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
+        (["s", competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
             let (left, right) = event_id.parties().unwrap();
             let left_long = lookup_team(competition, left);
             let right_long = lookup_team(competition, right);
@@ -111,15 +153,6 @@ pub fn event_id_short(event_id: &EventId) -> String {
                 ),
             }
         }
-        (["time", datetime], EventKind::SingleOccurrence) => {
-            format!("time {} has passed", datetime)
-        }
-        (["random", datetime, ..], _) => format!(
-            "oracle's randomly selected outcome from {} possibilities at {}",
-            event_id.n_outcomes(),
-            datetime
-        ),
-        (_, EventKind::SingleOccurrence) => format!("{} has transpired", event_id.path()),
         ([..], EventKind::VsMatch(vs_kind)) => {
             let (left, right) = event_id.parties().unwrap();
             match vs_kind {
@@ -137,6 +170,34 @@ pub fn event_id_short(event_id: &EventId) -> String {
                 ),
             }
         }
+        (["time", datetime], EventKind::SingleOccurrence) => {
+            format!("time {} has passed", datetime)
+        }
+        (["random", datetime, ..], _) => format!(
+            "oracle's randomly selected outcome from {} possibilities at {}",
+            event_id.n_outcomes(),
+            datetime
+        ),
+        (_, EventKind::SingleOccurrence) => format!("{} has transpired", event_id.path()),
+        (
+            ["x", exchange, instrument @ .., time],
+            EventKind::Price {
+                n_digits: _n_digits,
+            },
+        ) => {
+            format!(
+                "price of {} on {} at {}",
+                instrument.join(" "),
+                exchange,
+                time,
+            )
+        }
+        (
+            [..],
+            EventKind::Price {
+                n_digits: _n_digits,
+            },
+        ) => format!("price of {}", event_id.path()),
         (
             [..],
             EventKind::Predicate {
@@ -144,7 +205,7 @@ pub fn event_id_short(event_id: &EventId) -> String {
                 kind: PredicateKind::Eq(value),
             },
         ) => {
-            let inner_id = EventId::from_path_and_kind(event_id.path().to_path(), *inner);
+            let inner_id = event_id.replace_kind(*inner);
             let outcome = Outcome::try_from_id_and_outcome(inner_id, &value)
                 .expect("this will be valid since predicate is valid");
             format!("assertion that {}", crate::outcome(&outcome).positive,)
@@ -152,7 +213,6 @@ pub fn event_id_short(event_id: &EventId) -> String {
     };
     desc
 }
-
 
 #[cfg_attr(feature = "wasm-bindgen", wasm_bindgen)]
 pub fn event_html_str(id: &str) -> Option<String> {
@@ -165,7 +225,7 @@ pub fn event_html(id: &EventId) -> Option<String> {
     let kind = id.event_kind();
     match (&segments[..], kind) {
         (["random", datetime, ..], _) => Some(format!("This event has no real world meaning. The outcome will randomly be selected from the <b>{}</b> possibilities at <b>{}</b>.", id.n_outcomes(), datetime)),
-        ([competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
+        (["s", competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
             let (left,right) = id.parties()?;
             let left_long = lookup_team(competition, left);
             let right_long = lookup_team(competition, right);
@@ -176,21 +236,24 @@ pub fn event_html(id: &EventId) -> Option<String> {
                     &format!(" If {} wins the oracle will attest {}.", left_long, Houtcome(Outcome { value: 0, id: id.clone() })) +
                     &format!(" If {} wins the oracle will attest {}.", right_long, Houtcome(Outcome { value: 1, id: id.clone() })) +
                     &format!(" Otherwise the oracle will attest {}.", Houtcome(Outcome { value: 2, id: id.clone() })),
-                VsMatchKind::Win => format!("The winner from {} match {} vs {} on {}.", competition, left_long, right_long, date) +
+                VsMatchKind::Win => format!("The winner of {} match {} vs {} on {}.", competition, left_long, right_long, date) +
                     &format!("If {} wins then the oracle will attest {}.", left_long, Houtcome(Outcome { value: 0, id: id.clone() })) +
                     &format!("If {} wins then the oracle will attest {}.", right_long, Houtcome(Outcome { value: 1, id: id.clone() }))
             })
 
         },
         (_, EventKind::Predicate { inner, kind: PredicateKind::Eq(value) }) => {
-            let inner_event_id = id.replace_kind(*inner);
-            let inner_html = event_html(&inner_event_id);
-            let outcome = Outcome::try_from_id_and_outcome(inner_event_id.clone(), &value).ok()?;
-            Some(format!("This event asserts that the outcome of {} will be {}.", Heventid(inner_event_id), Houtcome(outcome))
-                 + &match inner_html {
-                     Some(inner_html) => format!(" That event is described as: <blockquote>{}</blockquote>", inner_html),
-                     None => "".to_string()
-                 })
+            let inner_id = id.replace_kind(*inner);
+            let outcome = Outcome::try_from_id_and_outcome(inner_id.clone (), &value)
+                .expect("this will be valid since predicate is valid");
+            Some(
+                format!("whether {}.", crate::outcome(&outcome).positive) +
+                    &format!("The oracle will attest to {} if the outcome of {} is {}. Otherwise {}.",
+                             Houtcome(Outcome { id: id.clone(), value: true as u64 }),
+                             Heventid(inner_id),
+                             Houtcome(outcome),
+                             Houtcome(Outcome { id: id.clone(), value: false as u64 }))
+            )
         },
         _ => Some(event_id_short(&id) +  ".")
     }
@@ -216,7 +279,7 @@ pub fn outcome(outcome: &Outcome) -> OutcomeDesc {
     let outcome_str = outcome.outcome_string();
 
     match (&segments[..], kind) {
-        ([competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
+        (["s", competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
             let (left, right) = id.parties().unwrap();
             let left_long = lookup_team(competition, left);
             let right_long = lookup_team(competition, right);
@@ -274,7 +337,11 @@ pub fn outcome(outcome: &Outcome) -> OutcomeDesc {
             }
         }
         _ => OutcomeDesc {
-            positive: format!("the {} is \"{}\"", event_id_short(id), outcome.outcome_string()),
+            positive: format!(
+                "the {} is \"{}\"",
+                event_id_short(id),
+                outcome.outcome_string()
+            ),
             negative: format!(
                 "the {} is not \"{}\"",
                 event_id_short(id),
@@ -296,8 +363,9 @@ pub fn long_path_name_str(path: &str) -> Option<String> {
     let path = Path::from_str(path).ok()?;
     let segments = path.as_path_ref().segments().collect::<Vec<_>>();
     Some(match &segments[..] {
-        ["EPL"] => "English Premier League".into(),
-        [competition, "match", _date, teams] => {
+        ["s"] => "Sport".into(),
+        ["s", "EPL"] => "English Premier League".into(),
+        ["s", competition, "match", _date, teams] => {
             let (left, right) = {
                 let mut t = teams.split('_');
                 (t.next()?, t.next()?)
@@ -308,6 +376,7 @@ pub fn long_path_name_str(path: &str) -> Option<String> {
                 lookup_team(competition, right)
             )
         }
+        ["x"] => "Exchange rates".into(),
         _ => segments.get(segments.len() - 1)?.to_string(),
     })
 }
@@ -351,9 +420,9 @@ mod test {
 
     #[test]
     fn test_describe_outcome_for_competition_match() {
-        let event_id = "/EPL/match/2021-08-13/BRE_ARS.vs";
-        let predicated = "/EPL/match/2021-08-13/BRE_ARS.vs=ARS_win";
-        let predicated_draw = "/EPL/match/2021-08-13/BRE_ARS.vs=draw";
+        let event_id = "/s/EPL/match/2021-08-13/BRE_ARS.vs";
+        let predicated = "/s/EPL/match/2021-08-13/BRE_ARS.vs=ARS_win";
+        let predicated_draw = "/s/EPL/match/2021-08-13/BRE_ARS.vs=draw";
         assert_eq!(
             outcome_str(&event_id, "BRE_win").unwrap(),
             "Brentford beats Arsenal in their English Premier League match on 2021-08-13"
@@ -382,5 +451,29 @@ mod test {
             outcome_str(&predicated_draw, "false").unwrap(),
             "Brentford and Arsenal do not draw in their English Premier League match on 2021-08-13"
         );
+    }
+
+    #[test]
+    fn test_x_path() {
+        assert_eq!(
+            path_short_str("/x/BitMEX"),
+            Some("exchange rates and prices on BitMEX".into())
+        );
+        assert_eq!(
+            path_short_str("/x/BitMEX/BXBT"),
+            Some("BXBT on BitMEX".into())
+        );
+        assert_eq!(
+            path_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00"),
+            Some("BXBT on BitMEX at 2021-10-05T5:00:00".into())
+        );
+    }
+
+    #[test]
+    fn test_price_event_short() {
+        assert_eq!(
+            event_id_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00.price"),
+            Some("price of BXBT on BitMEX at 2021-10-05T5:00:00".into())
+        )
     }
 }

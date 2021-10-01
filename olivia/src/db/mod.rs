@@ -23,6 +23,7 @@ pub trait DbReadOracle<C: Group>: Send + Sync + DbReadEvent {
 pub trait DbReadEvent: Send + Sync {
     async fn get_node(&self, path: PathRef<'_>) -> anyhow::Result<Option<GetPath>>;
     async fn query_event(&self, query: EventQuery<'_, '_>) -> anyhow::Result<Option<Event>>;
+    async fn query_events(&self, query: EventQuery<'_, '_>) -> anyhow::Result<Vec<Event>>;
 }
 
 #[async_trait]
@@ -70,6 +71,8 @@ pub struct EventQuery<'a, 'b> {
     pub path: Option<PathRef<'a>>,
     pub attested: Option<bool>,
     pub order: Order,
-    pub ends_with: Option<PathRef<'b>>,
+    /// the event-id ends with this path.
+    /// '/' means anything
+    pub ends_with: PathRef<'b>,
     pub kind: Option<EventKind>,
 }

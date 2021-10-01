@@ -1,0 +1,29 @@
+secret-seed: "42424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242"
+
+
+events:
+  # create /random/<time>/red_blue.vs events.
+  # These have three outcomes red_win, blue_win and draw
+  /random:
+    - type: "ticker"
+      interval: 60
+      look-ahead: 300
+      ends-with: "/red_blue"
+      event-kind: "vs"
+      # create predicate events as well
+      predicate:
+        type: "="
+        filter: "*" # for all possible outcomes
+
+outcomes:
+  /random:
+    # generate random outcomes when outcomes are due
+    - type: "random"
+      ends-with: "/red_blue"
+      event-kind: "vs"
+      # complete the predicated events when this
+      # outcome source completes an event
+      complete-related: true
+
+rest-api:
+  listen: "127.0.0.1:8000"

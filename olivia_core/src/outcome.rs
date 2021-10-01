@@ -100,6 +100,11 @@ impl Outcome {
                     outcome: outcome.to_string(),
                 })? as u64
             }
+            EventKind::Price { .. } => {
+                u64::from_str(outcome).map_err(|_| OutcomeError::Invalid {
+                    outcome: outcome.into(),
+                })?
+            }
         };
 
         Ok(Self { value, id })
@@ -135,19 +140,21 @@ impl Outcome {
                 assert!(truth < 2);
                 write!(f, "{}", truth != 0)
             }
+            (EventKind::Price { .. }, price) => write!(f, "{}", price),
         }
     }
 
     pub fn attestation_indexes(&self) -> Vec<u32> {
         match self.id.event_kind() {
+            EventKind::Price { n_digits } => {
+                let cap = u64::MAX.checked_shr(64 - n_digits as u32).unwrap_or(0);
+                let value = self.value.min(cap);
+                (0..n_digits)
+                    .map(|i| (value & (1 << i) != 0) as u32)
+                    .rev()
+                    .collect()
+            }
             _ => vec![self.value.try_into().unwrap()],
-        }
-    }
-
-    pub fn predicate_eq(&self, assert_value: u64) -> Outcome {
-        Outcome {
-            id: self.id.predicate_eq(assert_value),
-            value: (assert_value == self.value) as u64,
         }
     }
 
@@ -282,6 +289,8 @@ enum_try_from_int! {
 
 #[cfg(test)]
 mod test {
+    use crate::PredicateKind;
+
     use super::*;
 
     #[test]
@@ -291,25 +300,70 @@ mod test {
             value: WinOrDraw::Draw as u64,
         };
         assert_eq!(
-            outcome.predicate_eq(WinOrDraw::Left as u64),
+            PredicateKind::Eq("FOO_win".into()).apply_to_outcome(&outcome),
             Outcome {
                 id: EventId::from_str("/foo/bar/FOO_BAR.vs=FOO_win").unwrap(),
                 value: false as u64
             }
         );
+
         assert_eq!(
-            outcome.predicate_eq(WinOrDraw::Right as u64),
+            PredicateKind::Eq("BAR_win".into()).apply_to_outcome(&outcome),
             Outcome {
                 id: EventId::from_str("/foo/bar/FOO_BAR.vs=BAR_win").unwrap(),
                 value: false as u64
             }
         );
         assert_eq!(
-            outcome.predicate_eq(WinOrDraw::Draw as u64),
+            PredicateKind::Eq("draw".into()).apply_to_outcome(&outcome),
             Outcome {
                 id: EventId::from_str("/foo/bar/FOO_BAR.vs=draw").unwrap(),
                 value: true as u64
             }
         );
+    }
+
+    #[test]
+    fn price_attestation_indexes() {
+        let outcome = Outcome {
+            id: EventId::from_str("/foo/bar.price[n:6]").unwrap(),
+            value: 0b100100,
+        };
+
+        assert_eq!(outcome.attestation_indexes(), vec![1, 0, 0, 1, 0, 0]);
+    }
+
+    #[test]
+    fn overflow_attestation_indexes() {
+        let outcome = Outcome {
+            id: EventId::from_str("/foo/bar.price[n:6]").unwrap(),
+            value: 0b1100100,
+        };
+
+        assert_eq!(outcome.attestation_indexes(), vec![1, 1, 1, 1, 1, 1]);
+    }
+
+    #[test]
+    fn edge_cases_attestation_indexes() {
+        let outcome = Outcome {
+            id: EventId::from_str("/foo/bar.price[n:64]").unwrap(),
+            value: u64::MAX - 1,
+        };
+
+        assert_eq!(
+            outcome.attestation_indexes(),
+            vec![
+                1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1, 1, 1, 0
+            ]
+        );
+
+        let outcome = Outcome {
+            id: EventId::from_str("/foo/bar.price").unwrap(),
+            value: u64::MAX - 1,
+        };
+
+        assert_eq!(outcome.attestation_indexes(), vec![0u32; 0]);
     }
 }

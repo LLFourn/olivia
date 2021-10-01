@@ -13,6 +13,8 @@ macro_rules! run_time_db_tests {
             use crate::sources::ticker::*;
             use core::str::FromStr;
             use tokio_stream::StreamExt;
+            use std::sync::Arc;
+
             fn logger() -> slog::Logger {
                 slog::Logger::root(slog::Discard, o!())
             }
@@ -35,7 +37,8 @@ macro_rules! run_time_db_tests {
                     interval,
                     initial_time,
                     logger: logger(),
-                    event_creator: Time
+                    ends_with: Path::root(),
+                    event_kind: EventKind::SingleOccurrence,
                 }.start());
                 let mut cur = initial_time.clone();
 
@@ -98,10 +101,14 @@ macro_rules! run_time_db_tests {
                 );
             }
 
+            fn time_outcome_stream(db: Arc<dyn DbReadEvent>) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = crate::sources::Update<olivia_core::StampedOutcome>>>> {
+                Box::pin(TimeOutcomeStream { outcome_creator: ZeroOutcomeCreator, db: PrefixedDb::new(db, Path::from_str("/time").unwrap()), logger: logger(), ends_with: Path::root(), event_kind: Some(EventKind::SingleOccurrence) }.start())
+            }
+
             #[tokio::test]
             async fn time_ticker_outcome_empty_db() {
                 $($init)*;
-                let mut stream = Box::pin(TimeOutcomeStream { outcome_creator: Time, db: PrefixedDb::new($event_db, Path::from_str("/time").unwrap()), logger: logger() }.start());
+                let mut stream = time_outcome_stream($event_db);
                 let future = stream.next();
                 assert!(
                     tokio::time::timeout(std::time::Duration::from_millis(1), future)
@@ -121,7 +128,7 @@ macro_rules! run_time_db_tests {
                 )))
                    .await
                    .unwrap();
-                let mut stream = Box::pin(TimeOutcomeStream { outcome_creator: Time, db: PrefixedDb::new($event_db, Path::from_str("/time").unwrap()), logger: logger() }.start());
+                let mut stream = time_outcome_stream($event_db);
                 let future = stream.next();
 
                 assert!(
@@ -144,7 +151,7 @@ macro_rules! run_time_db_tests {
                    .unwrap();
 
 
-                let mut stream = Box::pin(TimeOutcomeStream { outcome_creator: Time, db: PrefixedDb::new($event_db, Path::from_str("/time").unwrap()), logger: logger() }.start());
+                let mut stream = time_outcome_stream($event_db);
                 let item = stream.next().await.expect("stream shouldn't stop");
                 let stamped = item.update;
                 assert!(
@@ -193,7 +200,7 @@ macro_rules! run_time_db_tests {
                        .unwrap();
                 }
 
-                let mut stream = Box::pin(TimeOutcomeStream { outcome_creator: Time, db: PrefixedDb::new($event_db, Path::from_str("/time").unwrap()), logger: logger() }.start());
+                let mut stream = time_outcome_stream($event_db);
 
                 // test that they get emitted in order
                 let first = stream.next().await.unwrap();

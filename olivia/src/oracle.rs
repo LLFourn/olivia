@@ -192,7 +192,52 @@ pub mod test {
             .expect("event should still be there");
 
         let attestation = attested_event.attestation.expect("should be attested to");
-        dbg!(&attestation, &oracle_event);
+        assert_eq!(
+            attestation.verify_olivia_v1_attestation(&oracle_event, &public_keys),
+            Ok(())
+        );
+    }
+
+    pub async fn test_price_oracle_event_lifecycle<C: Group>(db: Arc<dyn Db<C>>) {
+        let oracle = Oracle::new(crate::seed::Seed::new([42u8; 64]), db.clone())
+            .await
+            .expect("should be able to create oracle");
+        let public_keys = db
+            .get_public_keys()
+            .await
+            .unwrap()
+            .expect("creating oracle should have set public keys");
+        let event_id = EventId::from_str("/foo/bar/baz.price[n:6]").unwrap();
+        assert!(oracle.add_event(event_id.clone().into()).await.is_ok());
+
+        let event = db
+            .get_announced_event(&event_id)
+            .await
+            .unwrap()
+            .expect("event should be there");
+
+        let oracle_event = event
+            .announcement
+            .verify_against_id(&event_id, &public_keys.announcement)
+            .expect("announcement signature should be valid");
+
+        let outcome: StampedOutcome = WireEventOutcome {
+            event_id: event_id.clone(),
+            outcome: "23".into(),
+            time: None,
+        }
+        .try_into()
+        .unwrap();
+
+        assert!(oracle.complete_event(outcome.clone()).await.is_ok());
+
+        let attested_event = db
+            .get_announced_event(&event_id)
+            .await
+            .unwrap()
+            .expect("event should still be there");
+
+        let attestation = attested_event.attestation.expect("should be attested to");
         assert_eq!(
             attestation.verify_olivia_v1_attestation(&oracle_event, &public_keys),
             Ok(())
