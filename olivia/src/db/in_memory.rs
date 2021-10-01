@@ -5,6 +5,7 @@ use olivia_core::{
     AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, Group, OracleKeys, Path,
 };
 use std::{
+    cmp::Reverse,
     collections::HashMap,
     str::FromStr,
     sync::{Arc, RwLock},
@@ -122,11 +123,15 @@ impl<C: Group> DbReadEvent for InMemory<C> {
     }
 
     async fn query_event(&self, query: EventQuery<'_, '_>) -> anyhow::Result<Option<Event>> {
+        Ok(self.query_events(query).await?.first().cloned())
+    }
+
+    async fn query_events(&self, query: EventQuery<'_, '_>) -> anyhow::Result<Vec<Event>> {
         let db = self.inner.read().unwrap();
-        let mut ann_events: Vec<&AnnouncedEvent<C>> = db
+        let mut events: Vec<AnnouncedEvent<C>> = db
             .values()
-            .filter(|ann_event| {
-                let id = &ann_event.event.id;
+            .filter(|event| {
+                let id = &event.event.id;
                 let path_id = id.path().as_str();
                 let &EventQuery {
                     path,
@@ -137,25 +142,28 @@ impl<C: Group> DbReadEvent for InMemory<C> {
                 } = &query;
                 path.map(|path| path_id.starts_with(path.as_str()))
                     .unwrap_or(true)
-                    && ends_with
-                        .map(|ends_with| path_id.ends_with(ends_with.as_str()))
-                        .unwrap_or(true)
+                    && (ends_with.is_root() || path_id.ends_with(ends_with.as_str()))
                     && kind
                         .as_ref()
                         .map(|kind| id.event_kind() == *kind)
                         .unwrap_or(true)
                     && attested
-                        .map(|attested| attested == ann_event.attestation.is_some())
+                        .map(|attested| attested == event.attestation.is_some())
                         .unwrap_or(true)
             })
+            .map(Clone::clone)
             .collect();
 
-        ann_events.sort_by_cached_key(|ann_event| ann_event.event.expected_outcome_time);
-        let event = match query.order {
-            Order::Earliest => ann_events.first(),
-            Order::Latest => ann_events.last(),
-        };
-        Ok(event.map(|event| event.event.clone()))
+        match query.order {
+            Order::Earliest => {
+                events.sort_by_key(|ann_event| ann_event.event.expected_outcome_time)
+            }
+            Order::Latest => {
+                events.sort_by_key(|ann_event| Reverse(ann_event.event.expected_outcome_time))
+            }
+        }
+
+        Ok(events.into_iter().map(|x| x.event).collect())
     }
 }
 

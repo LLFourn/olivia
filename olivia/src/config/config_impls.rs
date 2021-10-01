@@ -1,7 +1,10 @@
 use super::*;
 use crate::{
     db::{self, postgres::PgBackendWrite, DbReadEvent, PrefixedDb},
-    sources,
+    sources::{
+        self,
+        ticker::{RandomOutcomeCreator, ZeroOutcomeCreator},
+    },
 };
 use olivia_core::{chrono, Event, Node, NodeKind, Path, RangeKind, StampedOutcome};
 use sources::{ticker::TimeOutcomeStream, Update};
@@ -14,14 +17,16 @@ impl Config {
         &self,
         db: Arc<dyn DbReadEvent>,
         logger: slog::Logger,
-    ) -> anyhow::Result<StreamMap<Path, sources::Stream<Event>>> {
+    ) -> anyhow::Result<StreamMap<(Path, usize), sources::Stream<Event>>> {
         let mut streams = StreamMap::new();
 
-        for (parent, source) in self.events.clone() {
+        for (parent, sources) in self.events.clone() {
             let db = PrefixedDb::new(db.clone(), parent.clone());
-            let stream =
-                source.to_event_stream(logger.new(o!("parent" => parent.to_string())), db)?;
-            streams.insert(parent, stream);
+            let logger = logger.new(o!("parent" => parent.to_string()));
+            for (i, source) in sources.into_iter().enumerate() {
+                let stream = source.to_event_stream(logger.clone(), db.clone())?;
+                streams.insert((parent.clone(), i), stream);
+            }
         }
 
         Ok(streams)
@@ -32,17 +37,20 @@ impl Config {
         db: Arc<dyn DbReadEvent>,
         secret_seed: &Seed,
         logger: slog::Logger,
-    ) -> anyhow::Result<StreamMap<Path, sources::Stream<StampedOutcome>>> {
+    ) -> anyhow::Result<StreamMap<(Path, usize), sources::Stream<StampedOutcome>>> {
         let mut streams = StreamMap::new();
 
-        for (parent, source) in self.outcomes.clone() {
+        for (parent, sources) in self.outcomes.clone() {
             let db = PrefixedDb::new(db.clone(), parent.clone());
-            let stream = source.to_outcome_stream(
-                &secret_seed.child(parent.as_str().as_bytes()),
-                logger.new(o!("parent" => parent.to_string())),
-                db,
-            )?;
-            streams.insert(parent, stream);
+            let logger = logger.new(o!("parent" => parent.to_string()));
+            for (i, source) in sources.into_iter().enumerate() {
+                let stream = source.to_outcome_stream(
+                    secret_seed.child(parent.as_str().as_bytes()),
+                    logger.clone(),
+                    db.clone(),
+                )?;
+                streams.insert((parent.clone(), i), stream);
+            }
         }
 
         Ok(streams)
@@ -51,11 +59,14 @@ impl Config {
     pub fn build_node_streams(
         &self,
         logger: slog::Logger,
-    ) -> anyhow::Result<StreamMap<Path, sources::Stream<Node>>> {
+    ) -> anyhow::Result<StreamMap<(Path, usize), sources::Stream<Node>>> {
         let mut streams = StreamMap::new();
-        for (parent, source) in self.events.clone() {
-            let stream = source.to_node_stream(logger.new(o!("parent" => parent.to_string())))?;
-            streams.insert(parent, stream);
+        for (parent, sources) in self.events.clone() {
+            for (i, source) in sources.iter().enumerate() {
+                let stream =
+                    source.to_node_stream(logger.new(o!("parent" => parent.to_string())))?;
+                streams.insert((parent.clone(), i), stream);
+            }
         }
         Ok(streams)
     }
@@ -132,8 +143,8 @@ impl EventSourceConfig {
         db: PrefixedDb,
     ) -> anyhow::Result<sources::Stream<Event>> {
         let config = self.clone();
-        match config {
-            EventSourceConfig::Redis(RedisConfig {
+        let mut stream: sources::Stream<Event> = match config.event_source {
+            EventSource::Redis(RedisConfig {
                 connection_info,
                 lists,
             }) => {
@@ -143,17 +154,18 @@ impl EventSourceConfig {
                     connection_info.addr, connection_info.db, ;
                 );
 
-                Ok(Box::pin(sources::redis::event_stream(
+                Box::pin(sources::redis::event_stream(
                     redis::Client::open(connection_info.clone())?,
                     lists,
                     logger.new(o!("type" => "event_source", "source_type" => "redis")),
-                )?))
+                )?)
             }
-            EventSourceConfig::Ticker {
+            EventSource::Ticker {
                 look_ahead,
                 interval,
                 initial_time,
-                ticker_kind,
+                ends_with,
+                event_kind,
             } => {
                 let initial_time = initial_time.unwrap_or_else(|| {
                     use chrono::Timelike;
@@ -169,64 +181,56 @@ impl EventSourceConfig {
                 let look_ahead = chrono::Duration::seconds(look_ahead as i64);
                 let interval = chrono::Duration::seconds(interval as i64);
 
-                Ok(match ticker_kind {
-                    TickerKind::Time => Box::pin(
-                        sources::ticker::TimeEventStream {
-                            db,
-                            look_ahead,
-                            interval,
-                            initial_time,
-                            logger,
-                            event_creator: sources::ticker::Time,
-                        }
-                        .start(),
-                    ),
-                    TickerKind::HeadsOrTails => Box::pin(
-                        sources::ticker::TimeEventStream {
-                            db,
-                            look_ahead,
-                            interval,
-                            initial_time,
-                            logger,
-                            event_creator: sources::ticker::HeadsOrTailsEvents,
-                        }
-                        .start(),
-                    ),
-                })
-            }
-            EventSourceConfig::Predicate {
-                predicate: super::Predicate::Eq,
-                on,
-                over,
-            } => {
-                let mut inner = over.to_event_stream(logger, db)?;
-                let pred = sources::predicates::Eq { outcome_filter: on };
-                Ok(Box::pin(async_stream::stream! {
-                    loop {
-                        use tokio_stream::StreamExt;
-                        match inner.next().await {
-                            Some(update) => {
-                                let pred_event_ids = pred.apply_to_event_id(&update.update.id);
-                                let expected_outcome_time = update.update.expected_outcome_time;
-                                yield update;
-                                for id in pred_event_ids {
-                                    yield Update::from(Event {
-                                        id,
-                                        expected_outcome_time
-                                    });
-                                }
-                            }
-                            _ => break,
-                        }
+                Box::pin(
+                    sources::ticker::TimeEventStream {
+                        db,
+                        look_ahead,
+                        interval,
+                        initial_time,
+                        logger,
+                        ends_with,
+                        event_kind,
                     }
-                }))
+                    .start(),
+                )
             }
+        };
+
+        if let Some(predicate) = self.predicate.clone() {
+            match predicate {
+                PredicateConfig::Eq { filter } => {
+                    let pred = sources::predicates::Eq {
+                        outcome_filter: filter,
+                    };
+                    Ok(Box::pin(async_stream::stream! {
+                        loop {
+                            use tokio_stream::StreamExt;
+                            match stream.next().await {
+                                Some(update) => {
+                                    let pred_event_ids = pred.apply_to_event_id(&update.update.id);
+                                    let expected_outcome_time = update.update.expected_outcome_time;
+                                    yield update;
+                                    for id in pred_event_ids {
+                                        yield Update::from(Event {
+                                            id,
+                                            expected_outcome_time
+                                        });
+                                    }
+                                }
+                                _ => break,
+                            }
+                        }
+                    }))
+                }
+            }
+        } else {
+            Ok(stream)
         }
     }
 
     pub fn to_node_stream(&self, _logger: slog::Logger) -> anyhow::Result<sources::Stream<Node>> {
-        use EventSourceConfig::*;
-        Ok(match *self {
+        use EventSource::*;
+        Ok(match self.event_source {
             Ticker { interval, .. } => Box::pin(stream::iter(vec![Update {
                 update: Node {
                     path: Path::root(),
@@ -244,12 +248,12 @@ impl EventSourceConfig {
 impl OutcomeSourceConfig {
     pub fn to_outcome_stream(
         &self,
-        seed: &Seed,
+        seed: Seed,
         logger: slog::Logger,
         db: PrefixedDb,
     ) -> anyhow::Result<sources::Stream<StampedOutcome>> {
-        use OutcomeSourceConfig::*;
-        match self.clone() {
+        use OutcomeSource::*;
+        let mut stream: sources::Stream<StampedOutcome> = match self.clone().outcome_source {
             Redis(RedisConfig {
                 connection_info,
                 lists,
@@ -259,58 +263,68 @@ impl OutcomeSourceConfig {
                     "Connecting to redis://{}/{} to receive outcomes",
                     connection_info.addr, connection_info.db;
                 );
-                Ok(Box::pin(sources::redis::event_stream(
+                Box::pin(sources::redis::event_stream(
                     redis::Client::open(connection_info.clone())?,
                     lists,
                     logger.new(o!("source_type" => "redis")),
-                )?))
+                )?)
             }
-            Ticker { ticker_kind } => Ok(match ticker_kind {
-                TickerKind::Time => Box::pin(
-                    TimeOutcomeStream {
-                        db,
-                        logger: logger.new(o!("source_type" => "ticker", "ticker_kind" => "time")),
-                        outcome_creator: sources::ticker::Time,
-                    }
-                    .start(),
-                ),
-                TickerKind::HeadsOrTails => {
-                    let seed = seed.child(b"heads-or-tails-outcomes");
-                    Box::pin(
-                        TimeOutcomeStream {
-                            db,
-                            logger: logger
-                                .new(o!("source_type" => "ticker", "ticker_kind" => "heads_tails")),
-                            outcome_creator: sources::ticker::HeadsOrTailsOutcomes { seed },
-                        }
-                        .start(),
-                    )
+            Random {
+                ends_with,
+                event_kind,
+                start,
+                end,
+            } => Box::pin(
+                TimeOutcomeStream {
+                    db: db.clone(),
+                    logger: logger.new(o!("source_type" => "random")),
+                    ends_with,
+                    event_kind,
+                    outcome_creator: RandomOutcomeCreator { seed, start, end },
                 }
-            }),
-            Predicate {
-                predicate: super::Predicate::Eq,
-                on,
-                over,
-            } => {
-                let mut inner = over.to_outcome_stream(seed, logger.clone(), db)?;
-                let pred = sources::predicates::Eq { outcome_filter: on };
-                Ok(Box::pin(async_stream::stream! {
-                    loop {
-                        use tokio_stream::StreamExt;
-                        match inner.next().await {
-                            Some(update) => {
-                                let pred_outcomes = pred.apply_to_outcome(&update.update.outcome);
-                                let time = update.update.time;
-                                yield update;
-                                for pred_outcome in pred_outcomes {
-                                    yield Update::from(StampedOutcome { outcome: pred_outcome, time } );
-                                }
+                .start(),
+            ),
+            Zero {
+                ends_with,
+                event_kind,
+            } => Box::pin(
+                TimeOutcomeStream {
+                    db: db.clone(),
+                    logger: logger.new(o!("source_type" => "zero")),
+                    ends_with,
+                    event_kind,
+                    outcome_creator: ZeroOutcomeCreator,
+                }
+                .start(),
+            ),
+        };
+
+        if self.complete_related {
+            Ok(Box::pin(async_stream::stream! {
+                let complete_related = sources::complete_related::CompleteRelated { db };
+                let logger = logger.new(o!("source_type" => "complete_related"));
+                loop {
+                    use tokio_stream::StreamExt;
+                    match stream.next().await {
+                        Some(update) => {
+                            let stamped_outcome = update.update.clone();
+                            yield update;
+
+                            match complete_related.complete_related(&stamped_outcome.outcome).await {
+                                Ok(related_outcomes) => for outcome in related_outcomes {
+                                    yield Update::from(StampedOutcome { outcome, time: stamped_outcome.time } );
+                                },
+                                Err(e) => error!(logger, "completing related";
+                                                 "id" => stamped_outcome.outcome.id.as_str(),
+                                                 "error" => e.to_string())
                             }
-                            _ => break,
                         }
+                        _ => break,
                     }
-                }))
-            }
+                }
+            }))
+        } else {
+            Ok(stream)
         }
     }
 }

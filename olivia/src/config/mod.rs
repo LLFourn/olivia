@@ -1,5 +1,5 @@
 use crate::{seed::Seed, sources::predicates::OutcomeFilter};
-use olivia_core::{chrono::NaiveDateTime, Path};
+use olivia_core::{chrono::NaiveDateTime, EventKind, Path};
 use std::{collections::HashMap, str::FromStr};
 
 mod config_impls;
@@ -15,9 +15,9 @@ pub type RootDrain = Box<
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
-    pub events: HashMap<Path, EventSourceConfig>,
+    pub events: HashMap<Path, Vec<EventSourceConfig>>,
     #[serde(default)]
-    pub outcomes: HashMap<Path, OutcomeSourceConfig>,
+    pub outcomes: HashMap<Path, Vec<OutcomeSourceConfig>>,
     #[serde(default)]
     pub database: DbConfig,
     #[serde(default)]
@@ -56,52 +56,67 @@ impl Default for DbConfig {
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case", tag = "type", deny_unknown_fields)]
-pub enum EventSourceConfig {
+pub enum EventSource {
     #[serde(rename_all = "kebab-case")]
     Ticker {
         interval: u32,
         look_ahead: u32,
         initial_time: Option<NaiveDateTime>,
-        ticker_kind: TickerKind,
+        #[serde(default)]
+        ends_with: Path,
+        event_kind: EventKind,
     },
     Redis(RedisConfig),
-    #[serde(rename_all = "kebab-case")]
-    Predicate {
-        predicate: Predicate,
-        on: OutcomeFilter,
-        over: Box<EventSourceConfig>,
-    },
 }
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
-#[serde(deny_unknown_fields)]
-pub enum TickerKind {
-    Time,
-    HeadsOrTails,
+pub struct EventSourceConfig {
+    #[serde(flatten)]
+    event_source: EventSource,
+    predicate: Option<PredicateConfig>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case", tag = "type")]
 #[serde(deny_unknown_fields)]
-pub enum OutcomeSourceConfig {
+pub enum OutcomeSource {
+    /// Generate a random outcome (deterministically)
     #[serde(rename_all = "kebab-case")]
-    Ticker {
-        ticker_kind: TickerKind,
+    Random {
+        #[serde(default)]
+        ends_with: Path,
+        event_kind: Option<EventKind>,
+        #[serde(default)]
+        /// inclusive start of the range to
+        start: u64,
+        end: Option<u64>,
     },
+    #[serde(rename_all = "kebab-case")]
+    /// Always answer Zero
+    Zero {
+        #[serde(default)]
+        ends_with: Path,
+        event_kind: Option<EventKind>,
+    },
+    /// Get outcomes from redis
     Redis(RedisConfig),
-    #[serde(rename_all = "kebab-case")]
-    Predicate {
-        predicate: Predicate,
-        on: OutcomeFilter,
-        over: Box<OutcomeSourceConfig>,
-    },
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub enum Predicate {
+#[serde(rename_all = "kebab-case")]
+pub struct OutcomeSourceConfig {
+    #[serde(flatten)]
+    outcome_source: OutcomeSource,
+    #[serde(default)]
+    complete_related: bool,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(tag = "type")]
+pub enum PredicateConfig {
     #[serde(rename = "=")]
-    Eq,
+    Eq { filter: OutcomeFilter },
 }
 
 #[derive(Deserialize, Debug, Clone)]

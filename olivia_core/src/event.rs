@@ -22,6 +22,22 @@ pub enum PredicateKind {
     Eq(String),
 }
 
+impl PredicateKind {
+    pub fn apply_to_outcome(&self, outcome: &Outcome) -> Outcome {
+        let predicated_id = outcome.id.replace_kind(EventKind::Predicate {
+            inner: Box::new(outcome.id.event_kind()),
+            kind: self.clone(),
+        });
+
+        match self {
+            PredicateKind::Eq(target) => Outcome {
+                id: predicated_id,
+                value: (outcome.outcome_string() == *target) as u64,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VsMatchKind {
     WinOrDraw,

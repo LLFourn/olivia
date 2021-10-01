@@ -170,6 +170,18 @@ impl PrefixPath for Path {
     }
 }
 
+impl Default for Path {
+    fn default() -> Self {
+        Path::root()
+    }
+}
+
+impl<'a> Default for PathRef<'a> {
+    fn default() -> Self {
+        PathRef::root()
+    }
+}
+
 mod serde_impl {
     use super::*;
     use serde::de;

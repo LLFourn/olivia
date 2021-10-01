@@ -78,6 +78,7 @@ impl RawOracleEventEncoding {
 #[serde(bound = "C: Group")]
 pub struct OracleEventWithDescriptor<C: Group> {
     pub id: EventId,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_outcome_time: Option<NaiveDateTime>,
     pub descriptor: Descriptor,
     pub schemes: AnnouncementSchemes<C>,
@@ -87,7 +88,9 @@ pub struct OracleEventWithDescriptor<C: Group> {
 #[serde(rename_all = "kebab-case")]
 #[serde(bound = "C: Group")]
 pub struct AnnouncementSchemes<C: Group> {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub olivia_v1: Option<announce::OliviaV1<C>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ecdsa_v1: Option<announce::EcdsaV1>,
 }
 

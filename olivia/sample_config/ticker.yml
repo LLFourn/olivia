@@ -1,24 +1,31 @@
 secret-seed: "42424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242"
 
+# creates "/time/<time>.occur"
+# and "/random/<time>/heads_tails.winner" events
+# every 60 seconds
 events:
+
   /time:
-    type: "ticker"
-    ticker-kind: "time"
-    interval: 60
-    look-ahead: 300
+    - type: "ticker"
+      interval: 60
+      look-ahead: 300
+      event-kind: "occur"
+
   /random:
-    type: "ticker"
-    ticker-kind: "heads-or-tails"
-    interval: 60
-    look-ahead: 300
+    - type: "ticker"
+      interval: 60
+      look-ahead: 300
+      ends-with: "/heads_tails"
+      event-kind: "winner"
+
 
 outcomes:
   /time:
-    type: "ticker"
-    ticker-kind: "time"
+    # for occur events always answer 0 whenver they are due
+    - type: "zero"
   /random:
-    type: "ticker"
-    ticker-kind: "heads-or-tails"
+    # for /random choose a random outcome whenever they are due
+    - type: "random"
 
 rest-api:
   listen: "127.0.0.1:8000"

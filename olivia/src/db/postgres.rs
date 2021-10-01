@@ -78,13 +78,12 @@ impl<'a> From<PathRef<'a>> for Ltree {
 
 impl Lquery {
     pub fn ends_with(p: PathRef<'_>) -> Lquery {
+        if p.is_root() {
+            return Lquery("*".into());
+        }
         let mut query = Ltree::from(p).0;
         query.insert_str(0, "*.");
         Lquery(query)
-    }
-
-    pub fn everything() -> Lquery {
-        Lquery("*".into())
     }
 }
 
@@ -299,12 +298,8 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
                    WHERE $1 @> path
                      AND path ~ $2
                      {}
-                     {}
+                     AND id LIKE $3
                    ORDER BY expected_outcome_time {} LIMIT 1"#,
-                    match kind {
-                        Some(kind) => format!("AND event.id LIKE ('%{}')", kind),
-                        None => "".to_string(),
-                    },
                     match attested {
                         Some(true) => "AND (att).outcome IS NOT NULL",
                         Some(false) => "AND (att).outcome IS NULL",
@@ -318,9 +313,11 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
                 .as_str(),
                 &[
                     &Ltree::from(path.unwrap_or(PathRef::root())),
-                    &ends_with
-                        .map(|ends_with| Lquery::ends_with(ends_with))
-                        .unwrap_or(Lquery::everything()),
+                    &Lquery::ends_with(ends_with),
+                    &match kind {
+                        Some(kind) => format!("%.{}", kind),
+                        None => "%".to_string(),
+                    },
                 ],
             )
             .await?;
@@ -329,6 +326,55 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
             id: row.get("id"),
             expected_outcome_time: row.get("expected_outcome_time"),
         }))
+    }
+
+    // TODO: DRY this
+    async fn query_events(&self, query: EventQuery<'_, '_>) -> anyhow::Result<Vec<Event>> {
+        let EventQuery {
+            path,
+            attested,
+            order,
+            ends_with,
+            ref kind,
+        } = query;
+        let rows = self
+            .query(
+                format!(
+                    r#"SELECT event.id, expected_outcome_time FROM event
+                   WHERE $1 @> path
+                     AND path ~ $2
+                     {}
+                     AND id LIKE $3
+                   ORDER BY expected_outcome_time {} LIMIT 1"#,
+                    match attested {
+                        Some(true) => "AND (att).outcome IS NOT NULL",
+                        Some(false) => "AND (att).outcome IS NULL",
+                        None => "",
+                    },
+                    match order {
+                        Order::Earliest => "ASC",
+                        Order::Latest => "DESC",
+                    }
+                )
+                .as_str(),
+                &[
+                    &Ltree::from(path.unwrap_or(PathRef::root())),
+                    &Lquery::ends_with(ends_with),
+                    &match kind {
+                        Some(kind) => format!("%.{}", kind),
+                        None => "%".to_string(),
+                    },
+                ],
+            )
+            .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| Event {
+                id: row.get("id"),
+                expected_outcome_time: row.get("expected_outcome_time"),
+            })
+            .collect())
     }
 }
 
@@ -351,6 +397,10 @@ impl crate::db::DbReadEvent for PgBackendWrite {
 
     async fn query_event(&self, query: EventQuery<'_, '_>) -> anyhow::Result<Option<Event>> {
         DbReadEvent::query_event(&*self.client.read().await, query).await
+    }
+
+    async fn query_events(&self, query: EventQuery<'_, '_>) -> anyhow::Result<Vec<Event>> {
+        DbReadEvent::query_events(&*self.client.read().await, query).await
     }
 }
 

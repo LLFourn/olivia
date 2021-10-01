@@ -1,5 +1,5 @@
 use super::OutcomeFilter;
-use olivia_core::{EventId, Outcome};
+use olivia_core::EventId;
 
 pub struct Eq {
     pub outcome_filter: OutcomeFilter,
@@ -11,14 +11,6 @@ impl Eq {
             .outcomes_for(id)
             .into_iter()
             .map(move |value| id.predicate_eq(value))
-            .collect()
-    }
-
-    pub fn apply_to_outcome(&self, actual_outcome: &Outcome) -> Vec<Outcome> {
-        self.outcome_filter
-            .outcomes_for(&actual_outcome.id)
-            .into_iter()
-            .map(|value| actual_outcome.predicate_eq(value))
             .collect()
     }
 }

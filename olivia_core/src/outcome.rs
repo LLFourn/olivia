@@ -158,13 +158,6 @@ impl Outcome {
         }
     }
 
-    pub fn predicate_eq(&self, assert_value: u64) -> Outcome {
-        Outcome {
-            id: self.id.predicate_eq(assert_value),
-            value: (assert_value == self.value) as u64,
-        }
-    }
-
     pub fn attestation_string(&self) -> Vec<u8> {
         let mut att_string = self.id.as_bytes().to_vec();
         att_string.push('!' as u8);
@@ -296,6 +289,8 @@ enum_try_from_int! {
 
 #[cfg(test)]
 mod test {
+    use crate::PredicateKind;
+
     use super::*;
 
     #[test]
@@ -305,21 +300,22 @@ mod test {
             value: WinOrDraw::Draw as u64,
         };
         assert_eq!(
-            outcome.predicate_eq(WinOrDraw::Left as u64),
+            PredicateKind::Eq("FOO_win".into()).apply_to_outcome(&outcome),
             Outcome {
                 id: EventId::from_str("/foo/bar/FOO_BAR.vs=FOO_win").unwrap(),
                 value: false as u64
             }
         );
+
         assert_eq!(
-            outcome.predicate_eq(WinOrDraw::Right as u64),
+            PredicateKind::Eq("BAR_win".into()).apply_to_outcome(&outcome),
             Outcome {
                 id: EventId::from_str("/foo/bar/FOO_BAR.vs=BAR_win").unwrap(),
                 value: false as u64
             }
         );
         assert_eq!(
-            outcome.predicate_eq(WinOrDraw::Draw as u64),
+            PredicateKind::Eq("draw".into()).apply_to_outcome(&outcome),
             Outcome {
                 id: EventId::from_str("/foo/bar/FOO_BAR.vs=draw").unwrap(),
                 value: true as u64
