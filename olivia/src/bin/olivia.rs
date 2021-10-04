@@ -54,6 +54,6 @@ async fn main() -> anyhow::Result<()> {
         Command::Db(db) => match db {
             Db::Init => cli::db_cmd::init(config).await,
         },
-        Command::CheckConfig => Ok(())
+        Command::CheckConfig => Ok(()),
     }
 }

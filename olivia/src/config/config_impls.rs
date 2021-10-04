@@ -22,7 +22,7 @@ impl Config {
 
         for (parent, sources) in self.events.clone() {
             let db = PrefixedDb::new(db.clone(), parent.clone());
-            let logger = logger.new(o!("parent" => parent.to_string()));
+            let logger = logger.new(o!("path" => parent.to_string()));
             for (i, source) in sources.into_iter().enumerate() {
                 let stream = source.to_event_stream(logger.clone(), db.clone())?;
                 streams.insert((parent.clone(), i), stream);
@@ -42,7 +42,7 @@ impl Config {
 
         for (parent, sources) in self.outcomes.clone() {
             let db = PrefixedDb::new(db.clone(), parent.clone());
-            let logger = logger.new(o!("parent" => parent.to_string()));
+            let logger = logger.new(o!("path" => parent.to_string()));
             for (i, source) in sources.into_iter().enumerate() {
                 let stream = source.to_outcome_stream(
                     secret_seed.child(parent.as_str().as_bytes()),
@@ -63,8 +63,7 @@ impl Config {
         let mut streams = StreamMap::new();
         for (parent, sources) in self.events.clone() {
             for (i, source) in sources.iter().enumerate() {
-                let stream =
-                    source.to_node_stream(logger.new(o!("parent" => parent.to_string())))?;
+                let stream = source.to_node_stream(logger.new(o!("path" => parent.to_string())))?;
                 streams.insert((parent.clone(), i), stream);
             }
         }
@@ -260,8 +259,8 @@ impl OutcomeSourceConfig {
             }) => {
                 info!(
                     logger,
-                    "Connecting to redis://{}/{} to receive outcomes",
-                    connection_info.addr, connection_info.db;
+                    "Connecting to redis://{}/{} to receive outcomes on {}",
+                    connection_info.addr, connection_info.db, lists.join(",");
                 );
                 Box::pin(sources::redis::event_stream(
                     redis::Client::open(connection_info.clone())?,
@@ -300,6 +299,7 @@ impl OutcomeSourceConfig {
         };
 
         if self.complete_related {
+            debug!(logger, "complete related enabled");
             Ok(Box::pin(async_stream::stream! {
                 let complete_related = sources::complete_related::CompleteRelated { db };
                 let logger = logger.new(o!("source_type" => "complete_related"));
