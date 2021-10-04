@@ -36,7 +36,11 @@ pub struct RestConfig {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RedisConfig {
-    #[serde(deserialize_with = "deser_redis_connection_info", rename = "url", serialize_with = "ser_redis_connection_info")]
+    #[serde(
+        deserialize_with = "deser_redis_connection_info",
+        rename = "url",
+        serialize_with = "ser_redis_connection_info"
+    )]
     pub connection_info: redis::ConnectionInfo,
     pub lists: Vec<String>,
 }
@@ -200,6 +204,9 @@ fn deser_log_level<'a, D: serde::Deserializer<'a>>(d: D) -> Result<slog::Level, 
     d.deserialize_str(MyVisitor)
 }
 
-pub fn ser_redis_connection_info<S: serde::Serializer>(conn: &redis::ConnectionInfo, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&format!("redis://{}",conn.addr))
+pub fn ser_redis_connection_info<S: serde::Serializer>(
+    conn: &redis::ConnectionInfo,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&format!("redis://{}", conn.addr))
 }

@@ -63,8 +63,7 @@ impl Config {
         let mut streams = StreamMap::new();
         for (parent, sources) in self.events.clone() {
             for (i, source) in sources.iter().enumerate() {
-                let stream =
-                    source.to_node_stream(logger.new(o!("path" => parent.to_string())))?;
+                let stream = source.to_node_stream(logger.new(o!("path" => parent.to_string())))?;
                 streams.insert((parent.clone(), i), stream);
             }
         }
@@ -154,8 +153,14 @@ impl EventSourceConfig {
                     connection_info.addr;
                 );
 
+                let connection = redis::Client::open(connection_info.clone())?;
+                info!(
+                    logger,
+                    "succesfully connected to redis://{}", connection_info.addr
+                );
+
                 Box::pin(sources::redis::event_stream(
-                    redis::Client::open(connection_info.clone())?,
+                    connection,
                     lists,
                     logger.new(o!("type" => "event_source", "source_type" => "redis")),
                 )?)
@@ -264,8 +269,13 @@ impl OutcomeSourceConfig {
                     "Connecting to redis://{} to receive outcomes on {}",
                     connection_info.addr, lists.join(",");
                 );
+                let conn = redis::Client::open(connection_info.clone())?;
+                info!(
+                    logger,
+                    "succesfully connected to redis://{}", connection_info.addr
+                );
                 Box::pin(sources::redis::event_stream(
-                    redis::Client::open(connection_info.clone())?,
+                    conn,
                     lists,
                     logger.new(o!("source_type" => "redis")),
                 )?)
