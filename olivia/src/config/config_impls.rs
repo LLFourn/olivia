@@ -326,6 +326,7 @@ impl OutcomeSourceConfig {
                 }
             }))
         } else {
+            debug!(logger, "complete related disabled");
             Ok(stream)
         }
     }
