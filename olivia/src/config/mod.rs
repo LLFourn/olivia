@@ -1,5 +1,6 @@
 use crate::{seed::Seed, sources::predicates::OutcomeFilter};
 use olivia_core::{chrono::NaiveDateTime, EventKind, Path};
+use redis::IntoConnectionInfo;
 use std::{collections::HashMap, str::FromStr};
 
 mod config_impls;
@@ -32,10 +33,10 @@ pub struct RestConfig {
     pub listen: std::net::SocketAddr,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RedisConfig {
-    #[serde(deserialize_with = "deser_redis_connection_info", rename = "url")]
+    #[serde(deserialize_with = "deser_redis_connection_info", rename = "url", serialize_with = "ser_redis_connection_info")]
     pub connection_info: redis::ConnectionInfo,
     pub lists: Vec<String>,
 }
@@ -77,7 +78,7 @@ pub struct EventSourceConfig {
     predicate: Option<PredicateConfig>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case", tag = "type")]
 #[serde(deny_unknown_fields)]
 pub enum OutcomeSource {
@@ -103,7 +104,7 @@ pub enum OutcomeSource {
     Redis(RedisConfig),
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct OutcomeSourceConfig {
     #[serde(flatten)]
@@ -173,7 +174,6 @@ pub fn deser_redis_connection_info<'a, D: serde::Deserializer<'a>>(
         }
 
         fn visit_str<E: serde::de::Error>(self, data: &str) -> Result<Self::Value, E> {
-            use redis::IntoConnectionInfo;
             data.into_connection_info()
                 .map_err(|e| serde::de::Error::custom(e))
         }
@@ -198,4 +198,8 @@ fn deser_log_level<'a, D: serde::Deserializer<'a>>(d: D) -> Result<slog::Level, 
     }
 
     d.deserialize_str(MyVisitor)
+}
+
+pub fn ser_redis_connection_info<S: serde::Serializer>(conn: &redis::ConnectionInfo, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&format!("redis://{}",conn.addr))
 }

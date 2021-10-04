@@ -29,7 +29,7 @@ impl OracleLog for slog::Logger {
                 OutcomeChanged { existing, new } => {
                     crit!(self, "outcome changed"; "existing" => existing, "new" => new)
                 }
-                EventNotExist => warn!(self, "event doesn't exist"),
+                EventNotExist => debug!(self, "event doesn't exist"),
                 DbReadErr(e) => crit!(self, "database read"; "error" => format!("{}", e)),
                 DbWriteErr(e) => crit!(self, "database write"; "error" => format!("{}", e)),
                 AnnouncementWasBogus => crit!(self, "bogus announcement"),

@@ -63,7 +63,8 @@ impl Config {
         let mut streams = StreamMap::new();
         for (parent, sources) in self.events.clone() {
             for (i, source) in sources.iter().enumerate() {
-                let stream = source.to_node_stream(logger.new(o!("path" => parent.to_string())))?;
+                let stream =
+                    source.to_node_stream(logger.new(o!("path" => parent.to_string())))?;
                 streams.insert((parent.clone(), i), stream);
             }
         }
@@ -149,8 +150,8 @@ impl EventSourceConfig {
             }) => {
                 info!(
                     logger,
-                    "Connecting to redis://{}/{} to receive events",
-                    connection_info.addr, connection_info.db, ;
+                    "Connecting to redis://{} to receive events",
+                    connection_info.addr;
                 );
 
                 Box::pin(sources::redis::event_stream(
@@ -252,6 +253,7 @@ impl OutcomeSourceConfig {
         db: PrefixedDb,
     ) -> anyhow::Result<sources::Stream<StampedOutcome>> {
         use OutcomeSource::*;
+        info!(logger, "starting outcome stream"; "config" => serde_json::to_string(&self).unwrap());
         let mut stream: sources::Stream<StampedOutcome> = match self.clone().outcome_source {
             Redis(RedisConfig {
                 connection_info,
@@ -259,8 +261,8 @@ impl OutcomeSourceConfig {
             }) => {
                 info!(
                     logger,
-                    "Connecting to redis://{}/{} to receive outcomes on {}",
-                    connection_info.addr, connection_info.db, lists.join(",");
+                    "Connecting to redis://{} to receive outcomes on {}",
+                    connection_info.addr, lists.join(",");
                 );
                 Box::pin(sources::redis::event_stream(
                     redis::Client::open(connection_info.clone())?,

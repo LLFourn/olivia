@@ -8,7 +8,7 @@ edition = "2018"
 warp = "0.3"
 blake2 = "0.9"
 tokio-postgres = {  version = "0.7", features = [ "with-serde_json-1", "with-chrono-0_4" ]}
-redis  = { version = "0.20", default-features = false }
+redis  = { version = "0.21", default-features = false }
 serde = "1"
 slog = "2"
 slog-term = "2"
