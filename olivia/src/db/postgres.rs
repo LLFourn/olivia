@@ -345,7 +345,7 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
                      AND path ~ $2
                      {}
                      AND id LIKE $3
-                   ORDER BY expected_outcome_time {} LIMIT 1"#,
+                   ORDER BY expected_outcome_time {}"#,
                     match attested {
                         Some(true) => "AND (att).outcome IS NOT NULL",
                         Some(false) => "AND (att).outcome IS NULL",
