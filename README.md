@@ -19,7 +19,6 @@ Take a look at `sample_config/ticker.yml` which will just attest to the time and
 
 
 ``` sh
-
 olivia --config sample_config/ticker/yml run
 ```
 
@@ -42,17 +41,17 @@ database:
 
 events:
   /NBA/match:
-    type: "redis"
-    url: "redis://my-redis-host"
-    lists:
-      - "NBA:events"
+    - type: "redis"
+      url: "redis://my-redis-host"
+      lists:
+        - "NBA:events"
 
 outcomes:
   /NBA/match:
-    type: "redis"
-    url: "redis://my-redis-host"
-    lists:
-      - "NBA:outcomes"
+    - type: "redis"
+      url: "redis://my-redis-host"
+      lists:
+        - "NBA:outcomes"
 ```
 
 Then you must initialize the postgres database:
