@@ -326,7 +326,7 @@ mod test {
     #[test]
     fn price_attestation_indexes() {
         let outcome = Outcome {
-            id: EventId::from_str("/foo/bar.price[n:6]").unwrap(),
+            id: EventId::from_str("/foo/bar.price?n=6").unwrap(),
             value: 0b100100,
         };
 
@@ -336,7 +336,7 @@ mod test {
     #[test]
     fn overflow_attestation_indexes() {
         let outcome = Outcome {
-            id: EventId::from_str("/foo/bar.price[n:6]").unwrap(),
+            id: EventId::from_str("/foo/bar.price?n=6").unwrap(),
             value: 0b1100100,
         };
 
@@ -346,7 +346,7 @@ mod test {
     #[test]
     fn edge_cases_attestation_indexes() {
         let outcome = Outcome {
-            id: EventId::from_str("/foo/bar.price[n:64]").unwrap(),
+            id: EventId::from_str("/foo/bar.price?n=64").unwrap(),
             value: u64::MAX - 1,
         };
 
