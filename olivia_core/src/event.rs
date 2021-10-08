@@ -107,8 +107,6 @@ impl FromStr for EventKind {
             None => (event_kind, vec![]),
         };
 
-        dbg!(&args);
-
         Ok(match (event_kind, args) {
             ("vs", args) => {
                 check_no_args(args)?;

@@ -69,10 +69,14 @@ fn with_db<C: Group>(
 
 async fn get_event<C: Group>(
     tail: warp::filters::path::Tail,
+    query: Option<String>,
     db: Arc<dyn DbReadOracle<C>>,
 ) -> Result<ApiReply<EventResponse<C>>, warp::reject::Rejection> {
     let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
-    let path = format!("/{}", tail);
+    let path = match query {
+        Some(query) => format!("/{}?{}", tail, query),
+        None => format!("/{}", tail),
+    };
     let path = match Path::from_str(&path) {
         Ok(path) => path,
         Err(_) => {
@@ -148,63 +152,23 @@ async fn get_path<C: Group>(
     }
 }
 
-// impl<C: Group> Filters<C> {
-
-//
-//     pub async fn get_root(db: Arc<dyn DbReadOracle<C>>) -> ApiReply<RootResponse<C>> {
-//         let public_keys = db.get_public_keys().await;
-//         let res = db.get_node(PathRef::root()).await;
-
-//         let reply = if let Ok(Some(public_keys)) = public_keys {
-//             if let Ok(Some(node)) = res {
-//                 ApiReply::Ok(RootResponse {
-//                     public_keys,
-//                     node: GetPath {
-//                         events: node.events,
-//                         child_desc: node.child_desc,
-//                     },
-//                 })
-//             } else {
-//                 ApiReply::Err(ErrorMessage::internal_server_error())
-//             }
-//         } else {
-//             ApiReply::Err(ErrorMessage::internal_server_error())
-//         };
-
-//         reply
-//     }
-//     pub async fn get_root(db: Arc<dyn DbReadOracle<C>>) -> ApiReply<RootResponse<C>> {
-//         let public_keys = db.get_public_keys().await;
-//         let res = db.get_node(PathRef::root()).await;
-
-//         let reply = if let Ok(Some(public_keys)) = public_keys {
-//             if let Ok(Some(node)) = res {
-//                 ApiReply::Ok(RootResponse {
-//                     public_keys,
-//                     node: GetPath {
-//                         events: node.events,
-//                         child_desc: node.child_desc,
-//                     },
-//                 })
-//             } else {
-//                 ApiReply::Err(ErrorMessage::internal_server_error())
-//             }
-//         } else {
-//             ApiReply::Err(ErrorMessage::internal_server_error())
-//         };
-
-//         reply
-//     }
-// }
-
 pub fn routes<C: Group>(
     db: Arc<dyn DbReadOracle<C>>,
     _logger: slog::Logger,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::reject::Rejection> + Clone {
     let event = warp::get()
         .and(warp::path::tail())
+        .map(|tail| (tail, None))
+        .untuple_one()
         .and(with_db(db.clone()))
         .and_then(get_event);
+
+    let event_with_query = warp::get()
+        .and(warp::path::tail())
+        .and(warp::filters::query::raw().map(|query| Some(query)))
+        .and(with_db(db.clone()))
+        .and_then(get_event);
+
     let root = warp::get()
         .and(warp::path::end())
         .and(with_db(db.clone()))
@@ -219,5 +183,5 @@ pub fn routes<C: Group>(
         .allow_methods(vec!["OPTIONS", "GET", "POST", "DELETE", "PUT"])
         .allow_headers(vec!["content-type"]);
 
-    root.or(event).or(path).with(cors)
+    root.or(event_with_query).or(event).or(path).with(cors)
 }

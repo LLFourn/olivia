@@ -141,6 +141,36 @@ macro_rules! run_rest_api_tests {
                         .verify_against_id(&event_id, &public_keys.announcement)
                         .is_some())
             }
+
+            #[tokio::test]
+            async fn get_event_with_param(){
+                $($init)*;
+                let event_id = EventId::from_str("/test/one/two/three.price?n=20").unwrap();
+
+                $oracle
+                    .add_event(event_id.clone().clone().into())
+                    .await
+                    .unwrap();
+
+                let public_keys = {
+                    let root = warp::test::request().path("/").reply(&$routes).await;
+                    j::<RootResponse<$curve>>(&root.body())
+                        .unwrap()
+                        .public_keys
+                };
+
+                let res = warp::test::request()
+                    .path(event_id.as_str())
+                    .reply(&$routes)
+                    .await;
+
+                let body = j::<EventResponse<$curve>>(&res.body()).unwrap();
+
+                assert!(body
+                        .announcement
+                        .verify_against_id(&event_id, &public_keys.announcement)
+                        .is_some())
+            }
         }
     }
 }
