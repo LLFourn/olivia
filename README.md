@@ -19,7 +19,7 @@ Take a look at `sample_config/ticker.yml` which will just attest to the time and
 
 
 ``` sh
-olivia --config sample_config/ticker/yml run
+olivia --config sample_config/ticker.yml run
 ```
 
 You can get the REST API at localhost:8000
