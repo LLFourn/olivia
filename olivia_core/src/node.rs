@@ -6,11 +6,13 @@ pub enum ChildDesc {
     List {
         list: Vec<Child>,
     },
+    #[serde(rename_all = "kebab-case")]
     Range {
         #[serde(flatten)]
         range_kind: RangeKind,
-        start: Option<Child>,
-        end: Option<Child>,
+        start: Option<String>,
+        next_unattested: Option<String>,
+        end: Option<String>,
     },
 }
 

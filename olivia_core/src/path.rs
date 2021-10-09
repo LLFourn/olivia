@@ -51,7 +51,9 @@ impl<'a> PathRef<'a> {
     }
 
     pub fn segments(self) -> impl Iterator<Item = &'a str> {
-        self.0[1..].split('/')
+        let mut iter = self.0.split('/');
+        let _ = iter.next();
+        iter
     }
 
     pub fn strip_event(self) -> Option<(PathRef<'a>, &'a str)> {
@@ -138,6 +140,10 @@ impl Path {
     pub fn from_dt(dt: NaiveDateTime) -> Self {
         Path(format!("/{}", dt.format("%FT%T")))
     }
+
+    pub fn into_child(self, name: &str) -> Self {
+        Path(self.0 + "/" + name)
+    }
 }
 
 impl fmt::Display for Path {
@@ -221,5 +227,17 @@ mod test {
             Path::from_str("/bar").unwrap().prefix_path(PathRef::root()),
             Path::from_str("/bar").unwrap()
         );
+    }
+
+    #[test]
+    fn segments() {
+        assert_eq!(
+            Path::from_str("/foo/bar")
+                .unwrap()
+                .as_path_ref()
+                .segments()
+                .collect::<Vec<_>>(),
+            vec!["foo", "bar"]
+        )
     }
 }
