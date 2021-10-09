@@ -34,11 +34,13 @@ CREATE TABLE event (
 );
 
 CREATE INDEX idx_expected_outcome_time ON event (expected_outcome_time DESC);
+-- We need this so we can find the earliest unattested event
+CREATE INDEX idx_unattested_expected_outcome_time ON event (expected_outcome_time ASC) WHERE (att).outcome IS NULL;
 -- To lookup all children of a node e.g. to find all games under /NBA/2021-10-04
 CREATE INDEX idx_lookup_node_by_parent ON tree USING HASH (parent);
 -- So we can do SELECT min(id), max(id) FROM tree WHERE parent = '/time' efficiently
 CREATE INDEX min_max_node_id ON tree (parent, id);
--- TODO: We need an index which makes looking up the earliest unattested event faster
+-- This is the ltree index which allows us to find thigs under a certain path
 CREATE INDEX idx_path_gist ON event USING GIST (path);
 
 INSERT INTO meta (key, value) VALUES ('version', '{"version" : 0 }'::jsonb);
