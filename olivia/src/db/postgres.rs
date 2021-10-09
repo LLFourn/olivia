@@ -3,7 +3,7 @@ use crate::db::*;
 use async_trait::async_trait;
 use olivia_core::{
     attest, AnnouncedEvent, Attestation, AttestationSchemes, Child, ChildDesc, Event, EventId,
-    Group, OracleKeys, PathRef, RawAnnouncement, RawOracleEvent,
+    Group, OracleKeys, PathRef, PrefixPath, RawAnnouncement, RawOracleEvent,
 };
 use std::iter::once;
 use tokio::sync::RwLock;
@@ -203,7 +203,8 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
             .await?;
 
         let trim = |x: String| {
-            x.trim_start_matches(path.as_str())
+            x.strip_prefix(path.as_str())
+                .unwrap()
                 .trim_start_matches('/')
                 .to_string()
         };
@@ -237,24 +238,42 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
                         }
                     }
                     Some(NodeKind::Range { range_kind }) => {
+                        let next_unattested = {
+                            let next_event = self
+                                .query_event(EventQuery {
+                                    path: Some(path),
+                                    attested: Some(false),
+                                    order: Order::Earliest,
+                                    ..Default::default()
+                                })
+                                .await?;
+
+                            next_event.and_then(|event| {
+                                Some(
+                                    event
+                                        .id
+                                        .path()
+                                        .to_path()
+                                        .strip_prefix_path(path)
+                                        .as_path_ref()
+                                        .segments()
+                                        .next()?
+                                        .to_string(),
+                                )
+                            })
+                        };
                         let rows = self
                             .query(
-                                r"( SELECT id, kind FROM tree WHERE parent = $1 ORDER BY id ASC LIMIT 1 )
+                                r"( SELECT id FROM tree WHERE parent = $1 ORDER BY id ASC LIMIT 1 )
                                   UNION ALL
-                                  ( SELECT id, kind FROM tree WHERE parent = $1 ORDER BY id DESC LIMIT 1 )",
+                                  ( SELECT id FROM tree WHERE parent = $1 ORDER BY id DESC LIMIT 1 )",
                                 &[&path.as_str()],
                             )
                             .await?;
 
                         let mut min_max_children = rows
                             .into_iter()
-                            .map(|row| Child {
-                                name: trim(row.get("id")),
-                                kind: row
-                                    .get::<_, Option<_>>("kind")
-                                    .map(|json| serde_json::from_value(json).unwrap())
-                                    .unwrap_or(NodeKind::List),
-                            })
+                            .map(|row| trim(row.get("id")))
                             .collect::<Vec<_>>();
 
                         let end = min_max_children.pop();
@@ -263,6 +282,7 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
                         ChildDesc::Range {
                             start,
                             range_kind,
+                            next_unattested,
                             end,
                         }
                     }

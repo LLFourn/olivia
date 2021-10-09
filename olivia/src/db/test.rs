@@ -179,22 +179,19 @@ macro_rules! run_node_db_tests {
             async fn test_set_node() {
                 $($init)*;
                 let event_ids = vec![
-                    EventId::from_str("/test/time/2020-09-30T08:00:00.occur").unwrap(),
-                    EventId::from_str("/test/time/2020-09-30T08:02:00.occur").unwrap(),
-                    EventId::from_str("/test/time/2020-09-30T08:01:00.occur").unwrap(),
+                    EventId::from_str("/test/time/2020-09-30T08:00:00/foo.occur").unwrap(),
+                    EventId::from_str("/test/time/2020-09-30T08:02:00/bar.occur").unwrap(),
+                    EventId::from_str("/test/time/2020-09-30T08:01:00/baz.occur").unwrap(),
                 ];
 
-                let children = event_ids
-                    .iter()
-                    .map(|id| Child {
-                        name: id.path().segments().nth(2).unwrap().to_string(),
-                        kind: NodeKind::List,
-                    })
-                    .collect::<Vec<_>>();
-
+                let times = event_ids.iter().map(|id|id.path().segments().nth(2).unwrap().to_string() ).collect::<Vec<_>>();
                 let events = event_ids
                     .iter()
-                    .map(|id| AnnouncedEvent::test_unattested_instance(id.clone().into()))
+                    .zip(times.iter())
+                    .map(|(id,time)| AnnouncedEvent::test_unattested_instance( Event {
+                        id: id.clone(),
+                        expected_outcome_time: olivia_core::chrono::NaiveDateTime::from_str(time).ok(),
+                    }))
                     .collect::<Vec<_>>();
                 for event in events {
                     $db.insert_event(event).await.unwrap();
@@ -208,16 +205,35 @@ macro_rules! run_node_db_tests {
                 })
                    .await
                    .unwrap();
+
                 assert_eq!(
                     $db.get_node(path!("/test/time")).await.unwrap().unwrap(),
                     GetPath {
                         events: vec![],
                         child_desc: ChildDesc::Range {
                             range_kind: RangeKind::Time { interval: 60 },
-                            start: Some(children[0].clone()),
-                            end: Some(children[1].clone())
+                            start: Some(times[0].clone()),
+                            next_unattested: Some(times[0].clone()),
+                            end: Some(times[1].clone())
                         }
-                    }
+                    },
+                    "none are attested so next should be first",
+                );
+
+                $db.complete_event(&event_ids[0], Attestation::test_instance(&event_ids[0])).await.unwrap();
+
+                assert_eq!(
+                    $db.get_node(path!("/test/time")).await.unwrap().unwrap(),
+                    GetPath {
+                        events: vec![],
+                        child_desc: ChildDesc::Range {
+                            range_kind: RangeKind::Time { interval: 60 },
+                            start: Some(times[0].clone()),
+                            next_unattested: Some(times[2].clone()),
+                            end: Some(times[1].clone())
+                        }
+                    },
+                    "after attesting event 'next' changes"
                 );
 
                 $db.set_node(Node {
@@ -230,12 +246,9 @@ macro_rules! run_node_db_tests {
                 let node = $db.get_node(path!("/test/time")).await.unwrap().unwrap();
                 match node.child_desc {
                     ChildDesc::List { list } => {
-                        let mut expected = event_ids
-                            .iter()
-                            .map(|x| x.path().last())
-                            .collect::<Vec<_>>();
+                        let mut expected = times.clone();
                         expected.sort();
-                        let mut got = list.iter().map(|x| &x.name).collect::<Vec<_>>();
+                        let mut got = list.iter().map(|x| x.name.clone()).collect::<Vec<_>>();
                         got.sort();
                         assert_eq!(expected, got);
                     }

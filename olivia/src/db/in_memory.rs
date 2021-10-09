@@ -3,11 +3,11 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use olivia_core::{
     AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, Group, OracleKeys, Path,
+    PrefixPath,
 };
 use std::{
     cmp::Reverse,
     collections::HashMap,
-    str::FromStr,
     sync::{Arc, RwLock},
 };
 
@@ -45,47 +45,77 @@ impl<C: Group> DbReadOracle<C> for InMemory<C> {
 
 #[async_trait]
 impl<C: Group> DbReadEvent for InMemory<C> {
-    async fn get_node(&self, node: PathRef<'_>) -> Result<Option<GetPath>, Error> {
+    async fn get_node(&self, path: PathRef<'_>) -> Result<Option<GetPath>, Error> {
+        let next_unattested = {
+            let next_event = self
+                .query_event(EventQuery {
+                    path: Some(path),
+                    attested: Some(false),
+                    order: Order::Earliest,
+                    ..Default::default()
+                })
+                .await?;
+
+            next_event.and_then(|event| {
+                Some(
+                    event
+                        .id
+                        .path()
+                        .to_path()
+                        .strip_prefix_path(path)
+                        .as_path_ref()
+                        .segments()
+                        .next()?
+                        .to_string(),
+                )
+            })
+        };
+
         let db = &*self.inner.read().unwrap();
         let node_kinds = self.node_kinds.read().unwrap();
         let node_kind = node_kinds
-            .get(&node.to_path())
+            .get(&path.to_path())
             .cloned()
             .unwrap_or(NodeKind::List);
 
-        let mut children_list: Vec<Child> = {
-            let parent_prefix = if node == PathRef::root() {
-                "/".to_string()
-            } else {
-                format!("{}/", node)
-            };
-
+        let mut children_list = {
             db.keys()
-                .into_iter()
                 .filter_map(|event_id| {
-                    let child_path = event_id.path().as_str();
-                    if let Some(remaining) = child_path.strip_prefix(&parent_prefix) {
-                        let end = remaining.find('/').unwrap_or(remaining.len());
-                        let name = remaining[..end].to_string();
-                        let child_node = &child_path[..parent_prefix.len() + end];
-                        let child = Child {
-                            name,
+                    let event_path = event_id.path();
+                    if path.is_parent_of(event_path) {
+                        let child_path = event_path.to_path().strip_prefix_path(path);
+                        let last = child_path.as_path_ref().segments().next()?;
+                        let full_path = Path::root().into_child(last).prefix_path(path);
+                        Some(Child {
+                            name: last.to_string(),
                             kind: node_kinds
-                                .get(&Path::from_str(child_node).unwrap())
+                                .get(&full_path)
                                 .cloned()
                                 .unwrap_or(NodeKind::List),
-                        };
-
-                        Some(child)
+                        })
                     } else {
                         None
                     }
                 })
-                .collect()
+                .collect::<Vec<_>>()
         };
 
         children_list.sort_unstable_by_key(|child| child.name.clone());
         children_list.dedup();
+
+        let events = {
+            db.keys()
+                .into_iter()
+                .filter(|key| {
+                    if let Some(remaining) = key.as_str().strip_prefix(path.as_str()) {
+                        remaining.starts_with('.')
+                    } else {
+                        false
+                    }
+                })
+                .map(EventId::event_kind)
+                .collect::<Vec<_>>()
+        };
 
         let child_desc = match node_kind {
             NodeKind::List => ChildDesc::List {
@@ -95,24 +125,11 @@ impl<C: Group> DbReadEvent for InMemory<C> {
                 0 => ChildDesc::List { list: vec![] },
                 _ => ChildDesc::Range {
                     range_kind,
-                    start: Some(children_list[0].clone()),
-                    end: Some(children_list[children_list.len() - 1].clone()),
+                    start: Some(children_list[0].name.clone()),
+                    next_unattested,
+                    end: Some(children_list[children_list.len() - 1].name.clone()),
                 },
             },
-        };
-
-        let events = {
-            db.keys()
-                .into_iter()
-                .filter(|key| {
-                    if let Some(remaining) = key.as_str().strip_prefix(node.as_str()) {
-                        remaining.starts_with('.')
-                    } else {
-                        false
-                    }
-                })
-                .map(EventId::event_kind)
-                .collect::<Vec<_>>()
         };
 
         if events.is_empty() && children_list.is_empty() {
