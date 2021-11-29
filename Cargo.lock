@@ -244,12 +244,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crunchy"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a81dae078cea95a014a339291cec439d2f232ebe854a9d672b796c6afafa9b7"
-
-[[package]]
 name = "crypto-mac"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -317,8 +311,9 @@ checksum = "56899898ce76aaf4a0f24d914c97ea6ed976d42fec6ad33fcbb0a1103e07b2b0"
 
 [[package]]
 name = "ecdsa_fun"
-version = "0.6.3-alpha.0"
-source = "git+https://github.com/LLFourn/secp256kfun.git?rev=2a361f26c82552099bfecffe5955cda83c226a9b#2a361f26c82552099bfecffe5955cda83c226a9b"
+version = "0.7.0-pre.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a875b12be8238885e687e668a0d5ebd4ea30a37986426327e113a726ac9cc727"
 dependencies = [
  "secp256kfun",
  "serde",
@@ -1238,8 +1233,9 @@ checksum = "ef703b7cb59335eae2eb93ceb664c0eb7ea6bf567079d843e09420219668e072"
 
 [[package]]
 name = "schnorr_fun"
-version = "0.6.3-alpha.0"
-source = "git+https://github.com/LLFourn/secp256kfun.git?rev=2a361f26c82552099bfecffe5955cda83c226a9b#2a361f26c82552099bfecffe5955cda83c226a9b"
+version = "0.7.0-pre.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2350c79db0fe973060d6dade787d8846b8da18584ca7a67d31f8654573206566"
 dependencies = [
  "secp256kfun",
  "serde",
@@ -1277,23 +1273,26 @@ dependencies = [
 
 [[package]]
 name = "secp256kfun"
-version = "0.6.3-alpha.0"
-source = "git+https://github.com/LLFourn/secp256kfun.git?rev=2a361f26c82552099bfecffe5955cda83c226a9b#2a361f26c82552099bfecffe5955cda83c226a9b"
+version = "0.7.0-pre.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c2a2b71b042f0ae8ac518a89dce743f2986259e657deac856a11cfcb3c15dba"
 dependencies = [
  "digest",
  "rand_core 0.6.3",
  "secp256k1",
- "secp256kfun_parity_backend",
+ "secp256kfun_k256_backend",
  "serde",
  "subtle-ng",
 ]
 
 [[package]]
-name = "secp256kfun_parity_backend"
-version = "0.1.6-alpha.0"
-source = "git+https://github.com/LLFourn/secp256kfun.git?rev=2a361f26c82552099bfecffe5955cda83c226a9b#2a361f26c82552099bfecffe5955cda83c226a9b"
+name = "secp256kfun_k256_backend"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "033ef4924177ac8b408ac2a19f00babe2472fb81aefd1ca87261a3833682505a"
 dependencies = [
- "crunchy",
+ "cfg-if 1.0.0",
+ "generic-array",
  "subtle-ng",
 ]
 
