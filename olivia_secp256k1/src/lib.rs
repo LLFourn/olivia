@@ -265,7 +265,7 @@ impl olivia_core::Group for Secp256k1 {
             .mark::<NonZero>()
             .expect("will not be zero");
 
-        let R = XOnly::from_scalar_mul(&SCHNORR.G(), &mut r);
+        let R = XOnly::from_scalar_mul(&G, &mut r);
         (r, R)
     }
 
