@@ -20,6 +20,7 @@ macro_rules! run_rest_api_tests {
             async fn get_path() {
                 $($init)*;
                 let event_id = EventId::from_str("/test/one/two/3.occur").unwrap();
+
                 let node = event_id.path();
 
                 {
@@ -28,6 +29,8 @@ macro_rules! run_rest_api_tests {
                         .reply(&$routes)
                         .await;
 
+                    dbg!(&event_id, res.body());
+
                     let error = j::<ErrorMessage>(&res.body()).expect("returns an error body");
                     assert_eq!(
                         error.error,
@@ -35,7 +38,6 @@ macro_rules! run_rest_api_tests {
                     );
                     assert_eq!(res.status(), http::StatusCode::NOT_FOUND);
                 }
-
                 $oracle.add_event(event_id.clone().into()).await.unwrap();
 
                 assert_eq!(
@@ -50,6 +52,7 @@ macro_rules! run_rest_api_tests {
 
                 for path in &[format!("{}", node), format!("{}/", node)] {
                     let res = warp::test::request().path(path).reply(&$routes).await;
+                    dbg!(&path, &res.body());
 
                     assert_eq!(res.status(), 200);
                     let body = j::<GetPath>(&res.body()).unwrap();
@@ -163,6 +166,42 @@ macro_rules! run_rest_api_tests {
                     .path(event_id.as_str())
                     .reply(&$routes)
                     .await;
+
+                let body = j::<EventResponse<$curve>>(&res.body()).unwrap();
+
+                assert!(body
+                        .announcement
+                        .verify_against_id(&event_id, &public_keys.announcement)
+                        .is_some())
+            }
+
+            #[tokio::test]
+            async fn get_gt_event(){
+                $($init)*;
+                use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+                /// https://url.spec.whatwg.org/#fragment-percent-encode-set
+                const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
+                let event_id = EventId::from_str("/test/one/two/three.price＞1000").unwrap();
+
+                let percent_encoded = utf8_percent_encode(event_id.as_str(), FRAGMENT).to_string();
+                $oracle
+                    .add_event(event_id.clone().clone().into())
+                    .await
+                    .unwrap();
+
+                let public_keys = {
+                    let root = warp::test::request().path("/").reply(&$routes).await;
+                    j::<RootResponse<$curve>>(&root.body())
+                        .unwrap()
+                        .public_keys
+                };
+
+                let res = warp::test::request()
+                    .path(&percent_encoded)
+                    .reply(&$routes)
+                    .await;
+
+                dbg!(&percent_encoded, res.body());
 
                 let body = j::<EventResponse<$curve>>(&res.body()).unwrap();
 

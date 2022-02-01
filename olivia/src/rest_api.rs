@@ -67,23 +67,41 @@ fn with_db<C: Group>(
     warp::any().map(move || db.clone())
 }
 
+fn percent_decoded_tail(
+) -> impl Filter<Extract = (ApiReply<String>,), Error = std::convert::Infallible> + Clone {
+    warp::path::tail().map(|tail: warp::path::Tail| {
+        match percent_encoding::percent_decode_str(tail.as_str()).decode_utf8() {
+            Ok(tail) => ApiReply::Ok(tail.to_string()),
+            Err(_) => ApiReply::Err(
+                ErrorMessage::bad_request().with_message("'{}' was not URL encoded properly"),
+            ),
+        }
+    })
+}
+
 async fn get_event<C: Group>(
-    tail: warp::filters::path::Tail,
+    tail: ApiReply<String>,
     query: Option<String>,
     db: Arc<dyn DbReadOracle<C>>,
 ) -> Result<ApiReply<EventResponse<C>>, warp::reject::Rejection> {
-    let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
+    let tail = match tail {
+        ApiReply::Ok(tail) => tail,
+        ApiReply::Err(e) => return Ok(ApiReply::Err(e)),
+    };
+    if tail.ends_with("/") {
+        return Err(warp::reject());
+    }
     let path = match query {
         Some(query) => format!("/{}?{}", tail, query),
         None => format!("/{}", tail),
     };
+
     let path = match Path::from_str(&path) {
         Ok(path) => path,
-        Err(_) => {
-            return Ok(ApiReply::Err(
-                ErrorMessage::bad_request()
-                    .with_message(format!("'{}' is not a valid event path", path)),
-            ))
+        Err(e) => {
+            return Ok(ApiReply::Err(ErrorMessage::bad_request().with_message(
+                format!("'{}' is not a valid event path: {}", path, e),
+            )))
         }
     };
 
@@ -126,16 +144,20 @@ pub async fn get_root<C: Group>(db: Arc<dyn DbReadOracle<C>>) -> ApiReply<RootRe
 }
 
 async fn get_path<C: Group>(
-    tail: warp::filters::path::Tail,
+    tail: ApiReply<String>,
     db: Arc<dyn DbReadOracle<C>>,
 ) -> ApiReply<PathResponse> {
+    let tail = match tail {
+        ApiReply::Ok(tail) => tail,
+        ApiReply::Err(e) => return ApiReply::Err(e),
+    };
     let tail = tail.as_str().strip_suffix('/').unwrap_or(tail.as_str());
     let path = match Path::from_str(&format!("/{}", tail)) {
         Ok(path) => path,
-        Err(_) => {
+        Err(e) => {
             return ApiReply::Err(
                 ErrorMessage::bad_request()
-                    .with_message(format!("'/{}' is not a valid event path", tail)),
+                    .with_message(format!("'/{}' is not a valid event path: {}", tail, e)),
             )
         }
     };
@@ -157,14 +179,14 @@ pub fn routes<C: Group>(
     _logger: slog::Logger,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::reject::Rejection> + Clone {
     let event = warp::get()
-        .and(warp::path::tail())
+        .and(percent_decoded_tail())
         .map(|tail| (tail, None))
         .untuple_one()
         .and(with_db(db.clone()))
         .and_then(get_event);
 
     let event_with_query = warp::get()
-        .and(warp::path::tail())
+        .and(percent_decoded_tail())
         .and(warp::filters::query::raw().map(|query| Some(query)))
         .and(with_db(db.clone()))
         .and_then(get_event);
@@ -174,7 +196,7 @@ pub fn routes<C: Group>(
         .and(with_db(db.clone()))
         .and_then(|db| async { Ok::<_, Infallible>(get_root(db).await) });
     let path = warp::get()
-        .and(warp::path::tail())
+        .and(percent_decoded_tail())
         .and(with_db(db.clone()))
         .and_then(|tail, db| async { Ok::<_, Infallible>(get_path(tail, db).await) });
 

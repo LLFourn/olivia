@@ -44,7 +44,7 @@ macro_rules! impl_fromsql {
                 let res = $block;
                 match res {
                     Some(res) => Ok(res),
-                    None => return Err(anyhow::anyhow!("invalid encoding of a {}").into()),
+                    None => return Err(anyhow::anyhow!("invalid encoding of a {}", $name).into()),
                 }
             }
 

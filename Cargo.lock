@@ -853,6 +853,7 @@ dependencies = [
  "lazy_static",
  "olivia_core",
  "olivia_secp256k1",
+ "percent-encoding",
  "rand",
  "redis",
  "serde",

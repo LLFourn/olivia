@@ -30,6 +30,7 @@ lazy_static = "1"
 bytes = "1"
 chacha20 = {  version = "0.8", features = ["rng"] }
 rand = "0.8"
+percent-encoding = "2"
 
 [dev-dependencies]
 testcontainers = { version = "0.12"}
