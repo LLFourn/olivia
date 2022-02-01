@@ -20,20 +20,26 @@ pub enum EventKind {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PredicateKind {
     Eq(String),
+    Bound(BoundKind, u64),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BoundKind {
+    Gt,
 }
 
 impl PredicateKind {
-    pub fn apply_to_outcome(&self, outcome: &Outcome) -> Outcome {
-        let predicated_id = outcome.id.replace_kind(EventKind::Predicate {
-            inner: Box::new(outcome.id.event_kind()),
-            kind: self.clone(),
-        });
-
+    pub fn predicate_outcome(&self, outcome: &str) -> u64 {
         match self {
-            PredicateKind::Eq(target) => Outcome {
-                id: predicated_id,
-                value: (outcome.outcome_string() == *target) as u64,
-            },
+            PredicateKind::Eq(target) => (outcome == *target) as u64,
+            PredicateKind::Bound(bound_kind, target) => {
+                let value = outcome
+                    .parse::<u64>()
+                    .expect("can't get predicate outcome for outcome that wasn't numeric");
+                match bound_kind {
+                    BoundKind::Gt => (value > *target) as u64,
+                }
+            }
         }
     }
 }
@@ -52,6 +58,12 @@ pub enum EventKindError {
     ArgsBadFormat,
     #[error("the expecting any arguments for this event kind")]
     UnexpectedArgs,
+    #[error("the predicate = was applied to was not a valid outcome")]
+    PredEqToInvalidOutcome(OutcomeError),
+    #[error("the RHS of the bound predicate wasn't numeric")]
+    PredBoundWithNonNumericRhs,
+    #[error("a bound predicate cannot be placed on a non-numeric event")]
+    PredBoundOnNonNumericEvent,
 }
 
 impl EventKind {
@@ -73,6 +85,15 @@ impl fmt::Display for EventKind {
             EventKind::SingleOccurrence => write!(f, "occur"),
             EventKind::Predicate { inner, kind } => match kind {
                 PredicateKind::Eq(value) => write!(f, "{}={}", inner, value),
+                PredicateKind::Bound(bound_kind, bound) => write!(
+                    f,
+                    "{}{}{}",
+                    inner,
+                    match bound_kind {
+                        BoundKind::Gt => '＞',
+                    },
+                    bound
+                ),
             },
             EventKind::Price { n_digits } => {
                 write!(f, "price")?;
@@ -143,6 +164,21 @@ impl FromStr for EventKind {
                 EventKind::Predicate {
                     inner: Box::new(inner),
                     kind: PredicateKind::Eq(rhs.into()),
+                }
+            }
+            (pred, args) if pred.contains('＞') => {
+                check_no_args(args)?;
+                let (lhs, rhs) = pred.split_once('＞').expect("we checked this already");
+                let rhs = rhs
+                    .parse()
+                    .map_err(|_| EventKindError::PredBoundWithNonNumericRhs)?;
+                let inner = Self::from_str(lhs)?;
+                if !matches!(inner, EventKind::Price { .. }) {
+                    return Err(EventKindError::PredBoundOnNonNumericEvent);
+                }
+                EventKind::Predicate {
+                    inner: Box::new(inner),
+                    kind: PredicateKind::Bound(BoundKind::Gt, rhs),
                 }
             }
             _ => return Err(EventKindError::Unknown(event_kind.into())),
@@ -298,35 +334,22 @@ impl EventId {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum EventIdError {
+    #[error("not an event id")]
     NotAnEvent,
+    #[error("event id is badly formatted")]
     BadFormat,
+    #[error("event id has a badly formed event kind {0}")]
     Kind(EventKindError),
+    #[error("event id was missing the event kind")]
     MissingEventKind,
-    PredicateInvalidOutcome(OutcomeError),
 }
 
-impl core::fmt::Display for EventIdError {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        match self {
-            EventIdError::NotAnEvent => write!(f, "not a valid event id"),
-            EventIdError::BadFormat => write!(f, "badly formatted event id"),
-            EventIdError::MissingEventKind => write!(
-                f,
-                "event id is valid path but doesn't end in '.<event-kind>'"
-            ),
-            EventIdError::Kind(event_kind) => {
-                write!(f, "{}", event_kind)
-            }
-            EventIdError::PredicateInvalidOutcome(OutcomeError::Invalid { outcome }) => write!(
-                f,
-                "='{}' is an invalid predicate since '{}' is not a vaid outcome",
-                outcome, outcome
-            ),
-        }
-    }
-}
+// #[derive(Debug, Clone, thiserror::Error)]
+// pub enum PredicateError {
+//     InvalidOutcome(OutcomeError)
+// }
 
 impl From<PathError> for EventIdError {
     fn from(e: PathError) -> Self {
@@ -341,8 +364,6 @@ impl From<EventKindError> for EventIdError {
         EventIdError::Kind(e)
     }
 }
-
-impl std::error::Error for EventIdError {}
 
 impl FromStr for EventId {
     type Err = EventIdError;
@@ -375,14 +396,19 @@ impl TryFrom<Path> for EventId {
                 }
             }
             EventKind::SingleOccurrence => (),
-            EventKind::Predicate { inner, kind } => match kind {
-                PredicateKind::Eq(value) => {
-                    let id = EventId::from_path_and_kind(path.to_path(), *inner);
-                    if let Err(e) = Outcome::try_from_id_and_outcome(id, &value) {
-                        return Err(EventIdError::PredicateInvalidOutcome(e));
+            EventKind::Predicate { inner, kind } => {
+                match kind {
+                    PredicateKind::Eq(value) => {
+                        let id = EventId::from_path_and_kind(path.to_path(), *inner);
+                        if let Err(e) = Outcome::try_from_id_and_outcome(id, &value) {
+                            return Err(EventIdError::Kind(
+                                EventKindError::PredEqToInvalidOutcome(e),
+                            ));
+                        }
                     }
+                    PredicateKind::Bound(..) => { /* validity was checked in kind parsing */ }
                 }
-            },
+            }
             _ => { /*everything is fine */ }
         };
 
@@ -562,6 +588,9 @@ mod test {
         assert!(EventId::from_str("/foo/bar.price?n=5").is_ok());
         assert!(EventId::from_str("/foo/bar.price?n=65").is_err());
         assert!(EventId::from_str("/foo/bar.price?n=0").is_err());
+        assert!(EventId::from_str("/foo/bar.price＞5").is_ok());
+        assert!(EventId::from_str("/foo/bar.winner＞5").is_err());
+        assert!(EventId::from_str("/foo/bar.price＞foo").is_err());
     }
 
     #[test]
@@ -625,6 +654,30 @@ mod test {
                 .unwrap()
                 .short_id(),
             "FOO_BAR.winner"
+        );
+    }
+
+    #[test]
+    fn predicate_outcome_eq() {
+        assert_eq!(
+            PredicateKind::Eq("Foo_win".into()).predicate_outcome("Foo_win"),
+            true as u64
+        );
+        assert_eq!(
+            PredicateKind::Eq("Foo_win".into()).predicate_outcome("Bar_win"),
+            false as u64
+        );
+        assert_eq!(
+            PredicateKind::Bound(BoundKind::Gt, 10).predicate_outcome("11"),
+            true as u64
+        );
+        assert_eq!(
+            PredicateKind::Bound(BoundKind::Gt, 10).predicate_outcome("10"),
+            false as u64
+        );
+        assert_eq!(
+            PredicateKind::Bound(BoundKind::Gt, 10).predicate_outcome("9"),
+            false as u64
         );
     }
 }

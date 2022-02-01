@@ -28,7 +28,11 @@ impl CompleteRelated {
             .filter_map(|related| match related.id.event_kind() {
                 // If we have the outcome for the event we also have it for the predicated event.
                 EventKind::Predicate { inner, kind } if *inner == outcome_event_kind => {
-                    Some(kind.apply_to_outcome(outcome))
+                    let outcome_value = kind.predicate_outcome(&outcome.outcome_string());
+                    Some(Outcome {
+                        id: related.id,
+                        value: outcome_value,
+                    })
                 }
                 // If we have a price outcome we don't care about nonces
                 EventKind::Price { n_digits: _ }

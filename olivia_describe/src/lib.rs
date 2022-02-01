@@ -186,7 +186,7 @@ pub fn event_id_short(event_id: &EventId) -> String {
             },
         ) => {
             format!(
-                "price of {} on {} at {}",
+                "value of {} on {} at {}",
                 instrument.join(" "),
                 exchange,
                 time,
@@ -197,18 +197,25 @@ pub fn event_id_short(event_id: &EventId) -> String {
             EventKind::Price {
                 n_digits: _n_digits,
             },
-        ) => format!("price of {}", event_id.path()),
-        (
-            [..],
-            EventKind::Predicate {
-                inner,
-                kind: PredicateKind::Eq(value),
-            },
-        ) => {
+        ) => format!("value of {}", event_id.path()),
+        ([..], EventKind::Predicate { inner, kind }) => {
             let inner_id = event_id.replace_kind(*inner);
-            let outcome = Outcome::try_from_id_and_outcome(inner_id, &value)
-                .expect("this will be valid since predicate is valid");
-            format!("assertion that {}", crate::outcome(&outcome).positive,)
+            match kind {
+                PredicateKind::Eq(value) => {
+                    let outcome = Outcome::try_from_id_and_outcome(inner_id, &value)
+                        .expect("this will be valid since predicate is valid");
+                    format!("assertion that {}", crate::outcome(&outcome).positive,)
+                }
+                PredicateKind::Bound(bound_kind, bound) => match bound_kind {
+                    olivia_core::BoundKind::Gt => {
+                        format!(
+                            "assertion that the {} is greater than {}",
+                            event_id_short(&inner_id),
+                            bound
+                        )
+                    }
+                },
+            }
         }
     };
     desc
@@ -473,7 +480,15 @@ mod test {
     fn test_price_event_short() {
         assert_eq!(
             event_id_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00.price"),
-            Some("price of BXBT on BitMEX at 2021-10-05T5:00:00".into())
+            Some("value of BXBT on BitMEX at 2021-10-05T5:00:00".into())
         )
+    }
+
+    #[test]
+    fn test_bounded_price_event() {
+        assert_eq!(
+            event_id_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00.price＞10000"),
+            Some("assertion that the value of BXBT on BitMEX at 2021-10-05T5:00:00 is greater than 10000".into())
+        );
     }
 }

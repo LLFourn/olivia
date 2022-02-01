@@ -289,39 +289,7 @@ enum_try_from_int! {
 
 #[cfg(test)]
 mod test {
-    use crate::PredicateKind;
-
     use super::*;
-
-    #[test]
-    fn predicate_outcome() {
-        let outcome = Outcome {
-            id: EventId::from_str("/foo/bar/FOO_BAR.vs").unwrap(),
-            value: WinOrDraw::Draw as u64,
-        };
-        assert_eq!(
-            PredicateKind::Eq("FOO_win".into()).apply_to_outcome(&outcome),
-            Outcome {
-                id: EventId::from_str("/foo/bar/FOO_BAR.vs=FOO_win").unwrap(),
-                value: false as u64
-            }
-        );
-
-        assert_eq!(
-            PredicateKind::Eq("BAR_win".into()).apply_to_outcome(&outcome),
-            Outcome {
-                id: EventId::from_str("/foo/bar/FOO_BAR.vs=BAR_win").unwrap(),
-                value: false as u64
-            }
-        );
-        assert_eq!(
-            PredicateKind::Eq("draw".into()).apply_to_outcome(&outcome),
-            Outcome {
-                id: EventId::from_str("/foo/bar/FOO_BAR.vs=draw").unwrap(),
-                value: true as u64
-            }
-        );
-    }
 
     #[test]
     fn price_attestation_indexes() {
