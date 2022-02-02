@@ -2,7 +2,7 @@
 name = "olivia"
 version = "0.1.0"
 authors = ["LLFourn <lloyd.fourn@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 warp = "0.3"

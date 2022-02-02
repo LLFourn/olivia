@@ -2,7 +2,7 @@
 name = "olivia_secp256k1"
 version = "0.0.1"
 authors = [ "LLFourn <lloyd.fourn@gmail.com>" ]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 olivia_core = { path = "../olivia_core" }

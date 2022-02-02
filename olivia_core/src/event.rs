@@ -24,7 +24,7 @@ impl EventKind {
         match (self, rhs) {
             // we don't care about the number of digits
             (EventKind::Price { .. }, EventKind::Price { .. }) => true,
-            _ => self == rhs
+            _ => self == rhs,
         }
     }
 }
