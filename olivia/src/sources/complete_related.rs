@@ -27,8 +27,10 @@ impl CompleteRelated {
             .into_iter()
             .filter_map(|related| match related.id.event_kind() {
                 // If we have the outcome for the event we also have it for the predicated event.
-                EventKind::Predicate { inner, kind } if *inner == outcome_event_kind => {
-                    let outcome_value = kind.predicate_outcome(&outcome.outcome_string());
+                EventKind::Predicate { inner, predicate }
+                    if inner.eq_fuzzy(&outcome_event_kind) =>
+                {
+                    let outcome_value = predicate.predicate_outcome(&outcome.outcome_string());
                     Some(Outcome {
                         id: related.id,
                         value: outcome_value,

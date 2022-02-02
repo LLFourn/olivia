@@ -188,8 +188,7 @@ pub trait OutcomeCreator {
 
 pub struct RandomOutcomeCreator {
     pub seed: Seed,
-    pub start: u64,
-    pub end: Option<u64>,
+    pub max: Option<u64>,
 }
 
 impl OutcomeCreator for RandomOutcomeCreator {
@@ -200,8 +199,8 @@ impl OutcomeCreator for RandomOutcomeCreator {
         chacha_bytes.copy_from_slice(&event_randomness.as_ref()[..32]);
         let mut rng = chacha20::ChaCha20Rng::from_seed(chacha_bytes);
         let n_outcomes = id.n_outcomes();
-        let end = self.end.unwrap_or(n_outcomes).min(n_outcomes);
-        rng.gen_range(self.start..end)
+        let max = self.max.unwrap_or(n_outcomes).min(n_outcomes);
+        rng.gen_range(0..max)
     }
 }
 
@@ -222,8 +221,7 @@ mod test {
     fn random_outcome_creator() {
         let random_outcome_creator = RandomOutcomeCreator {
             seed: Seed::new([42u8; 64]),
-            start: 0,
-            end: None,
+            max: None,
         };
         let random_outcomes = (0..10)
             .map(|i| {

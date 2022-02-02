@@ -1,4 +1,4 @@
-use crate::{seed::Seed, sources::predicates::OutcomeFilter};
+use crate::{seed::Seed, sources::predicate::OutcomeFilter};
 use olivia_core::{chrono::NaiveDateTime, EventKind, Path};
 use redis::IntoConnectionInfo;
 use std::{collections::HashMap, str::FromStr};
@@ -94,8 +94,7 @@ pub enum OutcomeSource {
         event_kind: Option<EventKind>,
         #[serde(default)]
         /// inclusive start of the range to
-        start: u64,
-        end: Option<u64>,
+        max: Option<u64>,
     },
     #[serde(rename_all = "kebab-case")]
     /// Always answer Zero
@@ -118,10 +117,18 @@ pub struct OutcomeSourceConfig {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(tag = "type")]
-pub enum PredicateConfig {
+pub struct PredicateConfig {
+    #[serde(rename = "type")]
+    kind: PredicateKind,
+    filter: OutcomeFilter,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub enum PredicateKind {
     #[serde(rename = "=")]
-    Eq { filter: OutcomeFilter },
+    Eq,
+    #[serde(rename = "_")]
+    Gt,
 }
 
 #[derive(Deserialize, Debug, Clone)]

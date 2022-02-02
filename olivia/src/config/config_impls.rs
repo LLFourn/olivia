@@ -203,9 +203,10 @@ impl EventSourceConfig {
 
         if let Some(predicate) = self.predicate.clone() {
             match predicate {
-                PredicateConfig::Eq { filter } => {
-                    let pred = sources::predicates::Eq {
+                PredicateConfig { kind, filter } => {
+                    let pred = sources::predicate::Predicate {
                         outcome_filter: filter,
+                        predicate_kind: kind.into(),
                     };
                     Ok(Box::pin(async_stream::stream! {
                         loop {
@@ -283,15 +284,14 @@ impl OutcomeSourceConfig {
             Random {
                 ends_with,
                 event_kind,
-                start,
-                end,
+                max,
             } => Box::pin(
                 TimeOutcomeStream {
                     db: db.clone(),
                     logger: logger.new(o!("source_type" => "random")),
                     ends_with,
                     event_kind,
-                    outcome_creator: RandomOutcomeCreator { seed, start, end },
+                    outcome_creator: RandomOutcomeCreator { seed, max },
                 }
                 .start(),
             ),
@@ -369,6 +369,15 @@ impl DbConfig {
         match self {
             DbConfig::InMemory => Ok(Arc::new(IN_MEMORY.clone())),
             DbConfig::Postgres { url } => Ok(Arc::new(PgBackendWrite::connect(url).await?)),
+        }
+    }
+}
+
+impl From<PredicateKind> for olivia_core::PredicateKind {
+    fn from(from: PredicateKind) -> Self {
+        match from {
+            PredicateKind::Eq => olivia_core::PredicateKind::Eq,
+            PredicateKind::Gt => olivia_core::PredicateKind::Bound(olivia_core::BoundKind::Gt),
         }
     }
 }

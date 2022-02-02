@@ -8,7 +8,7 @@ pub enum EventKind {
     SingleOccurrence,
     Predicate {
         inner: Box<EventKind>,
-        kind: PredicateKind,
+        predicate: Predicate,
     },
     Price {
         /// the number of nonces the oracle will use if using nonce based attestation.
@@ -17,22 +17,40 @@ pub enum EventKind {
     },
 }
 
+impl EventKind {
+    /// Is this one close enough to the other one so that if you know the outcome of one of them you
+    /// know the outcome of the other.
+    pub fn eq_fuzzy(&self, rhs: &EventKind) -> bool {
+        match (self, rhs) {
+            // we don't care about the number of digits
+            (EventKind::Price { .. }, EventKind::Price { .. }) => true,
+            _ => self == rhs
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum PredicateKind {
+pub enum Predicate {
     Eq(String),
     Bound(BoundKind, u64),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PredicateKind {
+    Eq,
+    Bound(BoundKind),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BoundKind {
     Gt,
 }
 
-impl PredicateKind {
+impl Predicate {
     pub fn predicate_outcome(&self, outcome: &str) -> u64 {
         match self {
-            PredicateKind::Eq(target) => (outcome == *target) as u64,
-            PredicateKind::Bound(bound_kind, target) => {
+            Predicate::Eq(target) => (outcome == *target) as u64,
+            Predicate::Bound(bound_kind, target) => {
                 let value = outcome
                     .parse::<u64>()
                     .expect("can't get predicate outcome for outcome that wasn't numeric");
@@ -83,14 +101,17 @@ impl fmt::Display for EventKind {
                 VsMatchKind::WinOrDraw => write!(f, "vs"),
             },
             EventKind::SingleOccurrence => write!(f, "occur"),
-            EventKind::Predicate { inner, kind } => match kind {
-                PredicateKind::Eq(value) => write!(f, "{}={}", inner, value),
-                PredicateKind::Bound(bound_kind, bound) => write!(
+            EventKind::Predicate {
+                inner,
+                predicate: kind,
+            } => match kind {
+                Predicate::Eq(value) => write!(f, "{}={}", inner, value),
+                Predicate::Bound(bound_kind, bound) => write!(
                     f,
                     "{}{}{}",
                     inner,
                     match bound_kind {
-                        BoundKind::Gt => '＞',
+                        BoundKind::Gt => '_',
                     },
                     bound
                 ),
@@ -163,12 +184,12 @@ impl FromStr for EventKind {
                 let inner = Self::from_str(lhs)?;
                 EventKind::Predicate {
                     inner: Box::new(inner),
-                    kind: PredicateKind::Eq(rhs.into()),
+                    predicate: Predicate::Eq(rhs.into()),
                 }
             }
-            (pred, args) if pred.contains('＞') => {
+            (pred, args) if pred.contains('_') => {
                 check_no_args(args)?;
-                let (lhs, rhs) = pred.split_once('＞').expect("we checked this already");
+                let (lhs, rhs) = pred.split_once('_').expect("we checked this already");
                 let rhs = rhs
                     .parse()
                     .map_err(|_| EventKindError::PredBoundWithNonNumericRhs)?;
@@ -178,7 +199,7 @@ impl FromStr for EventKind {
                 }
                 EventKind::Predicate {
                     inner: Box::new(inner),
-                    kind: PredicateKind::Bound(BoundKind::Gt, rhs),
+                    predicate: Predicate::Bound(BoundKind::Gt, rhs),
                 }
             }
             _ => return Err(EventKindError::Unknown(event_kind.into())),
@@ -305,22 +326,33 @@ impl EventId {
         Self::from_path_and_kind(Path::from_dt(dt), EventKind::SingleOccurrence)
     }
 
-    pub fn predicate_eq(&self, value: u64) -> EventId {
-        let event_kind = self.event_kind();
-        let outcome_string = Outcome {
-            id: self.clone(),
-            value,
-        }
-        .outcome_string();
+    pub fn predicate(&self, predicate_kind: PredicateKind, value: u64) -> EventId {
+        let mut event_kind = self.event_kind();
 
         assert!(
             !matches!(event_kind, EventKind::Predicate { .. }),
             "you must not predicate a already predicated event"
         );
+        let predicate = match predicate_kind {
+            PredicateKind::Eq => {
+                let outcome_string = Outcome {
+                    id: self.clone(),
+                    value,
+                }
+                .outcome_string();
+                Predicate::Eq(outcome_string)
+            }
+            PredicateKind::Bound(bound) => Predicate::Bound(bound, value),
+        };
+
+        if let EventKind::Price { ref mut n_digits } = event_kind {
+            // The number of nonces is irrelevant to the predicate so set it to 0
+            *n_digits = 0;
+        }
 
         self.replace_kind(EventKind::Predicate {
             inner: Box::new(event_kind),
-            kind: PredicateKind::Eq(outcome_string),
+            predicate,
         })
     }
 
@@ -396,9 +428,12 @@ impl TryFrom<Path> for EventId {
                 }
             }
             EventKind::SingleOccurrence => (),
-            EventKind::Predicate { inner, kind } => {
+            EventKind::Predicate {
+                inner,
+                predicate: kind,
+            } => {
                 match kind {
-                    PredicateKind::Eq(value) => {
+                    Predicate::Eq(value) => {
                         let id = EventId::from_path_and_kind(path.to_path(), *inner);
                         if let Err(e) = Outcome::try_from_id_and_outcome(id, &value) {
                             return Err(EventIdError::Kind(
@@ -406,7 +441,7 @@ impl TryFrom<Path> for EventId {
                             ));
                         }
                     }
-                    PredicateKind::Bound(..) => { /* validity was checked in kind parsing */ }
+                    Predicate::Bound(..) => { /* validity was checked in kind parsing */ }
                 }
             }
             _ => { /*everything is fine */ }
@@ -588,9 +623,11 @@ mod test {
         assert!(EventId::from_str("/foo/bar.price?n=5").is_ok());
         assert!(EventId::from_str("/foo/bar.price?n=65").is_err());
         assert!(EventId::from_str("/foo/bar.price?n=0").is_err());
-        assert!(EventId::from_str("/foo/bar.price＞5").is_ok());
-        assert!(EventId::from_str("/foo/bar.winner＞5").is_err());
-        assert!(EventId::from_str("/foo/bar.price＞foo").is_err());
+        assert!(EventId::from_str("/foo/bar.price_5").is_ok());
+        assert!(EventId::from_str("/foo/bar.price_5?n=20").is_err());
+        assert!(EventId::from_str("/foo/bar.price?n=20_5").is_err());
+        assert!(EventId::from_str("/foo/bar.winner_5").is_err());
+        assert!(EventId::from_str("/foo/bar.price_foo").is_err());
     }
 
     #[test]
@@ -660,23 +697,23 @@ mod test {
     #[test]
     fn predicate_outcome_eq() {
         assert_eq!(
-            PredicateKind::Eq("Foo_win".into()).predicate_outcome("Foo_win"),
+            Predicate::Eq("Foo_win".into()).predicate_outcome("Foo_win"),
             true as u64
         );
         assert_eq!(
-            PredicateKind::Eq("Foo_win".into()).predicate_outcome("Bar_win"),
+            Predicate::Eq("Foo_win".into()).predicate_outcome("Bar_win"),
             false as u64
         );
         assert_eq!(
-            PredicateKind::Bound(BoundKind::Gt, 10).predicate_outcome("11"),
+            Predicate::Bound(BoundKind::Gt, 10).predicate_outcome("11"),
             true as u64
         );
         assert_eq!(
-            PredicateKind::Bound(BoundKind::Gt, 10).predicate_outcome("10"),
+            Predicate::Bound(BoundKind::Gt, 10).predicate_outcome("10"),
             false as u64
         );
         assert_eq!(
-            PredicateKind::Bound(BoundKind::Gt, 10).predicate_outcome("9"),
+            Predicate::Bound(BoundKind::Gt, 10).predicate_outcome("9"),
             false as u64
         );
     }

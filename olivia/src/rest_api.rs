@@ -174,6 +174,13 @@ async fn get_path<C: Group>(
     }
 }
 
+async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, warp::Rejection> {
+    Ok(ApiReply::<()>::Err(
+        ErrorMessage::internal_server_error()
+            .with_message(format!("unable to recover from {:?}", err)),
+    ))
+}
+
 pub fn routes<C: Group>(
     db: Arc<dyn DbReadOracle<C>>,
     _logger: slog::Logger,
@@ -205,5 +212,9 @@ pub fn routes<C: Group>(
         .allow_methods(vec!["OPTIONS", "GET", "POST", "DELETE", "PUT"])
         .allow_headers(vec!["content-type"]);
 
-    root.or(event_with_query).or(event).or(path).with(cors)
+    root.or(event_with_query)
+        .or(event)
+        .or(path)
+        .with(cors)
+        .recover(handle_rejection)
 }

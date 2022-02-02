@@ -2,7 +2,7 @@
 extern crate alloc;
 use alloc::{string::String, vec::Vec};
 use core::str::FromStr;
-use olivia_core::{EventId, EventKind, Outcome, Path, PathRef, PredicateKind, VsMatchKind};
+use olivia_core::{EventId, EventKind, Outcome, Path, PathRef, Predicate, VsMatchKind};
 
 #[cfg(feature = "wasm-bindgen")]
 use wasm_bindgen::prelude::*;
@@ -198,15 +198,15 @@ pub fn event_id_short(event_id: &EventId) -> String {
                 n_digits: _n_digits,
             },
         ) => format!("value of {}", event_id.path()),
-        ([..], EventKind::Predicate { inner, kind }) => {
+        ([..], EventKind::Predicate { inner, predicate }) => {
             let inner_id = event_id.replace_kind(*inner);
-            match kind {
-                PredicateKind::Eq(value) => {
+            match predicate {
+                Predicate::Eq(value) => {
                     let outcome = Outcome::try_from_id_and_outcome(inner_id, &value)
                         .expect("this will be valid since predicate is valid");
                     format!("assertion that {}", crate::outcome(&outcome).positive,)
                 }
-                PredicateKind::Bound(bound_kind, bound) => match bound_kind {
+                Predicate::Bound(bound_kind, bound) => match bound_kind {
                     olivia_core::BoundKind::Gt => {
                         format!(
                             "assertion that the {} is greater than {}",
@@ -249,7 +249,7 @@ pub fn event_html(id: &EventId) -> Option<String> {
             })
 
         },
-        (_, EventKind::Predicate { inner, kind: PredicateKind::Eq(value) }) => {
+        (_, EventKind::Predicate { inner, predicate: Predicate::Eq(value) }) => {
             let inner_id = id.replace_kind(*inner);
             let outcome = Outcome::try_from_id_and_outcome(inner_id.clone (), &value)
                 .expect("this will be valid since predicate is valid");
@@ -331,7 +331,7 @@ pub fn outcome(outcome: &Outcome) -> OutcomeDesc {
             _,
             EventKind::Predicate {
                 inner,
-                kind: PredicateKind::Eq(value),
+                predicate: Predicate::Eq(value),
             },
         ) => {
             let inner_event_id = id.replace_kind(*inner);
@@ -487,7 +487,7 @@ mod test {
     #[test]
     fn test_bounded_price_event() {
         assert_eq!(
-            event_id_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00.price＞10000"),
+            event_id_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00.price_10000"),
             Some("assertion that the value of BXBT on BitMEX at 2021-10-05T5:00:00 is greater than 10000".into())
         );
     }

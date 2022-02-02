@@ -181,7 +181,7 @@ macro_rules! run_rest_api_tests {
                 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
                 /// https://url.spec.whatwg.org/#fragment-percent-encode-set
                 const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
-                let event_id = EventId::from_str("/test/one/two/three.price＞1000").unwrap();
+                let event_id = EventId::from_str("/test/one/two/three.price_1000").unwrap();
 
                 let percent_encoded = utf8_percent_encode(event_id.as_str(), FRAGMENT).to_string();
                 $oracle
