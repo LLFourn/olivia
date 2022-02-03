@@ -3,7 +3,7 @@
 export const memory: WebAssembly.Memory;
 export function path_short_str(a: number, b: number, c: number): void;
 export function path_html_str(a: number, b: number, c: number): void;
-export function event_id_short_str(a: number, b: number, c: number): void;
+export function event_short_str(a: number, b: number, c: number): void;
 export function event_html_str(a: number, b: number, c: number): void;
 export function outcome_str(a: number, b: number, c: number, d: number, e: number): void;
 export function long_path_name_str(a: number, b: number, c: number): void;

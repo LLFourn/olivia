@@ -2,7 +2,7 @@
 extern crate alloc;
 use alloc::{string::String, vec::Vec};
 use core::str::FromStr;
-use olivia_core::{EventId, EventKind, Outcome, Path, PathRef, Predicate, VsMatchKind};
+use olivia_core::{BoundKind, EventId, EventKind, Outcome, Path, PathRef, Predicate, VsMatchKind};
 
 #[cfg(feature = "wasm-bindgen")]
 use wasm_bindgen::prelude::*;
@@ -119,7 +119,23 @@ pub fn path_html_str(path: &str) -> Option<String> {
     let segments = path.as_path_ref().segments().collect::<Vec<_>>();
     let desc = match &segments[..] {
         ["random"] => include_str!("html/random.html").into(),
-        _ => return path_short(path.as_path_ref()).map(|s| s + "."),
+        ["x", exchange] => format!(
+            "Exchange rates and prices on <b>{}</b>",
+            exchange_link(exchange)
+        ),
+        ["x", exchange, instrument @ .., time] if DateTime::parse(time).is_some() => format!(
+            "<b>{}</b> on <b>{}</b> at <b>{}</b>",
+            instrument_link(exchange, instrument),
+            exchange_link(exchange),
+            time
+        ),
+        ["x", exchange, instrument @ ..] => format!(
+            "<b>{}</b> on <b>{}</b>",
+            instrument_link(exchange, instrument),
+            exchange_link(exchange)
+        ),
+
+        _ => return path_short(path.as_path_ref()),
     };
 
     Some(desc)
@@ -127,12 +143,12 @@ pub fn path_html_str(path: &str) -> Option<String> {
 
 #[cfg_attr(feature = "wasm-bindgen", wasm_bindgen)]
 #[rustfmt::skip]
-pub fn event_id_short_str(event_id: &str) -> Option<String> {
+pub fn event_short_str(event_id: &str) -> Option<String> {
     let event_id = EventId::from_str(event_id).ok()?;
-    Some(event_id_short(&event_id))
+    Some(event_short(&event_id))
 }
 
-pub fn event_id_short(event_id: &EventId) -> String {
+pub fn event_short(event_id: &EventId) -> String {
     // the concept here is that each  description should make sense if "the" is prefixed to it.
     let segments = event_id.path().segments().collect::<Vec<_>>();
     let kind = event_id.event_kind();
@@ -186,7 +202,7 @@ pub fn event_id_short(event_id: &EventId) -> String {
             },
         ) => {
             format!(
-                "value of {} on {} at {}",
+                "price of {} on {} at {}",
                 instrument.join(" "),
                 exchange,
                 time,
@@ -197,7 +213,7 @@ pub fn event_id_short(event_id: &EventId) -> String {
             EventKind::Price {
                 n_digits: _n_digits,
             },
-        ) => format!("value of {}", event_id.path()),
+        ) => format!("price of {}", event_id.path()),
         ([..], EventKind::Predicate { inner, predicate }) => {
             let inner_id = event_id.replace_kind(*inner);
             match predicate {
@@ -209,8 +225,8 @@ pub fn event_id_short(event_id: &EventId) -> String {
                 Predicate::Bound(bound_kind, bound) => match bound_kind {
                     olivia_core::BoundKind::Gt => {
                         format!(
-                            "assertion that the {} is greater than {}",
-                            event_id_short(&inner_id),
+                            "assertion that the {} will be greater than {}",
+                            event_short(&inner_id),
                             bound
                         )
                     }
@@ -231,7 +247,7 @@ pub fn event_html(id: &EventId) -> Option<String> {
     let segments = id.path().segments().collect::<Vec<_>>();
     let kind = id.event_kind();
     match (&segments[..], kind) {
-        (["random", datetime, ..], _) => Some(format!("This event has no real world meaning. The outcome will randomly be selected from the <b>{}</b> possibilities at <b>{}</b>.", id.n_outcomes(), datetime)),
+        (["random", datetime, ..], _) => Some(format!("This event has no real world meaning. The outcome will randomly be selected from the <b>{}</b> possibilities at <b>{}</b>", id.n_outcomes(), datetime)),
         (["s", competition, "match", date, _], EventKind::VsMatch(vs_kind)) => {
             let (left,right) = id.parties()?;
             let left_long = lookup_team(competition, left);
@@ -242,27 +258,38 @@ pub fn event_html(id: &EventId) -> Option<String> {
                 VsMatchKind::WinOrDraw => format!("{} match {} vs {} on {}.",competition, left_long, right_long,  date) +
                     &format!(" If {} wins the oracle will attest {}.", left_long, Houtcome(Outcome { value: 0, id: id.clone() })) +
                     &format!(" If {} wins the oracle will attest {}.", right_long, Houtcome(Outcome { value: 1, id: id.clone() })) +
-                    &format!(" Otherwise the oracle will attest {}.", Houtcome(Outcome { value: 2, id: id.clone() })),
+                    &format!(" Otherwise the oracle will attest {}", Houtcome(Outcome { value: 2, id: id.clone() })),
                 VsMatchKind::Win => format!("The winner of {} match {} vs {} on {}.", competition, left_long, right_long, date) +
                     &format!("If {} wins then the oracle will attest {}.", left_long, Houtcome(Outcome { value: 0, id: id.clone() })) +
-                    &format!("If {} wins then the oracle will attest {}.", right_long, Houtcome(Outcome { value: 1, id: id.clone() }))
+                    &format!("If {} wins then the oracle will attest {}", right_long, Houtcome(Outcome { value: 1, id: id.clone() }))
             })
 
         },
-        (_, EventKind::Predicate { inner, predicate: Predicate::Eq(value) }) => {
-            let inner_id = id.replace_kind(*inner);
-            let outcome = Outcome::try_from_id_and_outcome(inner_id.clone (), &value)
-                .expect("this will be valid since predicate is valid");
+        (["x", exchange, instrument @ .., time], EventKind::Price { .. }) => {
             Some(
-                format!("whether {}.", crate::outcome(&outcome).positive) +
-                    &format!("The oracle will attest to {} if the outcome of {} is {}. Otherwise {}.",
-                             Houtcome(Outcome { id: id.clone(), value: true as u64 }),
-                             Heventid(inner_id),
-                             Houtcome(outcome),
-                             Houtcome(Outcome { id: id.clone(), value: false as u64 }))
-            )
+                format!("price of <b>{}</b> on <b>{}</b> at <b>{}</b>", instrument_link(exchange, instrument), exchange_link(exchange), time)
+             )
+        }
+        (_, EventKind::Predicate { inner, predicate }) => {
+            let inner_id = id.replace_kind(*inner);
+
+            Some(match predicate {
+                Predicate::Eq(value) => {
+                    let outcome = Outcome::try_from_id_and_outcome(inner_id.clone(), &value)
+                        .expect("this will be valid since predicate is valid");
+                    format!("Whether {}.", crate::outcome(&outcome).positive) +
+                        &format!("The oracle will attest to {} if the outcome of {} is {}. Otherwise {}",
+                                 Houtcome(Outcome { id: id.clone(), value: true as u64 }),
+                                 Heventid(inner_id),
+                                 Houtcome(outcome),
+                                 Houtcome(Outcome { id: id.clone(), value: false as u64 }))
+                }
+                Predicate::Bound(BoundKind::Gt, bound) => {
+                    format!("Whether the {} is greater than <b>{}</b>", event_html(&inner_id).unwrap_or(event_short(&inner_id)), bound)
+                }
+            })
         },
-        _ => Some(event_id_short(&id) +  ".")
+        _ => Some(event_short(&id) +  ".")
     }
 }
 
@@ -271,10 +298,14 @@ pub struct OutcomeDesc {
     pub negative: String,
 }
 impl OutcomeDesc {
-    pub fn negate(self) -> Self {
-        Self {
-            positive: self.negative,
-            negative: self.positive,
+    pub fn maybe_negate(self, negate: bool) -> Self {
+        if negate {
+            Self {
+                positive: self.negative,
+                negative: self.positive,
+            }
+        } else {
+            self
         }
     }
 }
@@ -327,31 +358,42 @@ pub fn outcome(outcome: &Outcome) -> OutcomeDesc {
                 ),
             }
         }
-        (
-            _,
-            EventKind::Predicate {
-                inner,
-                predicate: Predicate::Eq(value),
-            },
-        ) => {
+        (_, EventKind::Price { .. }) => OutcomeDesc {
+            positive: format!("the price of {} is {}", event_short(id), outcome_str),
+            negative: format!("the price of {} is not {}", event_short(id), outcome_str),
+        },
+        (_, EventKind::Predicate { inner, predicate }) => {
             let inner_event_id = id.replace_kind(*inner);
-            let inner_outcome = Outcome::try_from_id_and_outcome(inner_event_id, &value)
-                .expect("predicate is valid");
-            if outcome_str == "true" {
-                crate::outcome(&inner_outcome)
-            } else {
-                crate::outcome(&inner_outcome).negate()
+            match predicate {
+                Predicate::Eq(value) => {
+                    let inner_outcome = Outcome::try_from_id_and_outcome(inner_event_id, &value)
+                        .expect("predicate is valid");
+                    crate::outcome(&inner_outcome).maybe_negate(outcome_str == "false")
+                }
+                Predicate::Bound(BoundKind::Gt, upper_bound) => OutcomeDesc {
+                    positive: format!(
+                        "the {} is above {}",
+                        event_short(&inner_event_id),
+                        upper_bound
+                    ),
+                    negative: format!(
+                        "the {} is not above {}",
+                        event_short(&inner_event_id),
+                        upper_bound
+                    ),
+                }
+                .maybe_negate(outcome_str == "false"),
             }
         }
         _ => OutcomeDesc {
             positive: format!(
                 "the {} is \"{}\"",
-                event_id_short(id),
+                event_short(id),
                 outcome.outcome_string()
             ),
             negative: format!(
                 "the {} is not \"{}\"",
-                event_id_short(id),
+                event_short(id),
                 outcome.outcome_string()
             ),
         },
@@ -421,6 +463,36 @@ fn lookup_team<'a>(competition: &str, name: &'a str) -> &'a str {
     }
 }
 
+fn exchange_url(exchange: &str) -> Option<&'static str> {
+    Some(match exchange {
+        "BitMEX" => "https://bitmex.com",
+        "Binance" => "https://binance.com",
+        "FTX" => "https://ftx.com",
+        _ => return None,
+    })
+}
+
+fn exchange_link(exchange: &str) -> String {
+    match exchange_url(exchange) {
+        Some(url) => format!(r#"<a href="{}">{}</a>"#, url, exchange),
+        _ => exchange.to_string(),
+    }
+}
+
+fn instrument_url(exchange: &str, instrument: &[&str]) -> Option<&'static str> {
+    Some(match (exchange, instrument) {
+        ("BitMEX", ["BXBT"]) => "https://www.bitmex.com/app/index/.BXBT",
+        _ => return None,
+    })
+}
+
+fn instrument_link(exchange: &str, instrument: &[&str]) -> String {
+    match instrument_url(exchange, instrument) {
+        Some(url) => format!(r#"<a href="{}">{}</a>"#, url, instrument.join("/")),
+        _ => instrument.join("/").to_string(),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -479,16 +551,21 @@ mod test {
     #[test]
     fn test_price_event_short() {
         assert_eq!(
-            event_id_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00.price"),
-            Some("value of BXBT on BitMEX at 2021-10-05T5:00:00".into())
-        )
+            event_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00.price"),
+            Some("price of BXBT on BitMEX at 2021-10-05T5:00:00".into())
+        );
+
+        assert_eq!(
+            event_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00.price?n=20"),
+            Some("price of BXBT on BitMEX at 2021-10-05T5:00:00".into())
+        );
     }
 
     #[test]
     fn test_bounded_price_event() {
         assert_eq!(
-            event_id_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00.price_10000"),
-            Some("assertion that the value of BXBT on BitMEX at 2021-10-05T5:00:00 is greater than 10000".into())
+            event_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00.price_10000"),
+            Some("assertion that the price of BXBT on BitMEX at 2021-10-05T5:00:00 is greater than 10000".into())
         );
     }
 }

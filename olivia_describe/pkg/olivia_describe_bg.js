@@ -132,12 +132,12 @@ export function path_html_str(path) {
 * @param {string} event_id
 * @returns {string | undefined}
 */
-export function event_id_short_str(event_id) {
+export function event_short_str(event_id) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         var ptr0 = passStringToWasm0(event_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         var len0 = WASM_VECTOR_LEN;
-        wasm.event_id_short_str(retptr, ptr0, len0);
+        wasm.event_short_str(retptr, ptr0, len0);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
         var r1 = getInt32Memory0()[retptr / 4 + 1];
         let v1;
