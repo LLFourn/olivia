@@ -1,11 +1,16 @@
 use super::NodeKind;
 use crate::db::*;
 use async_trait::async_trait;
+use olivia_core::Path;
 use olivia_core::{
-    attest, AnnouncedEvent, Attestation, AttestationSchemes, Child, ChildDesc, Event, EventId,
-    Group, OracleKeys, PathRef, PrefixPath, RawAnnouncement, RawOracleEvent,
+    attest, chrono::NaiveDate, AnnouncedEvent, Attestation, AttestationSchemes, Child, ChildDesc,
+    Event, EventId, Group, OracleKeys, PathRef, PrefixPath, RawAnnouncement, RawOracleEvent,
 };
-use std::iter::once;
+use std::{
+    collections::{BTreeMap, HashSet},
+    iter::once,
+    str::FromStr,
+};
 use tokio::sync::RwLock;
 use tokio_postgres::{types::*, NoTls, Transaction};
 
@@ -202,22 +207,16 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
             .query_opt(r#"SELECT kind FROM tree WHERE id = $1"#, &[&path.as_str()])
             .await?;
 
-        let trim = |x: String| {
-            x.strip_prefix(path.as_str())
-                .unwrap()
-                .trim_start_matches('/')
-                .to_string()
-        };
-
         let child_desc = match row {
             None => return Ok(None),
             Some(row) => {
                 let kind = row
                     .get::<_, Option<_>>("kind")
                     .map(serde_json::from_value)
-                    .transpose()?;
+                    .transpose()?
+                    .unwrap_or_else(|| olivia_describe::infer_node_kind(path));
                 match kind {
-                    None | Some(NodeKind::List) => {
+                    NodeKind::List => {
                         let rows = self
                             .query(
                                 r"SELECT id, kind FROM tree WHERE parent = $1 LIMIT 100",
@@ -227,17 +226,29 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
                         ChildDesc::List {
                             list: rows
                                 .into_iter()
-                                .map(|row| Child {
-                                    name: trim(row.get("id")),
-                                    kind: row
-                                        .get::<_, Option<_>>("kind")
-                                        .map(|json| serde_json::from_value(json).unwrap())
-                                        .unwrap_or(NodeKind::List),
+                                .map(|row| {
+                                    let id = row.get::<_, Path>("id");
+                                    let name = id
+                                        .clone()
+                                        .strip_prefix_path(path)
+                                        .as_path_ref()
+                                        .first()
+                                        .unwrap()
+                                        .to_string();
+                                    Child {
+                                        name,
+                                        kind: row
+                                            .get::<_, Option<_>>("kind")
+                                            .map(|json| serde_json::from_value(json).unwrap())
+                                            .unwrap_or_else(|| {
+                                                olivia_describe::infer_node_kind(id.as_path_ref())
+                                            }),
+                                    }
                                 })
                                 .collect(),
                         }
                     }
-                    Some(NodeKind::Range { range_kind }) => {
+                    NodeKind::Range { range_kind } => {
                         let next_unattested = {
                             let next_event = self
                                 .query_event(EventQuery {
@@ -273,7 +284,14 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
 
                         let mut min_max_children = rows
                             .into_iter()
-                            .map(|row| trim(row.get("id")))
+                            .map(|row| {
+                                row.get::<_, Path>("id")
+                                    .strip_prefix_path(path)
+                                    .as_path_ref()
+                                    .first()
+                                    .unwrap()
+                                    .to_string()
+                            })
                             .collect::<Vec<_>>();
 
                         let end = min_max_children.pop();
@@ -285,6 +303,37 @@ impl crate::db::DbReadEvent for tokio_postgres::Client {
                             next_unattested,
                             end,
                         }
+                    }
+                    NodeKind::DateMap => {
+                        let rows = self
+                            .query(
+                                r#"SELECT event.id FROM event
+                                 WHERE $1 @> path
+                            "#,
+                                &[&Ltree::from(path)],
+                            )
+                            .await?;
+
+                        let mut dates = BTreeMap::<NaiveDate, HashSet<String>>::new();
+
+                        for row in rows {
+                            let event_id = row.get::<_, EventId>("id").strip_prefix_path(path);
+                            let mut segments = event_id.path().segments();
+                            if let (Some(date), Some(next)) = (segments.next(), segments.next()) {
+                                if let Ok(date) = NaiveDate::from_str(date) {
+                                    dates
+                                        .entry(date)
+                                        .and_modify(|list| {
+                                            list.insert(next.to_string());
+                                        })
+                                        .or_insert_with(move || {
+                                            vec![next.to_string()].into_iter().collect()
+                                        });
+                                }
+                            }
+                        }
+
+                        ChildDesc::DateMap { dates }
                     }
                 }
             }

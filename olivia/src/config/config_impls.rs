@@ -199,6 +199,9 @@ impl EventSourceConfig {
                     .start(),
                 )
             }
+            EventSource::Init { events } => {
+                Box::pin(tokio_stream::iter(events.into_iter().map(Update::new)))
+            }
         };
 
         if let Some(predicate) = self.predicate.clone() {

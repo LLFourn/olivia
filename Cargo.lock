@@ -852,6 +852,7 @@ dependencies = [
  "generic-array",
  "lazy_static",
  "olivia_core",
+ "olivia_describe",
  "olivia_secp256k1",
  "percent-encoding",
  "rand",

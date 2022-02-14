@@ -137,9 +137,15 @@ pub async fn get_root<C: Group>(db: Arc<dyn DbReadOracle<C>>) -> ApiReply<RootRe
                     child_desc: node.child_desc,
                 },
             }),
-            Err(_) | Ok(None) => ApiReply::Err(ErrorMessage::internal_server_error()),
+            Err(_) | Ok(None) => ApiReply::Err(
+                ErrorMessage::internal_server_error()
+                    .with_message("root node could not be read from the database"),
+            ),
         },
-        Err(_) | Ok(None) => ApiReply::Err(ErrorMessage::internal_server_error()),
+        Err(_) | Ok(None) => ApiReply::Err(
+            ErrorMessage::internal_server_error()
+                .with_message("oracle public keys could not be retrieved from the database"),
+        ),
     }
 }
 

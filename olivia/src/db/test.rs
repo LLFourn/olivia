@@ -255,6 +255,55 @@ macro_rules! run_node_db_tests {
                     _ => panic!("set_node didn't work"),
                 }
             }
+
+            #[tokio::test]
+            async fn datemap() {
+                $($init)*;
+                use olivia_core::chrono::NaiveDate;
+                use std::collections::BTreeMap;
+
+                let event_ids = vec![
+                    EventId::from_str("/test/2020-03-30/foo_bar.vs").unwrap(),
+                    EventId::from_str("/test/2020-04-01/baz_faz.vs").unwrap(),
+                    EventId::from_str("/test/2020-03-30/baz_faz.vs").unwrap(),
+                ];
+
+                let events = event_ids
+                    .into_iter()
+                    .map(|id| AnnouncedEvent::test_unattested_instance(Event::from(id)))
+                    .collect::<Vec<_>>();
+                for event in events {
+                    $db.insert_event(event).await.unwrap();
+                }
+
+                $db.set_node(Node {
+                    path: Path::from_str("/test").unwrap(),
+                    kind: NodeKind::DateMap
+                }).await.unwrap();
+
+                let node = $db.get_node(path!("/test")).await.unwrap().unwrap();
+                let dates = {
+                    let mut dates = BTreeMap::new();
+                    dates.insert(NaiveDate::from_str("2020-03-30").unwrap(), vec!["foo_bar".to_string(), "baz_faz".to_string()].into_iter().collect());
+                    dates.insert(NaiveDate::from_str("2020-04-01").unwrap(), vec!["baz_faz".to_string()].into_iter().collect());
+                    dates
+                };
+                assert_eq!(node.child_desc, ChildDesc::DateMap { dates });
+            }
+
+            #[tokio::test]
+            async fn olivia_describe_defaults_apply() {
+                $($init)*;
+                let event_id = EventId::from_str("/s/test/match/2020-03-30/foo_bar.vs").unwrap();
+                $db.insert_event(AnnouncedEvent::test_unattested_instance(Event::from(event_id))).await.unwrap();
+
+                let match_node = $db.get_node(path!("/s/test/match")).await.unwrap().unwrap();
+                assert!(matches!(match_node.child_desc, ChildDesc::DateMap { .. }));
+
+                let test_node = $db.get_node(path!("/s/test")).await.unwrap().unwrap();
+                assert_eq!(test_node.child_desc, ChildDesc::List { list: vec![Child { name: "match".to_string(), kind: NodeKind::DateMap }] });
+            }
+
         }
     }
 }
@@ -268,6 +317,7 @@ macro_rules!  run_query_db_tests {
         mod query_db_test {
             use super::*;
             use olivia_core::{path, Child, ChildDesc, EventKind, Group, Path, PathRef, RangeKind, chrono::NaiveDateTime};
+            use crate::db::NodeKind;
             use std::str::FromStr;
 
             macro_rules! row {
@@ -290,8 +340,6 @@ macro_rules!  run_query_db_tests {
 
             #[tokio::test]
             async fn earliest_and_latest() {
-                use crate::db::NodeKind;
-                use olivia_core::{path, Child, ChildDesc, EventKind, Group, Path, PathRef, RangeKind};
                 $($init)*;
 
                 $db.insert_event({
@@ -339,6 +387,7 @@ macro_rules!  run_query_db_tests {
                 assert_eq!(earliest_event.id.as_str(), "/foo/bar/baz.occur");
                 assert_eq!(earliest_event, $db.query_event(EventQuery { order: Order::Earliest, ..Default::default() }).await.unwrap().unwrap())
             }
+
         }
 	};
 }

@@ -29,8 +29,6 @@ macro_rules! run_rest_api_tests {
                         .reply(&$routes)
                         .await;
 
-                    dbg!(&event_id, res.body());
-
                     let error = j::<ErrorMessage>(&res.body()).expect("returns an error body");
                     assert_eq!(
                         error.error,
@@ -52,7 +50,6 @@ macro_rules! run_rest_api_tests {
 
                 for path in &[format!("{}", node), format!("{}/", node)] {
                     let res = warp::test::request().path(path).reply(&$routes).await;
-                    dbg!(&path, &res.body());
 
                     assert_eq!(res.status(), 200);
                     let body = j::<GetPath>(&res.body()).unwrap();
@@ -200,8 +197,6 @@ macro_rules! run_rest_api_tests {
                     .path(&percent_encoded)
                     .reply(&$routes)
                     .await;
-
-                dbg!(&percent_encoded, res.body());
 
                 let body = j::<EventResponse<$curve>>(&res.body()).unwrap();
 

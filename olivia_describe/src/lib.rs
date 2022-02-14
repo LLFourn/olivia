@@ -2,7 +2,9 @@
 extern crate alloc;
 use alloc::{string::String, vec::Vec};
 use core::str::FromStr;
-use olivia_core::{BoundKind, EventId, EventKind, Outcome, Path, PathRef, Predicate, VsMatchKind};
+use olivia_core::{
+    BoundKind, EventId, EventKind, NodeKind, Outcome, Path, PathRef, Predicate, VsMatchKind,
+};
 
 #[cfg(feature = "wasm-bindgen")]
 use wasm_bindgen::prelude::*;
@@ -81,6 +83,7 @@ pub fn path_short(path: PathRef<'_>) -> Option<String> {
     let segments = path.segments().collect::<Vec<_>>();
     let desc = match &segments[..] {
         ["s"] => format!("sport and Esport competitions"),
+        ["s", competition] => lookup_competition(competition).to_string(),
         ["s", competition, "match", tail @ ..] => match tail {
             [] => format!("{} matches", lookup_competition(competition)),
             [date] => format!(
@@ -103,10 +106,10 @@ pub fn path_short(path: PathRef<'_>) -> Option<String> {
         ["random", time, ..] => format!("events whose outcome will be randomly chosen at {}", time),
         ["x"] => "exchange rates and prices".to_string(),
         ["x", exchange] => format!("exchange rates and prices on {}", exchange),
-        ["x", exchange, instrument @ .., time] if DateTime::parse(time).is_some() => {
-            format!("{} on {} at {}", instrument.join(" "), exchange, time)
+        ["x", exchange, instrument, time] if DateTime::parse(time).is_some() => {
+            format!("{} on {} at {}", instrument, exchange, time)
         }
-        ["x", exchange, instrument @ ..] => format!("{} on {}", instrument.join(" "), exchange),
+        ["x", exchange, instrument] => format!("{} on {}", instrument, exchange),
         _ => return None,
     };
 
@@ -123,13 +126,13 @@ pub fn path_html_str(path: &str) -> Option<String> {
             "Exchange rates and prices on <b>{}</b>",
             exchange_link(exchange)
         ),
-        ["x", exchange, instrument @ .., time] if DateTime::parse(time).is_some() => format!(
+        ["x", exchange, instrument, time] if DateTime::parse(time).is_some() => format!(
             "<b>{}</b> on <b>{}</b> at <b>{}</b>",
             instrument_link(exchange, instrument),
             exchange_link(exchange),
             time
         ),
-        ["x", exchange, instrument @ ..] => format!(
+        ["x", exchange, instrument] => format!(
             "<b>{}</b> on <b>{}</b>",
             instrument_link(exchange, instrument),
             exchange_link(exchange)
@@ -196,17 +199,12 @@ pub fn event_short(event_id: &EventId) -> String {
         ),
         (_, EventKind::SingleOccurrence) => format!("{} has transpired", event_id.path()),
         (
-            ["x", exchange, instrument @ .., time],
+            ["x", exchange, instrument, time],
             EventKind::Price {
                 n_digits: _n_digits,
             },
         ) => {
-            format!(
-                "price of {} on {} at {}",
-                instrument.join(" "),
-                exchange,
-                time,
-            )
+            format!("price of {} on {} at {}", instrument, exchange, time,)
         }
         (
             [..],
@@ -265,7 +263,7 @@ pub fn event_html(id: &EventId) -> Option<String> {
             })
 
         },
-        (["x", exchange, instrument @ .., time], EventKind::Price { .. }) => {
+        (["x", exchange, instrument, time], EventKind::Price { .. }) => {
             Some(
                 format!("price of <b>{}</b> on <b>{}</b> at <b>{}</b>", instrument_link(exchange, instrument), exchange_link(exchange), time)
              )
@@ -479,17 +477,25 @@ fn exchange_link(exchange: &str) -> String {
     }
 }
 
-fn instrument_url(exchange: &str, instrument: &[&str]) -> Option<&'static str> {
+fn instrument_url(exchange: &str, instrument: &str) -> Option<&'static str> {
     Some(match (exchange, instrument) {
-        ("BitMEX", ["BXBT"]) => "https://www.bitmex.com/app/index/.BXBT",
+        ("BitMEX", "BXBT") => "https://www.bitmex.com/app/index/.BXBT",
         _ => return None,
     })
 }
 
-fn instrument_link(exchange: &str, instrument: &[&str]) -> String {
+fn instrument_link(exchange: &str, instrument: &str) -> String {
     match instrument_url(exchange, instrument) {
-        Some(url) => format!(r#"<a href="{}">{}</a>"#, url, instrument.join("/")),
-        _ => instrument.join("/").to_string(),
+        Some(url) => format!(r#"<a href="{}">{}</a>"#, url, instrument),
+        _ => instrument.to_string(),
+    }
+}
+
+pub fn infer_node_kind(path: PathRef<'_>) -> NodeKind {
+    let segments = path.segments().collect::<Vec<_>>();
+    match &segments[..] {
+        ["s", _competition, "match"] => NodeKind::DateMap,
+        _ => NodeKind::List,
     }
 }
 

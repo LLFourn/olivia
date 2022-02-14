@@ -56,6 +56,10 @@ impl<'a> PathRef<'a> {
         iter
     }
 
+    pub fn first(self) -> Option<&'a str> {
+        self.segments().next()
+    }
+
     pub fn strip_event(self) -> Option<(PathRef<'a>, &'a str)> {
         self.0.rfind('/').and_then(|slash_at| {
             let last_segment = &self.0[slash_at + 1..];
@@ -141,8 +145,8 @@ impl Path {
         Path(format!("/{}", dt.format("%FT%T")))
     }
 
-    pub fn into_child(self, name: &str) -> Self {
-        Path(self.0 + "/" + name)
+    pub fn child(self, name: &str) -> Self {
+        Path(format!("/{}", name)).prefix_path(self.as_path_ref())
     }
 }
 
@@ -187,6 +191,43 @@ impl<'a> Default for PathRef<'a> {
         PathRef::root()
     }
 }
+
+
+#[cfg(feature = "postgres-types")]
+mod sql_impls {
+    use super::*;
+    use postgres_types::{private::BytesMut, *};
+    use std::{boxed::Box, error::Error};
+
+    impl<'a> FromSql<'a> for Path {
+        fn from_sql(ty: &Type, raw: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>> {
+            Path::from_str(FromSql::from_sql(ty, raw)?)
+                .map_err(|e| Box::new(e) as Box<dyn Error + Sync + Send>)
+        }
+
+        fn accepts(ty: &Type) -> bool {
+            <&str as postgres_types::FromSql>::accepts(ty)
+        }
+    }
+
+    impl ToSql for Path {
+        fn to_sql(
+            &self,
+            ty: &Type,
+            out: &mut BytesMut,
+        ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+            self.as_str().to_sql(ty, out)
+        }
+
+        fn accepts(ty: &Type) -> bool {
+            <&str as postgres_types::ToSql>::accepts(ty)
+        }
+
+        to_sql_checked!();
+    }
+}
+
+
 
 mod serde_impl {
     use super::*;

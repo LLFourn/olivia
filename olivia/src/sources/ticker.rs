@@ -80,7 +80,6 @@ impl TimeEventStream {
                             "Stopping emitting new time events as we got a DB error";
                             "error" => err.to_string()
                         );
-                        dbg!(err);
                         break;
                     }
                 };

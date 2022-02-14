@@ -2,12 +2,13 @@ use crate::db::*;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use olivia_core::{
-    AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, Group, OracleKeys, Path,
-    PrefixPath,
+    chrono::NaiveDate, AnnouncedEvent, Attestation, Child, ChildDesc, Event, EventId, Group,
+    OracleKeys, Path, PrefixPath,
 };
 use std::{
     cmp::Reverse,
-    collections::HashMap,
+    collections::{BTreeMap, HashMap, HashSet},
+    str::FromStr,
     sync::{Arc, RwLock},
 };
 
@@ -76,7 +77,7 @@ impl<C: Group> DbReadEvent for InMemory<C> {
         let node_kind = node_kinds
             .get(&path.to_path())
             .cloned()
-            .unwrap_or(NodeKind::List);
+            .unwrap_or_else(|| olivia_describe::infer_node_kind(path));
 
         let mut children_list = {
             db.keys()
@@ -85,13 +86,12 @@ impl<C: Group> DbReadEvent for InMemory<C> {
                     if path.is_parent_of(event_path) {
                         let child_path = event_path.to_path().strip_prefix_path(path);
                         let last = child_path.as_path_ref().segments().next()?;
-                        let full_path = Path::root().into_child(last).prefix_path(path);
+                        let full_path = Path::root().child(last).prefix_path(path);
                         Some(Child {
                             name: last.to_string(),
-                            kind: node_kinds
-                                .get(&full_path)
-                                .cloned()
-                                .unwrap_or(NodeKind::List),
+                            kind: node_kinds.get(&full_path).cloned().unwrap_or_else(|| {
+                                olivia_describe::infer_node_kind(full_path.as_path_ref())
+                            }),
                         })
                     } else {
                         None
@@ -130,6 +130,28 @@ impl<C: Group> DbReadEvent for InMemory<C> {
                     end: Some(children_list[children_list.len() - 1].name.clone()),
                 },
             },
+            NodeKind::DateMap => {
+                let mut dates: BTreeMap<NaiveDate, HashSet<String>> = BTreeMap::new();
+                for event_id in db.keys() {
+                    if event_id.path().as_str().starts_with(path.as_str()) {
+                        let event_id = event_id.clone().strip_prefix_path(path);
+                        let mut segments = event_id.path().segments();
+                        if let (Some(date), Some(next)) = (segments.next(), segments.next()) {
+                            if let Ok(date) = NaiveDate::from_str(date) {
+                                dates
+                                    .entry(date)
+                                    .and_modify(|list| {
+                                        list.insert(next.to_string());
+                                    })
+                                    .or_insert_with(move || {
+                                        vec![next.to_string()].into_iter().collect()
+                                    });
+                            }
+                        }
+                    }
+                }
+                ChildDesc::DateMap { dates }
+            }
         };
 
         if events.is_empty() && children_list.is_empty() {

@@ -1,5 +1,5 @@
 use crate::{seed::Seed, sources::predicate::OutcomeFilter};
-use olivia_core::{chrono::NaiveDateTime, EventKind, Path};
+use olivia_core::{chrono::NaiveDateTime, Event, EventKind, Path};
 use redis::IntoConnectionInfo;
 use std::{collections::HashMap, str::FromStr};
 
@@ -72,6 +72,9 @@ pub enum EventSource {
         event_kind: EventKind,
     },
     Redis(RedisConfig),
+    Init {
+        events: Vec<Event>,
+    },
 }
 
 #[derive(Deserialize, Debug, Clone)]

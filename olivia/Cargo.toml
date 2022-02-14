@@ -24,6 +24,7 @@ thiserror = "1.0"
 serde_yaml = "0.8"
 olivia_core = { path = "../olivia_core", features = ["postgres-types"] }
 olivia_secp256k1 = { path = "../olivia_secp256k1", features = ["postgres-types"] }
+olivia_describe = { path = "../olivia_describe" }
 generic-array = { version = "0.14", features = ["more_lengths"] }
 anyhow = "1"
 lazy_static = "1"
