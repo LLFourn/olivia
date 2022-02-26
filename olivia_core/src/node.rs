@@ -1,5 +1,5 @@
-use std::collections::{BTreeMap, HashSet};
 use crate::{EventKind, Path, PrefixPath};
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case", tag = "kind")]
@@ -17,7 +17,7 @@ pub enum ChildDesc {
     },
     DateMap {
         dates: BTreeMap<chrono::NaiveDate, HashSet<String>>,
-    }
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -49,7 +49,7 @@ pub enum NodeKind {
         #[serde(flatten)]
         range_kind: RangeKind,
     },
-    DateMap
+    DateMap,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]

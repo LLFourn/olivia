@@ -192,7 +192,6 @@ impl<'a> Default for PathRef<'a> {
     }
 }
 
-
 #[cfg(feature = "postgres-types")]
 mod sql_impls {
     use super::*;
@@ -226,8 +225,6 @@ mod sql_impls {
         to_sql_checked!();
     }
 }
-
-
 
 mod serde_impl {
     use super::*;
