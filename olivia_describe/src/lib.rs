@@ -571,7 +571,7 @@ mod test {
     fn test_bounded_price_event() {
         assert_eq!(
             event_short_str("/x/BitMEX/BXBT/2021-10-05T5:00:00.price_10000"),
-            Some("assertion that the price of BXBT on BitMEX at 2021-10-05T5:00:00 is greater than 10000".into())
+            Some("assertion that the price of BXBT on BitMEX at 2021-10-05T5:00:00 will be greater than 10000".into())
         );
     }
 }
