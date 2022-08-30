@@ -1,10 +1,9 @@
 use super::NodeKind;
 use crate::db::*;
 use async_trait::async_trait;
-use olivia_core::Path;
 use olivia_core::{
     attest, chrono::NaiveDate, AnnouncedEvent, Attestation, AttestationSchemes, Child, ChildDesc,
-    Event, EventId, Group, OracleKeys, PathRef, PrefixPath, RawAnnouncement, RawOracleEvent,
+    Event, EventId, Group, OracleKeys, Path, PathRef, PrefixPath, RawAnnouncement, RawOracleEvent,
 };
 use std::{
     collections::{BTreeMap, HashSet},
